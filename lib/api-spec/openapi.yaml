@@ -3,20 +3,28 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Happier AI Vault API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: threads
+    description: Conversation thread operations
+  - name: messages
+    description: Message operations
+  - name: settings
+    description: User settings
+  - name: stats
+    description: Stats and analytics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +32,263 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /threads:
+    get:
+      operationId: listThreads
+      tags: [threads]
+      summary: List all conversation threads
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: archived
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of threads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Thread"
+    post:
+      operationId: createThread
+      tags: [threads]
+      summary: Create a new thread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateThreadBody"
+      responses:
+        "201":
+          description: Created thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thread"
+
+  /threads/{threadId}:
+    get:
+      operationId: getThread
+      tags: [threads]
+      summary: Get a thread by ID
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thread"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateThread
+      tags: [threads]
+      summary: Update a thread (rename, archive, pin)
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateThreadBody"
+      responses:
+        "200":
+          description: Updated thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thread"
+    delete:
+      operationId: deleteThread
+      tags: [threads]
+      summary: Delete a thread
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /threads/{threadId}/messages:
+    get:
+      operationId: getThreadMessages
+      tags: [messages]
+      summary: Get all messages for a thread
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      operationId: sendMessage
+      tags: [messages]
+      summary: Send a message and get Grok AI response (SSE streaming)
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "200":
+          description: Saved user message (streaming handled via SSE at /api/threads/{threadId}/stream)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  /threads/{threadId}/stream:
+    post:
+      operationId: streamMessage
+      tags: [messages]
+      summary: Stream a Grok AI response for the latest user message (SSE)
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "200":
+          description: SSE stream of response tokens
+
+  /threads/{threadId}/import:
+    post:
+      operationId: importMessages
+      tags: [messages]
+      summary: Import a conversation into a thread (text or JSON)
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportMessagesBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /threads/{threadId}/export:
+    get:
+      operationId: exportThread
+      tags: [threads]
+      summary: Export thread as JSON or Markdown
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, markdown]
+            default: json
+      responses:
+        "200":
+          description: Exported thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResult"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get user settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update user settings (incl. Grok API key)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsBody"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: Get overall vault stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +299,198 @@ components:
       required:
         - status
 
+    Thread:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        title:
+          type: string
+        archived:
+          type: boolean
+        pinned:
+          type: boolean
+        model:
+          type: string
+        messageCount:
+          type: integer
+        lastMessageAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - title
+        - archived
+        - pinned
+        - model
+        - messageCount
+        - createdAt
+        - updatedAt
+
+    CreateThreadBody:
+      type: object
+      properties:
+        title:
+          type: string
+        model:
+          type: string
+      required:
+        - title
+
+    UpdateThreadBody:
+      type: object
+      properties:
+        title:
+          type: string
+        archived:
+          type: boolean
+        pinned:
+          type: boolean
+        model:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        threadId:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        isSummary:
+          type: boolean
+        tokenCount:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - threadId
+        - role
+        - content
+        - isSummary
+        - createdAt
+
+    SendMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    ImportMessagesBody:
+      type: object
+      properties:
+        raw:
+          type: string
+          description: Raw text or JSON string of the conversation
+        format:
+          type: string
+          enum: [auto, json, text]
+          default: auto
+      required:
+        - raw
+
+    ImportResult:
+      type: object
+      properties:
+        importedCount:
+          type: integer
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+      required:
+        - importedCount
+        - messages
+
+    ExportResult:
+      type: object
+      properties:
+        threadId:
+          type: integer
+        title:
+          type: string
+        format:
+          type: string
+        content:
+          type: string
+        exportedAt:
+          type: string
+      required:
+        - threadId
+        - title
+        - format
+        - content
+        - exportedAt
+
+    Settings:
+      type: object
+      properties:
+        userId:
+          type: string
+        hasApiKey:
+          type: boolean
+        defaultModel:
+          type: string
+        maxContextMessages:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - userId
+        - hasApiKey
+        - defaultModel
+        - maxContextMessages
+        - createdAt
+        - updatedAt
+
+    UpdateSettingsBody:
+      type: object
+      properties:
+        apiKey:
+          type: string
+        defaultModel:
+          type: string
+        maxContextMessages:
+          type: integer
+
+    VaultStats:
+      type: object
+      properties:
+        totalThreads:
+          type: integer
+        activeThreads:
+          type: integer
+        archivedThreads:
+          type: integer
+        totalMessages:
+          type: integer
+        userMessages:
+          type: integer
+        assistantMessages:
+          type: integer
+        oldestThreadAt:
+          type: ["string", "null"]
+        newestThreadAt:
+          type: ["string", "null"]
+      required:
+        - totalThreads
+        - activeThreads
+        - archivedThreads
+        - totalMessages
+        - userMessages
+        - assistantMessages

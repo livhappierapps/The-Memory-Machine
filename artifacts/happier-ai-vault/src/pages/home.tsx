@@ -8,19 +8,61 @@ export default function Home() {
         <Redirect to="/vault" />
       </Show>
       <Show when="signed-out">
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-          <div className="max-w-md text-center space-y-6">
-            <h1 className="text-4xl font-bold tracking-tight text-foreground">
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
+          {/* Subtle radial glow behind the card */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(ellipse 60% 45% at 50% 50%, hsl(174 85% 52% / 0.07) 0%, transparent 70%)",
+            }}
+          />
+
+          {/* Circuit art placeholder — user will drop their image here */}
+          <div id="circuit-art-slot" className="mb-8 w-full max-w-md flex justify-center" />
+
+          <div className="max-w-md text-center space-y-6 relative z-10">
+            <h1 className="text-5xl font-bold tracking-tight neon-text-pulse">
               Happier AI Vault
             </h1>
-            <p className="text-muted-foreground text-lg">
+            <p className="text-foreground/70 text-lg leading-relaxed">
               A permanent, secure archive for all your Grok conversations.
             </p>
-            <div className="flex gap-4 justify-center">
-              <Link href="/sign-in" className="bg-primary text-primary-foreground hover:bg-primary/90 px-6 py-2 rounded-md font-medium">
+
+            {/* Neon divider line */}
+            <div
+              className="mx-auto w-24 h-px"
+              style={{
+                background: "hsl(174 85% 52%)",
+                boxShadow:
+                  "0 0 6px hsl(174 85% 52% / 0.8), 0 0 16px hsl(174 85% 52% / 0.4)",
+              }}
+            />
+
+            <div className="flex gap-4 justify-center pt-2">
+              <Link
+                href="/sign-in"
+                className="relative px-7 py-2.5 rounded-md font-semibold text-sm transition-all duration-200"
+                style={{
+                  background: "hsl(174 85% 52%)",
+                  color: "hsl(240 30% 8%)",
+                  boxShadow:
+                    "0 0 10px hsl(174 85% 52% / 0.65), 0 0 24px hsl(174 85% 52% / 0.35), 0 0 48px hsl(174 85% 52% / 0.15)",
+                }}
+              >
                 Sign In
               </Link>
-              <Link href="/sign-up" className="bg-secondary text-secondary-foreground hover:bg-secondary/90 px-6 py-2 rounded-md font-medium">
+              <Link
+                href="/sign-up"
+                className="px-7 py-2.5 rounded-md font-semibold text-sm transition-all duration-200"
+                style={{
+                  background: "transparent",
+                  color: "hsl(174 85% 52%)",
+                  border: "1px solid hsl(174 85% 52% / 0.7)",
+                  boxShadow:
+                    "0 0 6px hsl(174 85% 52% / 0.3), 0 0 14px hsl(174 85% 52% / 0.15)",
+                }}
+              >
                 Sign Up
               </Link>
             </div>

@@ -32,7 +32,7 @@ export default function Settings() {
         <AppLayout>
           <div className="h-full overflow-auto p-8 lg:p-12 max-w-4xl mx-auto">
             <div className="mb-8 border-b border-border/50 pb-6">
-              <h1 className="text-3xl font-bold tracking-tight mb-2">Settings</h1>
+              <h1 className="text-3xl font-bold tracking-tight mb-2 neon-text">Settings</h1>
               <p className="text-muted-foreground">Manage your Grok API key and vault preferences.</p>
             </div>
             

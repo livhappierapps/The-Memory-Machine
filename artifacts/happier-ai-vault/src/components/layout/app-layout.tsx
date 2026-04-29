@@ -10,11 +10,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { signOut } = useClerk();
 
   return (
-    <div className="flex h-screen w-full bg-background text-foreground dark">
+    <div className="flex h-screen w-full bg-background text-foreground">
       {/* Mini vertical sidebar for global nav */}
-      <div className="w-14 shrink-0 border-r border-border/50 flex flex-col items-center py-4 bg-muted/20">
+      <div className="w-14 shrink-0 border-r border-border/50 flex flex-col items-center py-4 bg-sidebar neon-border" style={{ borderRightColor: "hsl(174 40% 28% / 0.5)" }}>
         <div className="mb-8">
-          <Link href="/vault" className="text-primary hover:text-primary/80 transition-colors">
+          <Link href="/vault" className="transition-colors neon-text" style={{ filter: "drop-shadow(0 0 6px hsl(174 85% 52% / 0.7))" }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="12" cy="12" r="3"/><path d="m12 9-1.5-1.5"/><path d="m12 15 1.5 1.5"/><path d="m15 12 1.5-1.5"/><path d="m9 12-1.5 1.5"/></svg>
           </Link>
         </div>

@@ -30,8 +30,8 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
       data: { title: "New Conversation" }
     }, {
       onSuccess: (thread) => {
-        queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey(), exact: false, refetchType: "all" });
+        queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey(), refetchType: "all" });
         onSelectThread(thread.id);
       }
     });

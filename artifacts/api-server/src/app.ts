@@ -42,6 +42,13 @@ app.use(
   })),
 );
 
+// Disable HTTP caching for all API responses so clients always get fresh data
+app.use("/api", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
+
 app.use("/api", router);
 
 export default app;

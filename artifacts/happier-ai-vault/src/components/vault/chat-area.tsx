@@ -3,7 +3,7 @@ import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Send, Settings2, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload } from "lucide-react";
+import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
 
-export function ChatArea({ threadId }: { threadId: number }) {
+export function ChatArea({ threadId, onBack }: { threadId: number; onBack?: () => void }) {
   const { data: thread, isLoading: threadLoading } = useGetThread(threadId, {
     query: { enabled: !!threadId, queryKey: getGetThreadQueryKey(threadId) }
   });
@@ -90,14 +90,28 @@ export function ChatArea({ threadId }: { threadId: number }) {
   return (
     <div className="flex-1 flex flex-col h-full bg-background/30 relative">
       {/* Header */}
-      <header className="h-16 px-6 border-b border-border/50 flex items-center justify-between shrink-0 bg-background/50 backdrop-blur-sm z-10">
-        <div>
-          <h2 className="font-semibold flex items-center gap-2">
-            {thread.title}
-            {thread.archived && <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground">Archived</span>}
-          </h2>
-          <div className="text-xs text-muted-foreground font-mono mt-0.5">
-            Model: {thread.model}
+      <header className="h-16 px-4 border-b border-border/50 flex items-center justify-between shrink-0 bg-background/50 backdrop-blur-sm z-10 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Back button — mobile only */}
+          {onBack && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden shrink-0 text-muted-foreground hover:text-foreground -ml-1"
+              onClick={onBack}
+              aria-label="Back to threads"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+          )}
+          <div className="min-w-0">
+            <h2 className="font-semibold flex items-center gap-2 truncate">
+              {thread.title}
+              {thread.archived && <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground shrink-0">Archived</span>}
+            </h2>
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">
+              Model: {thread.model}
+            </div>
           </div>
         </div>
 

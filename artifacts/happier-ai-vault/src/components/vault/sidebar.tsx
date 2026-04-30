@@ -38,7 +38,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
   };
 
   return (
-    <div className="w-80 flex flex-col h-full bg-card border-r border-border/50">
+    <div className="flex flex-col h-full w-full bg-card border-r border-border/50">
       <div className="p-4 border-b border-border/50 space-y-4">
         <div className="flex items-center gap-2">
           <Button 

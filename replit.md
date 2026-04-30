@@ -96,6 +96,23 @@ lib/
 | GET | /api/settings | Get user settings |
 | PUT | /api/settings | Update user settings |
 | GET | /api/stats | Get vault stats (thread/message counts) |
+| POST | /api/import/zip | Bulk import Grok ZIP archive — multipart upload, SSE progress stream |
+
+## Bulk ZIP Import
+
+`POST /api/import/zip` accepts a multipart form upload (field name: `file`, max 1 GB). It requires a Clerk `Authorization: Bearer <token>` header. It:
+
+1. Saves the file to `/tmp` via multer disk storage
+2. Opens the ZIP with JSZip and reads every `.json` file inside
+3. Parses conversations using a flexible parser that handles top-level arrays, `{conversations:[...]}` containers, mapping formats, and nested content (`.parts[]`)
+4. Streams SSE progress events back: `status`, `total`, `progress`, `done`, `error`
+5. Batch-inserts each conversation as a thread + messages into PostgreSQL
+6. Cleans up the temp file when done
+
+### Frontend (`BulkImportDialog`)
+
+Triggered by the folder-archive icon button in the sidebar. Supports drag-and-drop and file picker. Shows:
+- Drop zone → upload phase → live progress bar (X/Y conversations, last imported title) → done summary
 
 ## Grok Streaming
 

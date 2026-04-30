@@ -1,12 +1,13 @@
 import { useListThreads, useCreateThread, useGetStats, getListThreadsQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { Plus, Search, Archive, MessageSquare, Loader2, BarChart2 } from "lucide-react";
+import { Plus, Search, MessageSquare, Loader2, BarChart2, FolderArchive } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { BulkImportDialog } from "./bulk-import-dialog";
 
 interface SidebarProps {
   activeThreadId: number | null;
@@ -16,6 +17,7 @@ interface SidebarProps {
 export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   
   const { data: threads, isLoading } = useListThreads(
     { search: search || undefined, archived: showArchived },
@@ -49,8 +51,19 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
             {createThread.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
             New Vault
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0 bg-background/50 border-border/50"
+            title="Import Grok ZIP Archive"
+            onClick={() => setBulkImportOpen(true)}
+          >
+            <FolderArchive className="w-4 h-4" />
+          </Button>
           <StatsDialog />
         </div>
+
+        <BulkImportDialog open={bulkImportOpen} onOpenChange={setBulkImportOpen} />
         
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

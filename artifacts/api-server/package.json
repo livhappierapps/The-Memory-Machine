@@ -19,6 +19,8 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "http-proxy-middleware": "^3.0.5",
+    "jszip": "^3.10.1",
+    "multer": "^2.1.1",
     "pino": "^9",
     "pino-http": "^10"
   },
@@ -26,6 +28,8 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jszip": "^3.4.1",
+    "@types/multer": "^2.1.0",
     "@types/node": "catalog:",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",

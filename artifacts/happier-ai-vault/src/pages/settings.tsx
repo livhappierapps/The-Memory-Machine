@@ -19,7 +19,7 @@ import { useQueryClient } from "@tanstack/react-query";
 const settingsSchema = z.object({
   apiKey: z.string().optional(),
   defaultModel: z.string(),
-  maxContextMessages: z.number().min(1).max(50),
+  maxContextMessages: z.number().min(0).max(1000),
 });
 
 export default function Settings() {
@@ -55,8 +55,8 @@ function SettingsForm() {
     resolver: zodResolver(settingsSchema),
     defaultValues: {
       apiKey: "",
-      defaultModel: "grok-2-1212",
-      maxContextMessages: 10,
+      defaultModel: "grok-3",
+      maxContextMessages: 0,
     },
   });
 
@@ -176,19 +176,24 @@ function SettingsForm() {
               name="maxContextMessages"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Context Memory ({field.value} messages)</FormLabel>
+                  <FormLabel>
+                    Context Memory —{" "}
+                    <span className="neon-text font-semibold">
+                      {field.value === 0 ? "Full history (unlimited)" : `${field.value} messages`}
+                    </span>
+                  </FormLabel>
                   <FormControl>
                     <Slider
-                      min={1}
-                      max={50}
-                      step={1}
+                      min={0}
+                      max={1000}
+                      step={10}
                       value={[field.value]}
                       onValueChange={(vals) => field.onChange(vals[0])}
                       className="py-4"
                     />
                   </FormControl>
                   <FormDescription>
-                    How many previous messages to include as context for the AI.
+                    How many previous messages to send as context. Set to <strong>0</strong> for full history — Grok will see every message in the thread.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

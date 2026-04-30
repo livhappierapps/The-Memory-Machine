@@ -152,9 +152,12 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .where(eq(messagesTable.threadId, params.data.threadId))
       .orderBy(asc(messagesTable.createdAt));
 
-    // Build messages array for Grok API
+    // Build messages array for Grok API — respect maxContextMessages setting
+    // 0 (or unset) means send the full history
     const model = thread.model || settings?.defaultModel || "grok-3";
-    const grokMessages = history.map((m) => ({
+    const maxCtx = settings?.maxContextMessages ?? 0;
+    const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
+    const grokMessages = historyToSend.map((m) => ({
       role: m.role as "user" | "assistant" | "system",
       content: m.content,
     }));

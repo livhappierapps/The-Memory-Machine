@@ -320,6 +320,9 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     }
 
     // Text parsing if JSON didn't work
+    // Supports two formats:
+    //   1. Grok web copy-paste: "You" / "Grok" as standalone heading lines (no colon)
+    //   2. Inline prefix:  "You: message" / "Grok: message" (with colon)
     if (parsedMessages.length === 0 && (format === "text" || format === "auto")) {
       const lines = raw.split("\n");
       let currentRole: "user" | "assistant" | null = null;
@@ -327,26 +330,40 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
 
       const flushCurrent = () => {
         if (currentRole && currentContent.length > 0) {
-          parsedMessages.push({ role: currentRole, content: currentContent.join("\n").trim() });
+          const text = currentContent.join("\n").trim();
+          if (text) parsedMessages.push({ role: currentRole, content: text });
           currentContent = [];
         }
       };
 
+      // Patterns for standalone heading lines (Grok web format)
+      const USER_HEADING = /^(you|human|user)$/i;
+      const ASST_HEADING = /^(grok|assistant|ai|bot)$/i;
+
+      // Patterns for inline prefix lines (colon format)
+      const USER_INLINE = /^(you|human|user)\s*:/i;
+      const ASST_INLINE = /^(grok|assistant|ai|bot)\s*:/i;
+
       for (const line of lines) {
-        const lower = line.toLowerCase().trim();
-        if (lower.startsWith("you:") || lower.startsWith("human:") || lower.startsWith("user:")) {
+        const trimmed = line.trim();
+
+        if (USER_HEADING.test(trimmed)) {
           flushCurrent();
           currentRole = "user";
-          currentContent = [line.replace(/^[^:]+:\s*/i, "")];
-        } else if (
-          lower.startsWith("grok:") ||
-          lower.startsWith("assistant:") ||
-          lower.startsWith("ai:")
-        ) {
+          // heading-only line — content starts on next line
+        } else if (ASST_HEADING.test(trimmed)) {
           flushCurrent();
           currentRole = "assistant";
-          currentContent = [line.replace(/^[^:]+:\s*/i, "")];
-        } else if (currentRole) {
+          // heading-only line — content starts on next line
+        } else if (USER_INLINE.test(trimmed)) {
+          flushCurrent();
+          currentRole = "user";
+          currentContent = [trimmed.replace(/^[^:]+:\s*/i, "")];
+        } else if (ASST_INLINE.test(trimmed)) {
+          flushCurrent();
+          currentRole = "assistant";
+          currentContent = [trimmed.replace(/^[^:]+:\s*/i, "")];
+        } else if (currentRole !== null) {
           currentContent.push(line);
         }
       }

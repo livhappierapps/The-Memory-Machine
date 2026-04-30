@@ -77,7 +77,7 @@ lib/
 | userId | text | unique, Clerk user ID |
 | apiKey | text | nullable, xAI API key |
 | defaultModel | text | default "grok-3" |
-| maxContextMessages | integer | default 10 |
+| maxContextMessages | integer | default 0 (0 = full history, 1–1000 = last N messages) |
 
 ## API Routes (all under /api, all require Clerk auth)
 
@@ -99,14 +99,26 @@ lib/
 
 ## Grok Streaming
 
-`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message, fetches the user's xAI API key from settings, loads full thread history, and calls `https://api.x.ai/v1/chat/completions` with `stream: true`. Tokens are streamed back via SSE (`data: { type: "token", content: "..." }`). On completion, the assistant message is saved and `data: { type: "done", message: {...} }` is emitted.
+`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message, fetches the user's xAI API key from settings, loads thread history, and calls `https://api.x.ai/v1/chat/completions` with `stream: true`. Tokens are streamed back via SSE (`data: { type: "token", content: "..." }`). On completion, the assistant message is saved and `data: { type: "done", message: {...} }` is emitted.
+
+The stream route respects `maxContextMessages` from the user's settings:
+- `0` → send the **full conversation history** (no limit)
+- `1–1000` → send only the last N messages (`history.slice(-N)`)
+
+This controls how much context Grok receives, which affects both response quality and API token usage.
 
 ## Frontend Pages
 
 - **/** — Landing page with hero circuit art, neon headline, Sign In / Sign Up
-- **/vault** — Main app: sidebar with thread list + "New Vault" button, chat area with streaming
-- **/settings** — Grok API key, default model, max context messages
+- **/vault** — Main app: sidebar (thread list + "New Vault" button) + chat area with real-time streaming
+- **/settings** — Grok API key, default model, max context messages (0–1000)
 - **/sign-in**, **/sign-up** — Clerk-managed auth pages
+
+### Vault Mobile Layout
+
+The vault uses a **full-screen panel toggle** pattern for mobile:
+- **Mobile (< md breakpoint)**: sidebar and chat area each take 100% of the screen and are shown one at a time. Selecting a thread hides the sidebar and shows the chat full-screen. A `←` back button in the chat header returns to the thread list.
+- **Desktop (≥ md)**: classic side-by-side layout — fixed `w-80` sidebar + `flex-1` chat area, unchanged.
 
 ## Design System
 
@@ -132,6 +144,7 @@ lib/
 - **Thread list empty after navigation** — `zod.coerce.boolean()` coerces the string `"false"` to `true`, so `?archived=false` was querying for archived threads. Fixed by manually converting the string before Zod parsing in the threads route.
 - **Thread list not refreshing after create** — HTTP 304 responses from server cache were hiding new threads. Fixed by adding `Cache-Control: no-store` middleware for all `/api` routes, and using `refetchType: "all"` in query invalidation.
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
+- **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
 
 ## Security Scan Results (last run: April 30 2026)
 

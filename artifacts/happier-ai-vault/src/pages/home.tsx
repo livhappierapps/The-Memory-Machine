@@ -18,8 +18,20 @@ export default function Home() {
             }}
           />
 
-          {/* Circuit art placeholder — user will drop their image here */}
-          <div id="circuit-art-slot" className="mb-8 w-full max-w-md flex justify-center" />
+          {/* Circuit hero art */}
+          <div id="circuit-art-slot" className="mb-4 flex justify-center">
+            <img
+              src="/hero-circuit.png"
+              alt="Happier AI Vault hero"
+              width={300}
+              height={300}
+              className="select-none"
+              style={{
+                filter:
+                  "drop-shadow(0 0 18px hsl(174 85% 52% / 0.55)) drop-shadow(0 0 40px hsl(174 85% 52% / 0.28))",
+              }}
+            />
+          </div>
 
           <div className="max-w-md text-center space-y-6 relative z-10">
             <h1 className="text-5xl font-bold tracking-tight neon-text-pulse">

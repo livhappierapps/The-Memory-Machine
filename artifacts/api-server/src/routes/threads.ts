@@ -31,7 +31,13 @@ const requireAuth = (req: Request, res: Response, next: () => void) => {
 router.get("/threads", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const parsed = ListThreadsQueryParams.safeParse(req.query);
+
+    // zod.coerce.boolean() converts the string "false" to true — handle manually
+    const rawQuery = { ...req.query };
+    if (rawQuery.archived === "false") (rawQuery as any).archived = false;
+    else if (rawQuery.archived === "true") (rawQuery as any).archived = true;
+
+    const parsed = ListThreadsQueryParams.safeParse(rawQuery);
     const query = parsed.success ? parsed.data : {};
 
     let conditions = [eq(threadsTable.userId, userId)];

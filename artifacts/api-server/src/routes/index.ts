@@ -4,7 +4,6 @@ import threadsRouter from "./threads";
 import messagesRouter from "./messages";
 import settingsRouter from "./settings";
 import statsRouter from "./stats";
-import bulkImportRouter from "./bulk-import";
 
 const router: IRouter = Router();
 
@@ -13,6 +12,5 @@ router.use(threadsRouter);
 router.use(messagesRouter);
 router.use(settingsRouter);
 router.use(statsRouter);
-router.use(bulkImportRouter);
 
 export default router;

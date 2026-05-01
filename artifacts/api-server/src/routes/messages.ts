@@ -12,6 +12,7 @@ import {
   StreamMessageBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "./threads";
+import { streamGrokCompletion } from "../lib/grok";
 
 const router: IRouter = Router();
 
@@ -173,68 +174,24 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    // Send user message saved event
     sendEvent({ type: "user_message", message: userMsg });
 
-    // Call Grok API with streaming
+    // Stream from Grok API (lib/grok.ts)
     let fullContent = "";
-    try {
-      const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: grokMessages,
-          stream: true,
-        }),
-      });
-
-      if (!grokRes.ok) {
-        const errorText = await grokRes.text();
-        req.log.error({ status: grokRes.status, errorText }, "Grok API error");
-        sendEvent({ type: "error", error: `Grok API error: ${grokRes.status} ${errorText}` });
+    await streamGrokCompletion(apiKey, model, grokMessages, {
+      onToken: (delta) => {
+        fullContent += delta;
+        sendEvent({ type: "token", content: delta });
+      },
+      onError: (message) => {
+        req.log.error({ message }, "Grok stream error");
+        sendEvent({ type: "error", error: message });
         res.end();
-        return;
-      }
+      },
+      onDone: () => {}, // handled below after DB writes
+    });
 
-      const reader = grokRes.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
-            try {
-              const chunk = JSON.parse(data);
-              const delta = chunk.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullContent += delta;
-                sendEvent({ type: "token", content: delta });
-              }
-            } catch {
-              // skip malformed chunks
-            }
-          }
-        }
-      }
-    } catch (fetchErr) {
-      req.log.error({ fetchErr }, "Grok fetch error");
-      sendEvent({ type: "error", error: "Failed to connect to Grok API" });
-      res.end();
-      return;
-    }
+    if (res.writableEnded) return;
 
     // Save assistant response
     const [assistantMsg] = await db

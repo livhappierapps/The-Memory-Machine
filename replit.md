@@ -162,12 +162,27 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 - **Thread list not refreshing after create** — HTTP 304 responses from server cache were hiding new threads. Fixed by adding `Cache-Control: no-store` middleware for all `/api` routes, and using `refetchType: "all"` in query invalidation.
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
 - **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
+- **ZIP import silently failing** — Several failure modes were hardened: (1) null token from `getToken()` now shows a clear "sign out and back in" error; (2) non-OK HTTP responses now surface the actual status code and body text; (3) multer now accepts all ZIP MIME variants (browsers send `application/x-zip-compressed`, `application/octet-stream`, etc.); (4) backend SSE messages now include detailed parse debug info (which files were found, what their structure looked like) so format issues can be diagnosed; (5) the parser was broadened to handle `turns`, `conversation`, `history`, `subject`, author as `{role}` object, and more timestamp field names; (6) "stream closed without done event" edge case now surfaces an error instead of getting stuck in the processing state.
 
-## Security Scan Results (last run: April 30 2026)
+## Security Scan Results (last run: May 1 2026)
 
-- **Dependencies**: 0 critical, 4 high, 7 moderate (from pnpm audit — no action needed for dev; review before production deploy)
-- **SAST**: 1 medium finding (unsafe dynamic method — internal framework usage, not user-facing)
-- **HoundDog**: 0 findings
+### Dependency Audit — 0 critical, 2 high, 5 moderate remaining after overrides
+
+All actionable findings have been remediated via `pnpm-workspace.yaml` overrides that force patched transitive dependency versions. The remaining moderate findings are in deeply nested transitive deps with no released patches yet and no user-facing impact.
+
+| Severity | Package | CVE | Status |
+|---|---|---|---|
+| HIGH | lodash 4.17.23 | CVE-2026-4800 (code injection via `_.template`) | **Fixed** — override → 4.18.1 |
+| HIGH | path-to-regexp 8.3.0 | CVE-2026-4926 (ReDoS sequential groups) | **Fixed** — override → 8.4.2 |
+| MODERATE | lodash 4.17.23 | CVE-2026-2950 (prototype pollution) | **Fixed** — override → 4.18.1 |
+| MODERATE | path-to-regexp 8.3.0 | CVE-2026-4923 (ReDoS multiple wildcards) | **Fixed** — override → 8.4.2 |
+| MODERATE | brace-expansion 2.0.2 | CVE-2026-33750 (zero-step hang) | **Fixed** — override → >=2.0.3 |
+| MODERATE | picomatch 2.3.1 | CVE-2026-33672 (method injection) | **Fixed** — override → >=2.3.2 |
+
+### SAST — 1 medium finding
+- `[MEDIUM]` unsafe dynamic method in `artifacts/mockup-sandbox/src/App.tsx` — internal component preview sandboxing framework, not user-facing. Not a production risk.
+
+### HoundDog — 0 findings
 
 ## Workflows
 

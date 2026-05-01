@@ -45,6 +45,59 @@ lib/
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 
+## File Structure (Key Files)
+
+### Frontend (`artifacts/happier-ai-vault/src/`)
+
+```
+pages/
+  home.tsx             — Landing page (hero, sign-in/up)
+  vault.tsx            — Main app shell (sidebar + chat panel, mobile toggle)
+  settings.tsx         — API key, model, context settings
+  not-found.tsx        — 404
+
+components/
+  layout/
+    app-layout.tsx     — Top nav with logo + Clerk user button
+  vault/
+    sidebar.tsx        — Thread list, New Vault button, ZIP import + stats triggers
+    chat-area.tsx      — Message list, streaming indicator, input form
+    stats-dialog.tsx   — Vault statistics modal (counts, active/archived)
+    bulk-import-dialog.tsx — ZIP import dialog (UI only, delegates parsing)
+    import-dialog.tsx  — Single-thread paste/upload import
+    export-dialog.tsx  — Single-thread JSON/markdown export
+  ui/                  — shadcn/ui primitives
+
+hooks/
+  use-chat-stream.ts   — SSE streaming hook (connects to /api/threads/:id/stream)
+  use-mobile.tsx       — Breakpoint detection
+  use-toast.ts         — Toast notification hook
+
+lib/
+  parse-zip.ts         — Browser-side ZIP parser (extractText, toRole, parseFileJson)
+  queryClient.ts       — TanStack Query client config
+  utils.ts             — Tailwind cn() helper
+```
+
+### Backend (`artifacts/api-server/src/`)
+
+```
+routes/
+  index.ts             — Mounts all routers
+  threads.ts           — CRUD for threads + requireAuth middleware
+  messages.ts          — Get/send/stream/import messages
+  settings.ts          — User API key + model preferences
+  stats.ts             — Aggregate counts (threads, messages)
+  health.ts            — GET /api/healthz
+
+lib/
+  grok.ts              — streamGrokCompletion() — thin xAI API streaming wrapper
+  logger.ts            — pino logger singleton
+
+middlewares/
+  clerkProxyMiddleware.ts — Clerk auth token extraction
+```
+
 ## Database Schema (lib/db/src/schema/)
 
 ### threads
@@ -96,33 +149,37 @@ lib/
 | GET | /api/settings | Get user settings |
 | PUT | /api/settings | Update user settings |
 | GET | /api/stats | Get vault stats (thread/message counts) |
-| POST | /api/import/zip | Bulk import Grok ZIP archive — multipart upload, SSE progress stream |
 
-## Bulk ZIP Import
+## Bulk ZIP Import (client-side)
 
-`POST /api/import/zip` accepts a multipart form upload (field name: `file`, max 1 GB). It requires a Clerk `Authorization: Bearer <token>` header. It:
+Triggered by the folder-archive icon in the sidebar. The entire ZIP is parsed in the browser — no file is ever uploaded to the server. This sidesteps the Replit reverse-proxy's ~5-minute request timeout that would abort large uploads.
 
-1. Saves the file to `/tmp` via multer disk storage
-2. Opens the ZIP with JSZip and reads every `.json` file inside
-3. Parses conversations using a flexible parser that handles top-level arrays, `{conversations:[...]}` containers, mapping formats, and nested content (`.parts[]`)
-4. Streams SSE progress events back: `status`, `total`, `progress`, `done`, `error`
-5. Batch-inserts each conversation as a thread + messages into PostgreSQL
-6. Cleans up the temp file when done
+**Flow:**
+1. User drops or selects a `.zip` file
+2. `JSZip.loadAsync(file.arrayBuffer())` opens it in the browser
+3. `parseFileJson()` (from `lib/parse-zip.ts`) parses every `.json` file inside
+4. For each conversation: `createThread()` + `importMessages()` are called with small JSON payloads
+5. Progress bar updates live (X of Y conversations saved, last saved title shown)
 
-### Frontend (`BulkImportDialog`)
-
-Triggered by the folder-archive icon button in the sidebar. Supports drag-and-drop and file picker. Shows:
-- Drop zone → upload phase → live progress bar (X/Y conversations, last imported title) → done summary
+**Parser (`lib/parse-zip.ts`)** handles:
+- Top-level arrays of conversation objects
+- Single conversation objects
+- Container objects with `conversations`, `chats`, `data`, `history`, `items`, `results`, or `threads` keys
+- Raw message arrays (treated as a single conversation)
+- Various role names: `user`, `human`, `assistant`, `grok`, `ai`, `bot`, `system`
+- Nested content: `.parts[]`, `.message.content`, author-as-object, etc.
 
 ## Grok Streaming
 
-`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message, fetches the user's xAI API key from settings, loads thread history, and calls `https://api.x.ai/v1/chat/completions` with `stream: true`. Tokens are streamed back via SSE (`data: { type: "token", content: "..." }`). On completion, the assistant message is saved and `data: { type: "done", message: {...} }` is emitted.
+`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message, fetches the user's xAI API key from settings, loads thread history, and calls `streamGrokCompletion()` from `lib/grok.ts`.
+
+`streamGrokCompletion(apiKey, model, messages, callbacks)` calls `https://api.x.ai/v1/chat/completions` with `stream: true` and fires `onToken(delta)` for each chunk and `onDone(fullContent)` / `onError(message)` at completion.
+
+Tokens are forwarded to the client via SSE (`data: { type: "token", content: "..." }`). On completion the assistant message is saved and `data: { type: "done", message: {...} }` is emitted.
 
 The stream route respects `maxContextMessages` from the user's settings:
 - `0` → send the **full conversation history** (no limit)
 - `1–1000` → send only the last N messages (`history.slice(-N)`)
-
-This controls how much context Grok receives, which affects both response quality and API token usage.
 
 ## Frontend Pages
 
@@ -162,7 +219,7 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 - **Thread list not refreshing after create** — HTTP 304 responses from server cache were hiding new threads. Fixed by adding `Cache-Control: no-store` middleware for all `/api` routes, and using `refetchType: "all"` in query invalidation.
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
 - **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
-- **ZIP import silently failing / "not fetching"** — Root cause: the Replit reverse-proxy has a ~5-minute request timeout. Uploading a large ZIP (Grok exports can be hundreds of MB) through the proxy hit this timeout, causing the connection to be aborted with a 400 and `responseTime: 328685ms` in server logs. **Fix**: Moved all ZIP parsing to the browser using `jszip`. The frontend reads and parses the archive locally, then sends small per-conversation JSON payloads to the existing `POST /api/threads` + `POST /api/threads/:id/import` endpoints. No large file is ever uploaded, eliminating the timeout entirely. The backend bulk-import route (`POST /api/import/zip`) is retained for reference but is no longer called.
+- **ZIP import silently failing / "not fetching"** — Root cause: the Replit reverse-proxy has a ~5-minute request timeout. Uploading a large ZIP hit this timeout (`responseTime: 328685ms`, `request aborted`). Fixed by moving all parsing to the browser (JSZip) and sending only small JSON payloads per conversation. The dead backend route (`POST /api/import/zip`) was deleted.
 
 ## Security Scan Results (last run: May 1 2026)
 

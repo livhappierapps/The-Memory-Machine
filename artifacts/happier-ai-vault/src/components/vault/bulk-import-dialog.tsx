@@ -81,55 +81,74 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
       setResult(null);
       setErrorMsg("");
 
-      // ── 1. Open the ZIP in the browser ──────────────────────────────────────
-      let zip: JSZip;
-      try {
-        zip = await JSZip.loadAsync(await file.arrayBuffer());
-      } catch (err: any) {
-        setErrorMsg(
-          `Could not open ZIP: ${err?.message ?? "unknown error"}. ` +
-            `Make sure the file is a valid .zip archive.`,
+        // ── 1. Parse file — ZIP or raw JSON ─────────────────────────────────────
+      const isJson =
+        file.name.toLowerCase().endsWith(".json") ||
+        file.type === "application/json";
+
+      const allConversations = [];
+
+      if (isJson) {
+        // Direct JSON export (Grok sometimes sends .json instead of .zip)
+        setProgress((p) => ({ ...p, statusMsg: "Reading JSON export…" }));
+        try {
+          const text = await file.text();
+          allConversations.push(...parseFileJson(text));
+        } catch (err: any) {
+          setErrorMsg(`Could not read JSON file: ${err?.message ?? "unknown error"}.`);
+          setPhase("error");
+          return;
+        }
+      } else {
+        // ZIP archive
+        let zip: JSZip;
+        try {
+          zip = await JSZip.loadAsync(await file.arrayBuffer());
+        } catch (err: any) {
+          setErrorMsg(
+            `Could not open file: ${err?.message ?? "unknown error"}. ` +
+              `Expected a .zip archive or .json export from Grok.`,
+          );
+          setPhase("error");
+          return;
+        }
+
+        if (cancelledRef.current) return;
+
+        const jsonEntries = Object.entries(zip.files).filter(
+          ([, f]) => !f.dir && f.name.toLowerCase().endsWith(".json"),
         );
-        setPhase("error");
-        return;
+
+        if (jsonEntries.length === 0) {
+          const allFiles = Object.entries(zip.files)
+            .filter(([, f]) => !f.dir)
+            .map(([n]) => n)
+            .join(", ");
+          setErrorMsg(
+            `No JSON files found in the ZIP. Files inside: ${allFiles || "none"}. ` +
+              `Grok exports should contain .json conversation files.`,
+          );
+          setPhase("error");
+          return;
+        }
+
+        setProgress((p) => ({ ...p, statusMsg: `Scanning ${jsonEntries.length} file(s)…` }));
+
+        for (const [, entry] of jsonEntries) {
+          if (cancelledRef.current) return;
+          try {
+            allConversations.push(...parseFileJson(await entry.async("string")));
+          } catch {
+            // skip unreadable files
+          }
+        }
       }
 
       if (cancelledRef.current) return;
 
-      // ── 2. Locate JSON files ─────────────────────────────────────────────────
-      const jsonEntries = Object.entries(zip.files).filter(
-        ([, f]) => !f.dir && f.name.toLowerCase().endsWith(".json"),
-      );
-
-      if (jsonEntries.length === 0) {
-        const allFiles = Object.entries(zip.files)
-          .filter(([, f]) => !f.dir)
-          .map(([n]) => n)
-          .join(", ");
-        setErrorMsg(
-          `No JSON files found in the ZIP. Files inside: ${allFiles || "none"}. ` +
-            `Grok exports should contain .json conversation files.`,
-        );
-        setPhase("error");
-        return;
-      }
-
-      setProgress((p) => ({ ...p, statusMsg: `Scanning ${jsonEntries.length} file(s)…` }));
-
-      // ── 3. Parse conversations (client-side, from lib/parse-zip.ts) ──────────
-      const allConversations = [];
-      for (const [, entry] of jsonEntries) {
-        if (cancelledRef.current) return;
-        try {
-          allConversations.push(...parseFileJson(await entry.async("string")));
-        } catch {
-          // skip unreadable files
-        }
-      }
-
       if (allConversations.length === 0) {
         setErrorMsg(
-          `Found ${jsonEntries.length} JSON file(s) but could not parse any conversations. ` +
+          `Could not parse any conversations from this file. ` +
             `The format may differ from what's expected.`,
         );
         setPhase("error");
@@ -205,10 +224,10 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Import Grok ZIP Archive</DialogTitle>
+          <DialogTitle>Import Grok Export</DialogTitle>
           <DialogDescription>
-            Select your Grok export ZIP — conversations are read directly in your browser and
-            saved to your vault without uploading the whole file.
+            Select your Grok export — a .zip archive or a .json file. Everything is read
+            directly in your browser; nothing is uploaded.
           </DialogDescription>
         </DialogHeader>
 
@@ -290,13 +309,13 @@ function DropZone({
         />
       </div>
       <div className="text-center">
-        <p className="font-medium">Drop your ZIP here</p>
+        <p className="font-medium">Drop your ZIP or JSON here</p>
         <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
       </div>
       <input
         ref={fileRef}
         type="file"
-        accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream"
+        accept="*/*"
         className="hidden"
         onChange={onFileChange}
       />

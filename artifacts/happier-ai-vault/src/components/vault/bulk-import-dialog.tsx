@@ -134,23 +134,43 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 
         setProgress((p) => ({ ...p, statusMsg: `Scanning ${jsonEntries.length} file(s)…` }));
 
-        for (const [, entry] of jsonEntries) {
+        let diagText = "";
+        for (const [name, entry] of jsonEntries) {
           if (cancelledRef.current) return;
           try {
-            allConversations.push(...parseFileJson(await entry.async("string")));
+            const text = await entry.async("string");
+            // Collect diagnostics from first file for error reporting
+            if (!diagText) {
+              try {
+                const parsed = JSON.parse(text);
+                const topKeys = Array.isArray(parsed)
+                  ? `Array[${parsed.length}], first item keys: ${Object.keys(parsed[0] ?? {}).join(", ")}`
+                  : `Object keys: ${Object.keys(parsed).join(", ")}`;
+                diagText = `File: ${name}\nStructure: ${topKeys}\nPreview: ${text.slice(0, 300)}`;
+              } catch {
+                diagText = `File: ${name}\nCould not parse as JSON`;
+              }
+            }
+            allConversations.push(...parseFileJson(text));
           } catch {
             // skip unreadable files
           }
+        }
+
+        if (allConversations.length === 0 && diagText) {
+          setErrorMsg(
+            `Could not parse conversations — Grok's format may need a parser update.\n\n` +
+            `── Debug info (share this with the developer) ──\n${diagText}`,
+          );
+          setPhase("error");
+          return;
         }
       }
 
       if (cancelledRef.current) return;
 
       if (allConversations.length === 0) {
-        setErrorMsg(
-          `Could not parse any conversations from this file. ` +
-            `The format may differ from what's expected.`,
-        );
+        setErrorMsg(`Could not parse any conversations from this file. The format may differ from what's expected.`);
         setPhase("error");
         return;
       }
@@ -419,13 +439,26 @@ function ImportError({
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const hasDebug = errorMsg.includes("── Debug info");
+  const [main, debug] = hasDebug ? errorMsg.split(/── Debug info[^\n]*\n/) : [errorMsg, ""];
+
   return (
     <div className="mt-2 space-y-4">
       <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
         <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-        <div className="text-sm min-w-0">
+        <div className="text-sm min-w-0 w-full">
           <p className="font-medium text-destructive">Import failed</p>
-          <p className="text-muted-foreground mt-1 break-words">{errorMsg}</p>
+          <p className="text-muted-foreground mt-1 break-words">{main.trim()}</p>
+          {debug && (
+            <div className="mt-3">
+              <p className="text-xs text-muted-foreground mb-1 font-medium">
+                Debug info — tap and hold to copy, then share with developer:
+              </p>
+              <pre className="text-xs bg-black/30 rounded p-2 overflow-x-auto overflow-y-auto max-h-40 whitespace-pre-wrap break-all select-all border border-border/30 cursor-text">
+                {debug.trim()}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex gap-2">

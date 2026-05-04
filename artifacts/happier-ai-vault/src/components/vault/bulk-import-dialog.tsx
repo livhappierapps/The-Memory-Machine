@@ -134,22 +134,20 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 
         setProgress((p) => ({ ...p, statusMsg: `Scanning ${jsonEntries.length} file(s)…` }));
 
-        let diagText = "";
+        // Build a map of filename → top-level keys for diagnostics
+        const fileStructures: string[] = [];
         for (const [name, entry] of jsonEntries) {
           if (cancelledRef.current) return;
           try {
             const text = await entry.async("string");
-            // Collect diagnostics from first file for error reporting
-            if (!diagText) {
-              try {
-                const parsed = JSON.parse(text);
-                const topKeys = Array.isArray(parsed)
-                  ? `Array[${parsed.length}], first item keys: ${Object.keys(parsed[0] ?? {}).join(", ")}`
-                  : `Object keys: ${Object.keys(parsed).join(", ")}`;
-                diagText = `File: ${name}\nStructure: ${topKeys}\nPreview: ${text.slice(0, 300)}`;
-              } catch {
-                diagText = `File: ${name}\nCould not parse as JSON`;
-              }
+            try {
+              const parsed = JSON.parse(text);
+              const topKeys = Array.isArray(parsed)
+                ? `Array[${(parsed as unknown[]).length}], first keys: ${Object.keys((parsed as any[])[0] ?? {}).slice(0, 8).join(", ")}`
+                : `{${Object.keys(parsed as object).slice(0, 8).join(", ")}}`;
+              fileStructures.push(`${name.split("/").pop()}: ${topKeys}`);
+            } catch {
+              fileStructures.push(`${name.split("/").pop()}: (not valid JSON)`);
             }
             allConversations.push(...parseFileJson(text));
           } catch {
@@ -157,10 +155,11 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
           }
         }
 
-        if (allConversations.length === 0 && diagText) {
+        if (allConversations.length === 0 && fileStructures.length > 0) {
           setErrorMsg(
-            `Could not parse conversations — Grok's format may need a parser update.\n\n` +
-            `── Debug info (share this with the developer) ──\n${diagText}`,
+            `Found ${fileStructures.length} JSON file(s) but none matched the conversation format.\n\n` +
+            `── Debug info (share this with the developer) ──\n` +
+            fileStructures.join("\n"),
           );
           setPhase("error");
           return;

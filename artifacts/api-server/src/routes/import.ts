@@ -3,83 +3,143 @@ import multer from "multer";
 import os from "os";
 import fs from "fs";
 import path from "path";
+import { pipeline } from "stream/promises";
 import { requireAuth } from "../middlewares/auth";
 import { streamImportFile } from "../lib/import-stream";
 
 const router = Router();
 
-// Store uploads in the OS temp directory so they survive the request but
-// get cleaned up by the OS on restart. We delete them immediately after
-// processing regardless.
-const upload = multer({
+// Validate uploadId is a proper UUID (prevents path traversal)
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Each chunk is ≤ 10 MB on the client; 12 MB cap gives a safe margin
+const chunkUpload = multer({
   storage: multer.diskStorage({
     destination: os.tmpdir(),
     filename: (_req, _file, cb) => {
-      const rand = Math.random().toString(36).slice(2, 10);
-      cb(null, `vault-import-${Date.now()}-${rand}`);
+      cb(null, `vault-chunk-tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     },
   }),
-  limits: {
-    fileSize: 2 * 1024 * 1024 * 1024, // 2 GB hard cap
-    files: 1,
-  },
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
 });
 
+// ── POST /api/import/chunk ────────────────────────────────────────────────────
+// Accepts one piece of a chunked file upload.
+// Body (multipart): chunk (blob), uploadId (uuid), chunkIndex (int), totalChunks (int)
+// Response: { received: true, chunkIndex: N }
+
 router.post(
-  "/import/upload",
+  "/import/chunk",
   requireAuth,
-  upload.single("file"),
+  chunkUpload.single("chunk"),
   async (req: Request, res: Response) => {
+    const { uploadId, chunkIndex, totalChunks } = req.body as Record<string, string>;
+
+    if (!uploadId || !UUID_RE.test(uploadId)) {
+      res.status(400).json({ error: "Invalid uploadId" });
+      return;
+    }
     if (!req.file) {
-      res.status(400).json({ error: "No file received. Please select a ZIP or JSON file." });
+      res.status(400).json({ error: "No chunk received" });
       return;
     }
 
-    const userId = req.userId!;
-    const filePath = req.file.path;
-    const originalName = req.file.originalname.toLowerCase();
-    const isZip =
-      originalName.endsWith(".zip") ||
-      req.file.mimetype === "application/zip" ||
-      req.file.mimetype === "application/x-zip-compressed" ||
-      req.file.mimetype === "application/octet-stream"; // iOS sometimes sends this for ZIPs
+    const idx = Number(chunkIndex);
+    const total = Number(totalChunks);
 
-    // ── SSE response ───────────────────────────────────────────────────────
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
+    if (!Number.isFinite(idx) || idx < 0 || !Number.isFinite(total) || total < 1) {
+      res.status(400).json({ error: "Invalid chunk metadata" });
+      return;
+    }
 
-    const sendEvent = (data: unknown) => {
-      if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      }
-    };
-
-    // Send a heartbeat every 20 s to keep the connection alive through proxies
-    const heartbeat = setInterval(() => {
-      if (!res.writableEnded) res.write(": heartbeat\n\n");
-    }, 20_000);
+    const chunkDir = path.join(os.tmpdir(), `vault-chunks-${uploadId}`);
+    await fs.promises.mkdir(chunkDir, { recursive: true });
+    const destPath = path.join(chunkDir, `chunk-${String(idx).padStart(8, "0")}`);
 
     try {
-      req.log.info(
-        { userId, size: req.file.size, isZip, name: req.file.originalname },
-        "Import upload received",
-      );
-      await streamImportFile(filePath, isZip, userId, sendEvent);
-    } catch (err) {
-      req.log.error({ err }, "Import stream failed");
-      sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });
-    } finally {
-      clearInterval(heartbeat);
-      // Delete the temp file regardless of outcome
-      fs.unlink(filePath, (unlinkErr) => {
-        if (unlinkErr) req.log.warn({ err: unlinkErr }, "Failed to delete import temp file");
-      });
-      res.end();
+      // rename is atomic if src and dest are on the same filesystem
+      await fs.promises.rename(req.file.path, destPath);
+    } catch {
+      // Fall back to copy+delete when crossing filesystem boundaries
+      await fs.promises.copyFile(req.file.path, destPath);
+      fs.unlink(req.file.path, () => {});
     }
+
+    res.json({ received: true, chunkIndex: idx });
   },
 );
+
+// ── POST /api/import/finalize ─────────────────────────────────────────────────
+// Called after all chunks are uploaded. Assembles the file, processes it,
+// and streams SSE progress events back to the client.
+// Body (JSON): { uploadId: string, totalChunks: number, isZip: boolean }
+
+router.post("/import/finalize", requireAuth, async (req: Request, res: Response) => {
+  const { uploadId, totalChunks, isZip } = req.body as {
+    uploadId?: string;
+    totalChunks?: number;
+    isZip?: boolean;
+  };
+
+  if (!uploadId || !UUID_RE.test(uploadId)) {
+    res.status(400).json({ error: "Invalid uploadId" });
+    return;
+  }
+
+  const total = Number(totalChunks);
+  if (!Number.isFinite(total) || total < 1 || total > 10_000) {
+    res.status(400).json({ error: "Invalid totalChunks" });
+    return;
+  }
+
+  // ── SSE response ─────────────────────────────────────────────────────────
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const sendEvent = (data: unknown) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": heartbeat\n\n");
+  }, 20_000);
+
+  const chunkDir = path.join(os.tmpdir(), `vault-chunks-${uploadId}`);
+  const assembledPath = path.join(os.tmpdir(), `vault-assembled-${uploadId}`);
+
+  try {
+    // Stream all chunks into one assembled file without loading them all into RAM
+    const writeStream = fs.createWriteStream(assembledPath);
+    for (let i = 0; i < total; i++) {
+      const chunkPath = path.join(chunkDir, `chunk-${String(i).padStart(8, "0")}`);
+      const readStream = fs.createReadStream(chunkPath);
+      await pipeline(readStream, writeStream, { end: false });
+    }
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end();
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+    });
+
+    req.log.info(
+      { userId: req.userId, uploadId, total, isZip },
+      "Chunks assembled, starting import",
+    );
+
+    await streamImportFile(assembledPath, !!isZip, req.userId!, sendEvent);
+  } catch (err) {
+    req.log.error({ err }, "Import finalize failed");
+    sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });
+  } finally {
+    clearInterval(heartbeat);
+    fs.rm(chunkDir, { recursive: true, force: true }, () => {});
+    fs.unlink(assembledPath, () => {});
+    res.end();
+  }
+});
 
 export default router;

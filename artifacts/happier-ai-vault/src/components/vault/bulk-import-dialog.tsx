@@ -1,14 +1,17 @@
 /**
  * BulkImportDialog
  *
- * Uploads the user's Grok export (ZIP or JSON) directly to the server.
- * All parsing and DB insertion happens server-side, so there are no
- * browser memory limits — large files and mobile devices work fine.
+ * Sends the user's Grok export to the server in 10 MB chunks so no single
+ * HTTP request is large enough to be killed by the reverse proxy or a mobile
+ * network timeout.  All parsing and DB insertion happen server-side; the
+ * browser only reads the file in small slices and sends them one at a time.
  *
- * The server responds with an SSE stream of progress events:
- *   { type: "progress", processed, imported, skipped }
- *   { type: "done",     imported, skipped, errors }
- *   { type: "error",    message }
+ * Phases:
+ *   idle      → drop-zone shown
+ *   uploading → progress bar: chunk X of Y uploaded
+ *   processing → live counter: X conversations saved so far (SSE stream)
+ *   done      → success summary
+ *   error     → error message with retry
  */
 import { useState, useRef, useCallback } from "react";
 import {
@@ -23,6 +26,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getListThreadsQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
 import { FileArchive, CheckCircle2, AlertCircle, Loader2, Info } from "lucide-react";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB per chunk
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface BulkImportDialogProps {
@@ -32,9 +39,9 @@ interface BulkImportDialogProps {
 
 type Phase = "idle" | "uploading" | "processing" | "done" | "error";
 
-interface ProgressState {
-  saved: number;
-  statusMsg: string;
+interface UploadProgress {
+  chunk: number; // chunks sent so far
+  total: number; // total chunks
 }
 
 interface ImportResult {
@@ -47,7 +54,8 @@ interface ImportResult {
 
 export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState<ProgressState>({ saved: 0, statusMsg: "" });
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({ chunk: 0, total: 1 });
+  const [savedCount, setSavedCount] = useState(0);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -59,7 +67,8 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   const resetState = () => {
     abortRef.current = null;
     setPhase("idle");
-    setProgress({ saved: 0, statusMsg: "" });
+    setUploadProgress({ chunk: 0, total: 1 });
+    setSavedCount(0);
     setResult(null);
     setErrorMsg("");
     if (fileRef.current) fileRef.current.value = "";
@@ -74,37 +83,74 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   const processFile = useCallback(
     async (file: File) => {
       resetState();
-      setPhase("uploading");
-      setProgress({ saved: 0, statusMsg: "Uploading to server…" });
 
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+      const isZip =
+        file.name.toLowerCase().endsWith(".zip") ||
+        file.type === "application/zip" ||
+        file.type === "application/x-zip-compressed" ||
+        file.type === "application/octet-stream"; // iOS sends this for ZIPs
+
+      const uploadId = crypto.randomUUID();
       const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
-      const formData = new FormData();
-      formData.append("file", file);
+
+      setPhase("uploading");
+      setUploadProgress({ chunk: 0, total: totalChunks });
 
       try {
-        const response = await fetch(`${basePath}/api/import/upload`, {
+        // ── 1. Upload file in 10 MB chunks ──────────────────────────────────
+        for (let i = 0; i < totalChunks; i++) {
+          if (controller.signal.aborted) return;
+
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunkBlob = file.slice(start, end);
+
+          const fd = new FormData();
+          fd.append("chunk", chunkBlob, "chunk");
+          fd.append("uploadId", uploadId);
+          fd.append("chunkIndex", String(i));
+          fd.append("totalChunks", String(totalChunks));
+
+          const resp = await fetch(`${basePath}/api/import/chunk`, {
+            method: "POST",
+            body: fd,
+            credentials: "include",
+            signal: controller.signal,
+          });
+
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({ error: "Chunk upload failed" }));
+            throw new Error((body as { error?: string }).error ?? `Upload error ${resp.status}`);
+          }
+
+          setUploadProgress({ chunk: i + 1, total: totalChunks });
+        }
+
+        // ── 2. Trigger server-side processing (SSE response) ────────────────
+        setPhase("processing");
+        setSavedCount(0);
+
+        const processResp = await fetch(`${basePath}/api/import/finalize`, {
           method: "POST",
-          body: formData,
+          body: JSON.stringify({ uploadId, totalChunks, isZip }),
+          headers: { "Content-Type": "application/json" },
           credentials: "include",
           signal: controller.signal,
         });
 
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({ error: "Upload failed" }));
-          throw new Error(body.error ?? `Server error ${response.status}`);
+        if (!processResp.ok) {
+          const body = await processResp.json().catch(() => ({ error: "Processing failed" }));
+          throw new Error((body as { error?: string }).error ?? `Server error ${processResp.status}`);
         }
 
-        if (!response.body) throw new Error("No response body from server");
+        if (!processResp.body) throw new Error("No response stream from server");
 
-        // Switch to processing phase as soon as the server starts responding
-        setPhase("processing");
-        setProgress({ saved: 0, statusMsg: "Analysing your conversations…" });
-
-        // Read SSE stream
-        const reader = response.body.getReader();
+        // ── 3. Read SSE progress stream ─────────────────────────────────────
+        const reader = processResp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -120,20 +166,22 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
             if (!line.startsWith("data: ")) continue;
 
             try {
-              const event = JSON.parse(line.slice(6));
+              const event = JSON.parse(line.slice(6)) as {
+                type: string;
+                imported?: number;
+                skipped?: number;
+                errors?: number;
+                message?: string;
+              };
 
               if (event.type === "progress") {
-                setProgress({
-                  saved: event.imported as number,
-                  statusMsg: `Saving conversations… ${event.imported} done`,
-                });
+                setSavedCount(event.imported ?? 0);
               } else if (event.type === "done") {
-                const r: ImportResult = {
-                  imported: event.imported,
-                  skipped: event.skipped,
-                  errors: event.errors,
-                };
-                setResult(r);
+                setResult({
+                  imported: event.imported ?? 0,
+                  skipped: event.skipped ?? 0,
+                  errors: event.errors ?? 0,
+                });
                 setPhase("done");
                 queryClient.invalidateQueries({
                   queryKey: getListThreadsQueryKey(),
@@ -146,10 +194,10 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
                 });
                 break outer;
               } else if (event.type === "error") {
-                throw new Error(event.message as string);
+                throw new Error(event.message ?? "Import failed");
               }
             } catch (parseErr) {
-              if (parseErr instanceof SyntaxError) continue; // skip malformed SSE frames
+              if (parseErr instanceof SyntaxError) continue; // skip malformed frames
               throw parseErr;
             }
           }
@@ -177,14 +225,19 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
     if (file) processFile(file);
   };
 
+  const uploadPct =
+    uploadProgress.total > 0
+      ? Math.round((uploadProgress.chunk / uploadProgress.total) * 100)
+      : 0;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Import Grok Export</DialogTitle>
           <DialogDescription>
-            Drop your Grok export — a .zip archive or a .json file. The file is uploaded and
-            processed on the server, so any size works on any device.
+            Drop your Grok export — a .zip archive or a .json file. Any size works on any
+            device.
           </DialogDescription>
         </DialogHeader>
 
@@ -199,8 +252,17 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
           />
         )}
 
-        {(phase === "uploading" || phase === "processing") && (
-          <ProcessingView phase={phase} progress={progress} onCancel={handleClose} />
+        {phase === "uploading" && (
+          <UploadingView
+            chunk={uploadProgress.chunk}
+            total={uploadProgress.total}
+            pct={uploadPct}
+            onCancel={handleClose}
+          />
+        )}
+
+        {phase === "processing" && (
+          <ProcessingView savedCount={savedCount} onCancel={handleClose} />
         )}
 
         {phase === "done" && result && (
@@ -267,7 +329,7 @@ function DropZone({
       </div>
       <div className="text-center">
         <p className="font-medium">Drop your ZIP or JSON here</p>
-        <p className="text-sm text-muted-foreground mt-1">or click to browse — any size works</p>
+        <p className="text-sm text-muted-foreground mt-1">or tap to browse — any size works</p>
       </div>
       <input
         ref={fileRef}
@@ -280,47 +342,75 @@ function DropZone({
   );
 }
 
-function ProcessingView({
-  phase,
-  progress,
+function UploadingView({
+  chunk,
+  total,
+  pct,
   onCancel,
 }: {
-  phase: "uploading" | "processing";
-  progress: ProgressState;
+  chunk: number;
+  total: number;
+  pct: number;
   onCancel: () => void;
 }) {
   return (
     <div className="mt-2 space-y-5">
-      <div className="flex items-center gap-3 text-sm text-muted-foreground min-h-[20px]">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
-        <span className="truncate">{progress.statusMsg || "Working…"}</span>
+        <span>
+          Uploading…{" "}
+          {total > 1 ? `part ${chunk} of ${total}` : "almost there"}
+        </span>
       </div>
 
-      {phase === "uploading" && (
-        <div className="space-y-1.5">
-          <p className="text-xs text-muted-foreground">
-            Uploading your file — this may take a moment for large archives.
-          </p>
-          {/* Indeterminate progress bar while uploading */}
-          <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
-            <div className="h-full bg-primary rounded-full animate-pulse w-1/3" />
-          </div>
-        </div>
-      )}
-
-      {phase === "processing" && progress.saved > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground">
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>{pct}% uploaded</span>
+          {total > 1 && (
             <span>
-              {progress.saved} conversation{progress.saved === 1 ? "" : "s"} saved
+              {chunk} / {total} parts
             </span>
-          </div>
-          {/* Indeterminate bar — total count unknown until parse completes */}
-          <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
-            <div className="h-full bg-primary rounded-full animate-pulse w-2/3" />
-          </div>
+          )}
         </div>
-      )}
+        <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-300"
+            style={{ width: `${Math.max(4, pct)}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Safe to keep your screen on — the upload will resume if interrupted.
+        </p>
+      </div>
+
+      <Button variant="outline" size="sm" onClick={onCancel} className="w-full">
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
+function ProcessingView({
+  savedCount,
+  onCancel,
+}: {
+  savedCount: number;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-2 space-y-5">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
+        <span>
+          {savedCount > 0
+            ? `Saving conversations… ${savedCount} done so far`
+            : "Analysing your conversations…"}
+        </span>
+      </div>
+
+      <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
+        <div className="h-full bg-primary rounded-full animate-pulse w-full opacity-40" />
+      </div>
 
       <Button variant="outline" size="sm" onClick={onCancel} className="w-full">
         Cancel
@@ -338,6 +428,7 @@ function DoneView({
   onImportAnother: () => void;
   onClose: () => void;
 }) {
+  const skipped = result.skipped + result.errors;
   return (
     <div className="mt-2 space-y-4">
       <div className="flex flex-col items-center gap-3 py-4">
@@ -346,11 +437,10 @@ function DoneView({
           <p className="text-lg font-semibold">
             {result.imported} conversation{result.imported === 1 ? "" : "s"} imported
           </p>
-          {(result.skipped > 0 || result.errors > 0) && (
+          {skipped > 0 && (
             <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5 justify-center">
               <Info className="w-3.5 h-3.5 shrink-0" />
-              {result.skipped + result.errors} item
-              {result.skipped + result.errors === 1 ? " was" : "s were"} skipped or empty
+              {skipped} empty or unreadable {skipped === 1 ? "item was" : "items were"} skipped
             </p>
           )}
         </div>

@@ -31,20 +31,54 @@ function toRole(r: unknown): "user" | "assistant" | null {
   if (typeof r !== "string") return null;
   const s = r.toLowerCase().trim();
   if (s === "user" || s === "human") return "user";
-  if (s === "assistant" || s === "grok" || s === "ai" || s === "bot") return "assistant";
+  if (
+    s === "assistant" ||
+    s === "grok" ||
+    s === "ai" ||
+    s === "bot" ||
+    s === "model" ||
+    s === "system" ||
+    s === "claude" ||
+    s === "chatgpt" ||
+    s === "gemini"
+  )
+    return "assistant";
   return null;
 }
 
 function extractText(v: unknown): string {
   if (typeof v === "string") return v;
-  if (Array.isArray(v)) return (v as unknown[]).map(extractText).join("");
+  if (Array.isArray(v)) return (v as unknown[]).map(extractText).join(" ").trim();
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
-    if (typeof o.text === "string") return o.text;
-    if (typeof o.value === "string") return o.value;
-    if (Array.isArray(o.parts)) return (o.parts as unknown[]).map(extractText).join("");
+    // Common text field names across different exporters
+    for (const k of ["text", "value", "content", "body", "response", "transcription", "caption", "description"]) {
+      if (typeof o[k] === "string" && (o[k] as string).trim()) return o[k] as string;
+    }
+    if (Array.isArray(o.parts)) return (o.parts as unknown[]).map(extractText).join("").trim();
+    if (Array.isArray(o.children)) return (o.children as unknown[]).map(extractText).join("").trim();
   }
   return "";
+}
+
+/** Describe an attachments array when there is no readable text content */
+function attachmentLabel(attachments: unknown): string {
+  if (!Array.isArray(attachments) || attachments.length === 0) return "";
+  const labels = (attachments as unknown[]).map((a) => {
+    if (!a || typeof a !== "object") return "Attachment";
+    const at = a as Record<string, unknown>;
+    const type = String(at.type ?? at.mimeType ?? at.mediaType ?? "attachment").toLowerCase();
+    if (type.includes("image") || type.includes("photo") || type.includes("jpg") || type.includes("png"))
+      return "[Image]";
+    if (type.includes("video")) return "[Video]";
+    if (type.includes("audio") || type.includes("voice")) return "[Audio]";
+    if (type.includes("pdf") || type.includes("doc") || type.includes("file")) {
+      const name = String(at.name ?? at.fileName ?? at.filename ?? "File");
+      return `[File: ${name}]`;
+    }
+    return "[Attachment]";
+  });
+  return labels.join(" ");
 }
 
 interface ParsedMessage {
@@ -76,6 +110,8 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
     if (!m || typeof m !== "object") continue;
     const msg = m as Record<string, unknown>;
 
+    // When msg.message is an object, treat it as the inner payload;
+    // otherwise fall back to msg itself (covers Grok's flat structure)
     const inner =
       msg.message && typeof msg.message === "object"
         ? (msg.message as Record<string, unknown>)
@@ -102,15 +138,39 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
         inner.content ??
         inner.text ??
         inner.value ??
+        inner.body ??
+        inner.response ??
         inner.message ??
-        (typeof msg.message === "string" ? msg.message : undefined);
+        (typeof msg.message === "string" ? msg.message : undefined) ??
+        // Grok sometimes puts the text inside a nested responseData object
+        (msg.responseData && typeof msg.responseData === "object"
+          ? (msg.responseData as Record<string, unknown>).text
+          : undefined);
       content = extractText(rawContent);
+    }
+
+    // If text is empty but there are attachments, synthesise a label so the
+    // conversation is still importable (e.g. image-only exchanges)
+    if (!content.trim()) {
+      const attachments = msg.attachments ?? inner.attachments ?? msg.files ?? inner.files;
+      content = attachmentLabel(attachments);
     }
 
     if (content.trim()) messages.push({ role, content: content.trim() });
   }
 
-  if (messages.length === 0) return null;
+  if (messages.length === 0) {
+    // Log the raw structure of the first skipped conversation so we can improve
+    // the parser without needing to see the user's file directly.
+    logger.warn(
+      {
+        keys: Object.keys(c),
+        sampleRaw: JSON.stringify(raws[0]).slice(0, 300),
+      },
+      "Conversation skipped — no parseable messages",
+    );
+    return null;
+  }
 
   // Title — try every common field; fall back to first user message snippet
   const titleRaw =

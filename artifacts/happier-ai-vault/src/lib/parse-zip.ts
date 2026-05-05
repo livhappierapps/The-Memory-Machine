@@ -73,19 +73,29 @@ function parseConversation(obj: unknown): ParsedConversation | null {
         ? (msg.message as Record<string, unknown>)
         : msg;
 
-    let roleRaw: unknown = inner.role ?? inner.author;
+    // role — try every field name different exporters use
+    let roleRaw: unknown =
+      inner.role ?? inner.author ?? inner.sender ?? msg.sender ?? msg.role ?? msg.author;
     if (roleRaw && typeof roleRaw === "object" && (roleRaw as any).role)
       roleRaw = (roleRaw as any).role;
 
     const role = toRole(roleRaw);
     if (!role) continue;
 
+    // content — try every field name different exporters use
+    // Note: msg.message may be the plain-string content (Grok backend format)
     let content = "";
     if (inner.content && typeof inner.content === "object") {
       const c = inner.content as any;
       content = Array.isArray(c.parts) ? c.parts.map(extractText).join("") : extractText(c);
     } else {
-      content = extractText(inner.content ?? inner.text ?? inner.value);
+      const rawContent =
+        inner.content ??
+        inner.text ??
+        inner.value ??
+        inner.message ??
+        (typeof msg.message === "string" ? msg.message : undefined);
+      content = extractText(rawContent);
     }
 
     if (content.trim()) messages.push({ role, content: content.trim() });
@@ -93,14 +103,15 @@ function parseConversation(obj: unknown): ParsedConversation | null {
 
   if (messages.length === 0) return null;
 
-  const title =
-    typeof o.title === "string"
-      ? o.title
-      : typeof o.name === "string"
-        ? o.name
-        : typeof o.subject === "string"
-          ? o.subject
-          : "Imported conversation";
+  // Title — try every common field; fall back to first user message snippet
+  const titleRaw =
+    (typeof o.title === "string" && o.title) ||
+    (typeof o.name === "string" && o.name) ||
+    (typeof o.subject === "string" && o.subject) ||
+    (typeof (o as any).conversationTitle === "string" && (o as any).conversationTitle) ||
+    messages.find((m) => m.role === "user")?.content.slice(0, 80) ||
+    "Imported conversation";
+  const title = titleRaw;
 
   return {
     title: title.slice(0, 255) || "Imported conversation",

@@ -142,10 +142,25 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
             const text = await entry.async("string");
             try {
               const parsed = JSON.parse(text);
-              const topKeys = Array.isArray(parsed)
-                ? `Array[${(parsed as unknown[]).length}], first keys: ${Object.keys((parsed as any[])[0] ?? {}).slice(0, 8).join(", ")}`
-                : `{${Object.keys(parsed as object).slice(0, 8).join(", ")}}`;
-              fileStructures.push(`${name.split("/").pop()}: ${topKeys}`);
+              const shortName = name.split("/").pop()!;
+              if (Array.isArray(parsed)) {
+                const firstKeys = Object.keys((parsed as any[])[0] ?? {}).slice(0, 8).join(", ");
+                fileStructures.push(`${shortName}: Array[${(parsed as unknown[]).length}], item keys: {${firstKeys}}`);
+              } else {
+                const obj = parsed as Record<string, unknown>;
+                // For each top-level key that holds an array, show first-item keys
+                const details = Object.entries(obj)
+                  .slice(0, 6)
+                  .map(([k, v]) => {
+                    if (Array.isArray(v) && v.length > 0) {
+                      const itemKeys = Object.keys(v[0] ?? {}).slice(0, 8).join(", ");
+                      return `${k}[${v.length}]→{${itemKeys}}`;
+                    }
+                    return k;
+                  })
+                  .join(", ");
+                fileStructures.push(`${shortName}: {${details}}`);
+              }
             } catch {
               fileStructures.push(`${name.split("/").pop()}: (not valid JSON)`);
             }

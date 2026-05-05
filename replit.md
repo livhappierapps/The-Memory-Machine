@@ -63,7 +63,7 @@ components/
     sidebar.tsx        — Thread list, New Vault button, ZIP import + stats triggers
     chat-area.tsx      — Message list, streaming indicator, input form
     stats-dialog.tsx   — Vault statistics modal (counts, active/archived)
-    bulk-import-dialog.tsx — ZIP import dialog (UI only, delegates parsing)
+    bulk-import-dialog.tsx — ZIP/JSON import dialog (uploads to server, reads SSE progress)
     import-dialog.tsx  — Single-thread paste/upload import
     export-dialog.tsx  — Single-thread JSON/markdown export
   ui/                  — shadcn/ui primitives
@@ -74,7 +74,7 @@ hooks/
   use-toast.ts         — Toast notification hook
 
 lib/
-  parse-zip.ts         — Browser-side ZIP parser (extractText, toRole, parseFileJson)
+  parse-zip.ts         — Browser-side ZIP parser (extractText, toRole, parseFileJson) — kept as fallback reference
   queryClient.ts       — TanStack Query client config
   utils.ts             — Tailwind cn() helper
 ```
@@ -84,17 +84,20 @@ lib/
 ```
 routes/
   index.ts             — Mounts all routers
-  threads.ts           — CRUD for threads + requireAuth middleware
+  threads.ts           — CRUD for threads
   messages.ts          — Get/send/stream/import messages
   settings.ts          — User API key + model preferences
   stats.ts             — Aggregate counts (threads, messages)
   health.ts            — GET /api/healthz
+  import.ts            — POST /api/import/upload (multer + SSE streaming import)
 
 lib/
   grok.ts              — streamGrokCompletion() — thin xAI API streaming wrapper
   logger.ts            — pino logger singleton
+  import-stream.ts     — Server-side ZIP/JSON parser + batch DB insert + SSE progress
 
 middlewares/
+  auth.ts              — requireAuth middleware (Clerk userId extraction)
   clerkProxyMiddleware.ts — Clerk auth token extraction
 ```
 
@@ -149,25 +152,33 @@ middlewares/
 | GET | /api/settings | Get user settings |
 | PUT | /api/settings | Update user settings |
 | GET | /api/stats | Get vault stats (thread/message counts) |
+| POST | /api/import/upload | Upload ZIP or JSON archive, stream SSE import progress |
 
-## Bulk ZIP Import (client-side)
+## Bulk Import (server-side streaming)
 
-Triggered by the folder-archive icon in the sidebar. The entire ZIP is parsed in the browser — no file is ever uploaded to the server. This sidesteps the Replit reverse-proxy's ~5-minute request timeout that would abort large uploads.
+Triggered by the folder-archive icon in the sidebar. The file is uploaded to the server as multipart/form-data; all parsing and DB insertion happen there. The browser only needs to upload once — no memory limits, works on any device including low-RAM phones.
 
 **Flow:**
-1. User drops or selects a `.zip` file
-2. `JSZip.loadAsync(file.arrayBuffer())` opens it in the browser
-3. `parseFileJson()` (from `lib/parse-zip.ts`) parses every `.json` file inside
-4. For each conversation: `createThread()` + `importMessages()` are called with small JSON payloads
-5. Progress bar updates live (X of Y conversations saved, last saved title shown)
+1. User drops or selects a `.zip` or `.json` file
+2. `BulkImportDialog` POSTs the file to `POST /api/import/upload` as `multipart/form-data`
+3. Server (multer) saves the file to `/tmp` on disk
+4. Server opens the ZIP with JSZip (`jszip`), finds the target JSON entry, reads it as a string
+5. `JSON.parse()` produces the full object; `extractConversations()` locates the conversation array
+6. Conversations are parsed and batch-inserted to PostgreSQL in groups of 20
+7. An SSE progress event is sent after every batch: `{ type: "progress", processed, imported, skipped }`
+8. A final `{ type: "done", imported, skipped, errors }` event closes the stream
+9. The temp file is deleted; the client refreshes the thread list
 
-**Parser (`lib/parse-zip.ts`)** handles:
-- Top-level arrays of conversation objects
-- Single conversation objects
-- Container objects with `conversations`, `chats`, `data`, `history`, `items`, `results`, or `threads` keys
-- Raw message arrays (treated as a single conversation)
-- Various role names: `user`, `human`, `assistant`, `grok`, `ai`, `bot`, `system`
-- Nested content: `.parts[]`, `.message.content`, author-as-object, etc.
+**`src/lib/import-stream.ts`** handles:
+- ZIP archives and plain JSON files
+- Top-level arrays and container objects (`conversations`, `chats`, `data`, `history`, `items`)
+- Grok's `prod-grok-backend.json` format (`sender` / `message` fields)
+- Various role names: `user`, `human`, `assistant`, `grok`, `ai`, `bot`
+- Nested content: `.parts[]`, `.message.content`, author-as-object
+- Batch DB inserts (20 threads + all their messages per query group)
+- Postgres 65 535-parameter guard (chunked message inserts)
+- Heartbeat comment frames every 20 s to keep the SSE connection alive through proxies
+- 2 GB upload cap; iOS octet-stream MIME type detection for ZIPs
 
 ## Grok Streaming
 
@@ -219,7 +230,7 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 - **Thread list not refreshing after create** — HTTP 304 responses from server cache were hiding new threads. Fixed by adding `Cache-Control: no-store` middleware for all `/api` routes, and using `refetchType: "all"` in query invalidation.
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
 - **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
-- **ZIP import silently failing / "not fetching"** — Root cause: the Replit reverse-proxy has a ~5-minute request timeout. Uploading a large ZIP hit this timeout (`responseTime: 328685ms`, `request aborted`). Fixed by moving all parsing to the browser (JSZip) and sending only small JSON payloads per conversation. The dead backend route (`POST /api/import/zip`) was deleted.
+- **ZIP import crashing on mobile / "not fetching"** — Root cause: browser-side parsing of a 379 MB ZIP required loading the full archive + decompressed JSON into RAM, killing the tab on low-memory devices. Fixed by moving all parsing to the server (`POST /api/import/upload`): the browser only uploads the file, the server extracts, parses, and inserts, streaming SSE progress back. No browser memory limits; works on any device.
 
 ## Security Scan Results (last run: May 1 2026)
 
@@ -234,7 +245,9 @@ All actionable findings have been remediated via `pnpm-workspace.yaml` overrides
 | MODERATE | lodash 4.17.23 | CVE-2026-2950 (prototype pollution) | **Fixed** — override → 4.18.1 |
 | MODERATE | path-to-regexp 8.3.0 | CVE-2026-4923 (ReDoS multiple wildcards) | **Fixed** — override → 8.4.2 |
 | MODERATE | brace-expansion 2.0.2 | CVE-2026-33750 (zero-step hang) | **Fixed** — override → >=2.0.3 |
-| MODERATE | picomatch 2.3.1 | CVE-2026-33672 (method injection) | **Fixed** — override → >=2.3.2 |
+| MODERATE | picomatch 4.0.3 | CVE-2026-33671 (ReDoS) + CVE-2026-33672 (method injection) | **Fixed** — override → >=4.0.4 |
+| MODERATE | postcss <8.5.10 | CVE-2026-41305 (XSS via unescaped `</style>`) | **Fixed** — override → >=8.5.10 |
+| LOW | yaml <2.8.3 | CVE-2026-33532 (stack overflow on deep nesting) | **Fixed** — override → >=2.8.3 |
 
 ### SAST — 1 medium finding
 - `[MEDIUM]` unsafe dynamic method in `artifacts/mockup-sandbox/src/App.tsx` — internal component preview sandboxing framework, not user-facing. Not a production risk.

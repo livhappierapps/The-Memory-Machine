@@ -1,8 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, ilike, count } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -13,24 +12,14 @@ import {
   ExportThreadParams,
   ExportThreadQueryParams,
 } from "@workspace/api-zod";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
-
-const requireAuth = (req: Request, res: Response, next: () => void) => {
-  const auth = getAuth(req);
-  const userId = auth?.sessionClaims?.userId || auth?.userId;
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  (req as any).userId = userId;
-  next();
-};
 
 // List threads
 router.get("/threads", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
 
     // zod.coerce.boolean() converts the string "false" to true — handle manually
     const rawQuery = { ...req.query };
@@ -40,7 +29,7 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
     const parsed = ListThreadsQueryParams.safeParse(rawQuery);
     const query = parsed.success ? parsed.data : {};
 
-    let conditions = [eq(threadsTable.userId, userId)];
+    const conditions = [eq(threadsTable.userId, userId)];
 
     if (query.archived !== undefined) {
       conditions.push(eq(threadsTable.archived, query.archived));
@@ -67,7 +56,7 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
 // Create thread
 router.post("/threads", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const parsed = CreateThreadBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
@@ -93,7 +82,7 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
 // Get thread
 router.get("/threads/:threadId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = GetThreadParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -120,7 +109,7 @@ router.get("/threads/:threadId", requireAuth, async (req: Request, res: Response
 // Update thread
 router.patch("/threads/:threadId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = UpdateThreadParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -153,7 +142,7 @@ router.patch("/threads/:threadId", requireAuth, async (req: Request, res: Respon
 // Delete thread
 router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = DeleteThreadParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -180,7 +169,7 @@ router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Respo
 // Export thread
 router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = ExportThreadParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -230,5 +219,4 @@ router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: R
   }
 });
 
-export { requireAuth };
 export default router;

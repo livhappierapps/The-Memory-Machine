@@ -1,15 +1,15 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, count, min, max, sql } from "drizzle-orm";
-import { requireAuth } from "./threads";
+import { eq, count, min, max, sql } from "drizzle-orm";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-// Get vault stats
+// Get vault stats for the authenticated user
 router.get("/stats", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
 
     const [threadStats] = await db
       .select({
@@ -24,7 +24,6 @@ router.get("/stats", requireAuth, async (req: Request, res: Response) => {
     const total = Number(threadStats?.total ?? 0);
     const archived = Number(threadStats?.archived ?? 0);
 
-    // Get message stats through a join
     const [msgStats] = await db
       .select({
         total: count(),

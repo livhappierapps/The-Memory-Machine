@@ -165,5 +165,9 @@ overrides:
   path-to-regexp: "^8.4.2"
   # CVE-2026-33750: brace-expansion zero-step DoS
   brace-expansion: ">=2.0.3"
-  # CVE-2026-33672: picomatch method injection
-  picomatch: ">=2.3.2"
+  # CVE-2026-33671 + CVE-2026-33672: picomatch ReDoS + method injection
+  picomatch: ">=4.0.4"
+  # CVE-2026-41305: PostCSS XSS via unescaped </style> in stringify output
+  postcss: ">=8.5.10"
+  # CVE-2026-33532: yaml stack overflow via deeply nested YAML
+  yaml: ">=2.8.3"

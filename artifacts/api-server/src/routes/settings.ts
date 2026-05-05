@@ -3,14 +3,14 @@ import { db } from "@workspace/db";
 import { settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { UpdateSettingsBody } from "@workspace/api-zod";
-import { requireAuth } from "./threads";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-// Get settings
+// Get settings — auto-creates defaults on first access
 router.get("/settings", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
 
     let [settings] = await db
       .select()
@@ -18,7 +18,6 @@ router.get("/settings", requireAuth, async (req: Request, res: Response) => {
       .where(eq(settingsTable.userId, userId));
 
     if (!settings) {
-      // Auto-create default settings
       [settings] = await db
         .insert(settingsTable)
         .values({ userId, defaultModel: "grok-3", maxContextMessages: 100 })
@@ -39,24 +38,19 @@ router.get("/settings", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// Update settings
+// Update settings (upsert)
 router.put("/settings", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const parsed = UpdateSettingsBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
       return;
     }
 
-    const updateData: Partial<{
-      apiKey: string;
-      defaultModel: string;
-      maxContextMessages: number;
-    }> = {};
-
+    const updateData: Record<string, unknown> = {};
     if (parsed.data.apiKey !== undefined) {
-      updateData.apiKey = parsed.data.apiKey || null as any;
+      updateData.apiKey = parsed.data.apiKey || null;
     }
     if (parsed.data.defaultModel !== undefined) {
       updateData.defaultModel = parsed.data.defaultModel;
@@ -65,14 +59,13 @@ router.put("/settings", requireAuth, async (req: Request, res: Response) => {
       updateData.maxContextMessages = parsed.data.maxContextMessages;
     }
 
-    // Upsert settings
     const [settings] = await db
       .insert(settingsTable)
       .values({
         userId,
-        apiKey: updateData.apiKey,
-        defaultModel: updateData.defaultModel ?? "grok-3",
-        maxContextMessages: updateData.maxContextMessages ?? 100,
+        apiKey: (updateData.apiKey as string | null) ?? null,
+        defaultModel: (updateData.defaultModel as string) ?? "grok-3",
+        maxContextMessages: (updateData.maxContextMessages as number) ?? 100,
       })
       .onConflictDoUpdate({
         target: settingsTable.userId,

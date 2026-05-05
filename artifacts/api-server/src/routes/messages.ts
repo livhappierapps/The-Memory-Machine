@@ -11,17 +11,18 @@ import {
   StreamMessageParams,
   StreamMessageBody,
 } from "@workspace/api-zod";
-import { requireAuth } from "./threads";
+import { requireAuth } from "../middlewares/auth";
 import { streamGrokCompletion } from "../lib/grok";
 
 const router: IRouter = Router();
 
 const GROK_MAX_TOKENS = 131072;
+void GROK_MAX_TOKENS; // reserved for future per-request token limiting
 
 // Get messages for a thread
 router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = GetThreadMessagesParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -54,7 +55,7 @@ router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res:
 // Save user message (non-streaming)
 router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = SendMessageParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -100,7 +101,7 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
 
 // Stream Grok response via SSE
 router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: Response) => {
-  const userId = (req as any).userId;
+  const userId = req.userId!;
   const params = StreamMessageParams.safeParse({ threadId: req.params.threadId });
   if (!params.success) {
     res.status(400).json({ error: "Invalid thread ID" });
@@ -123,7 +124,6 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       return;
     }
 
-    // Get settings (API key)
     const [settings] = await db
       .select()
       .from(settingsTable)
@@ -153,8 +153,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .where(eq(messagesTable.threadId, params.data.threadId))
       .orderBy(asc(messagesTable.createdAt));
 
-    // Build messages array for Grok API — respect maxContextMessages setting
-    // 0 (or unset) means send the full history
+    // Build messages for Grok API — respect maxContextMessages (0 = unlimited)
     const model = thread.model || settings?.defaultModel || "grok-3";
     const maxCtx = settings?.maxContextMessages ?? 0;
     const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
@@ -176,7 +175,6 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     sendEvent({ type: "user_message", message: userMsg });
 
-    // Stream from Grok API (lib/grok.ts)
     let fullContent = "";
     await streamGrokCompletion(apiKey, model, grokMessages, {
       onToken: (delta) => {
@@ -188,12 +186,12 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
         sendEvent({ type: "error", error: message });
         res.end();
       },
-      onDone: () => {}, // handled below after DB writes
+      onDone: () => {},
     });
 
     if (res.writableEnded) return;
 
-    // Save assistant response
+    // Persist assistant response
     const [assistantMsg] = await db
       .insert(messagesTable)
       .values({
@@ -204,7 +202,6 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       })
       .returning();
 
-    // Update thread message count
     await db
       .update(threadsTable)
       .set({ messageCount: thread.messageCount + 2, lastMessageAt: new Date() })
@@ -222,10 +219,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
   }
 });
 
-// Import messages
+// Import messages into a thread
 router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const userId = req.userId!;
     const params = ImportMessagesParams.safeParse({ threadId: req.params.threadId });
     if (!params.success) {
       res.status(400).json({ error: "Invalid thread ID" });
@@ -250,42 +247,33 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     const { raw, format = "auto" } = parsed.data;
     let parsedMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
 
-    // Try JSON parse first
+    // JSON format
     if (format === "json" || format === "auto") {
       try {
         const json = JSON.parse(raw);
+        const isValidMsg = (m: unknown): m is { role: string; content: string } =>
+          !!m &&
+          typeof (m as any).role === "string" &&
+          typeof (m as any).content === "string" &&
+          ["user", "assistant", "system"].includes((m as any).role);
+
         if (Array.isArray(json)) {
-          parsedMessages = json.filter(
-            (m) =>
-              m &&
-              typeof m.role === "string" &&
-              typeof m.content === "string" &&
-              ["user", "assistant", "system"].includes(m.role),
-          );
+          parsedMessages = json.filter(isValidMsg) as typeof parsedMessages;
         } else if (json.messages && Array.isArray(json.messages)) {
-          parsedMessages = json.messages.filter(
-            (m: unknown) =>
-              m &&
-              typeof (m as any).role === "string" &&
-              typeof (m as any).content === "string" &&
-              ["user", "assistant", "system"].includes((m as any).role),
-          );
+          parsedMessages = json.messages.filter(isValidMsg) as typeof parsedMessages;
         }
       } catch {
-        // not JSON, fall through
+        // not JSON — fall through to text parsing
       }
     }
 
-    // Text parsing if JSON didn't work
-    // Supports two formats:
-    //   1. Grok web copy-paste: "You" / "Grok" as standalone heading lines (no colon)
-    //   2. Inline prefix:  "You: message" / "Grok: message" (with colon)
+    // Text format — supports "You" / "Grok" heading lines and "You: …" inline prefixes
     if (parsedMessages.length === 0 && (format === "text" || format === "auto")) {
       const lines = raw.split("\n");
       let currentRole: "user" | "assistant" | null = null;
       let currentContent: string[] = [];
 
-      const flushCurrent = () => {
+      const flush = () => {
         if (currentRole && currentContent.length > 0) {
           const text = currentContent.join("\n").trim();
           if (text) parsedMessages.push({ role: currentRole, content: text });
@@ -293,38 +281,28 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
         }
       };
 
-      // Patterns for standalone heading lines (Grok web format)
       const USER_HEADING = /^(you|human|user)$/i;
       const ASST_HEADING = /^(grok|assistant|ai|bot)$/i;
-
-      // Patterns for inline prefix lines (colon format)
       const USER_INLINE = /^(you|human|user)\s*:/i;
       const ASST_INLINE = /^(grok|assistant|ai|bot)\s*:/i;
 
       for (const line of lines) {
         const trimmed = line.trim();
-
         if (USER_HEADING.test(trimmed)) {
-          flushCurrent();
-          currentRole = "user";
-          // heading-only line — content starts on next line
+          flush(); currentRole = "user";
         } else if (ASST_HEADING.test(trimmed)) {
-          flushCurrent();
-          currentRole = "assistant";
-          // heading-only line — content starts on next line
+          flush(); currentRole = "assistant";
         } else if (USER_INLINE.test(trimmed)) {
-          flushCurrent();
-          currentRole = "user";
+          flush(); currentRole = "user";
           currentContent = [trimmed.replace(/^[^:]+:\s*/i, "")];
         } else if (ASST_INLINE.test(trimmed)) {
-          flushCurrent();
-          currentRole = "assistant";
+          flush(); currentRole = "assistant";
           currentContent = [trimmed.replace(/^[^:]+:\s*/i, "")];
         } else if (currentRole !== null) {
           currentContent.push(line);
         }
       }
-      flushCurrent();
+      flush();
     }
 
     if (parsedMessages.length === 0) {

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/react";
 import { getListThreadsQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
 import { FileArchive, CheckCircle2, AlertCircle, Loader2, Info } from "lucide-react";
 
@@ -63,6 +64,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
+  const { getToken } = useAuth();
 
   const resetState = () => {
     abortRef.current = null;
@@ -97,6 +99,13 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
       const uploadId = crypto.randomUUID();
       const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+      // Helper: get a fresh Clerk JWT right before each request so a long
+      // upload on a slow connection never hits a 401 from an expired token.
+      const authHeader = async (): Promise<Record<string, string>> => {
+        const token = await getToken();
+        return token ? { Authorization: `Bearer ${token}` } : {};
+      };
+
       setPhase("uploading");
       setUploadProgress({ chunk: 0, total: totalChunks });
 
@@ -115,10 +124,12 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
           fd.append("chunkIndex", String(i));
           fd.append("totalChunks", String(totalChunks));
 
+          // Fetch a fresh token every chunk — slow connections outlast cookie TTL
           const resp = await fetch(`${basePath}/api/import/chunk`, {
             method: "POST",
             body: fd,
             credentials: "include",
+            headers: await authHeader(),
             signal: controller.signal,
           });
 
@@ -137,7 +148,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         const processResp = await fetch(`${basePath}/api/import/finalize`, {
           method: "POST",
           body: JSON.stringify({ uploadId, totalChunks, isZip }),
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           credentials: "include",
           signal: controller.signal,
         });

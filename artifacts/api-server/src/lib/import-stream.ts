@@ -142,31 +142,54 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
         inner.response ??
         inner.message ??
         (typeof msg.message === "string" ? msg.message : undefined) ??
+        // Audio transcription fields (Grok voice / camera conversations)
+        msg.transcription ??
+        msg.audioTranscription ??
+        msg.audio_transcription ??
+        inner.transcription ??
+        inner.audioTranscription ??
         // Grok sometimes puts the text inside a nested responseData object
         (msg.responseData && typeof msg.responseData === "object"
           ? (msg.responseData as Record<string, unknown>).text
+          : undefined) ??
+        // Some exporters nest content inside a userMedia or mediaMessage object
+        (msg.userMedia && typeof msg.userMedia === "object"
+          ? (msg.userMedia as Record<string, unknown>).transcription
           : undefined);
       content = extractText(rawContent);
     }
 
-    // If text is empty but there are attachments, synthesise a label so the
-    // conversation is still importable (e.g. image-only exchanges)
+    // Fallback 1: attachment labels (images, files, videos)
     if (!content.trim()) {
       const attachments = msg.attachments ?? inner.attachments ?? msg.files ?? inner.files;
       content = attachmentLabel(attachments);
+    }
+
+    // Fallback 2: detect audio/voice markers and use a placeholder so that
+    // voice-only conversations (very common in Grok camera/audio mode) are
+    // still preserved rather than lost entirely.
+    if (!content.trim()) {
+      const hasAudio =
+        msg.audio != null ||
+        msg.audioData != null ||
+        inner.audio != null ||
+        msg.isAudio === true ||
+        msg.messageType === "audio" ||
+        inner.messageType === "audio" ||
+        String(msg.type ?? inner.type ?? "").toLowerCase().includes("audio") ||
+        String(msg.type ?? inner.type ?? "").toLowerCase().includes("voice");
+      if (hasAudio) content = "[Voice message]";
     }
 
     if (content.trim()) messages.push({ role, content: content.trim() });
   }
 
   if (messages.length === 0) {
-    // Log the raw structure of the first skipped conversation so we can improve
-    // the parser without needing to see the user's file directly.
+    // Log a safe sample of the raw structure so we can improve the parser
+    // without needing to see the user's actual file.
+    const sample = raws[0] !== undefined ? JSON.stringify(raws[0]) : "(empty messages array)";
     logger.warn(
-      {
-        keys: Object.keys(c),
-        sampleRaw: JSON.stringify(raws[0]).slice(0, 300),
-      },
+      { convKeys: Object.keys(c), sampleRaw: sample.slice(0, 400) },
       "Conversation skipped — no parseable messages",
     );
     return null;

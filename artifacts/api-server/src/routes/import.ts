@@ -104,9 +104,13 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     if (!res.writableEnded) res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Heartbeat every 8 s — keeps the iOS connection alive through proxies
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) res.write(": heartbeat\n\n");
-  }, 20_000);
+  }, 8_000);
+
+  // Tell the client immediately so it knows things are happening
+  sendEvent({ type: "status", message: "Assembling your file…" });
 
   const chunkDir = path.join(os.tmpdir(), `vault-chunks-${uploadId}`);
   const assembledPath = path.join(os.tmpdir(), `vault-assembled-${uploadId}`);
@@ -124,6 +128,8 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
       writeStream.on("finish", resolve);
       writeStream.on("error", reject);
     });
+
+    sendEvent({ type: "status", message: "Opening archive…" });
 
     req.log.info(
       { userId: req.userId, uploadId, total, isZip },

@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/react";
 import { getListThreadsQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
-import { FileArchive, CheckCircle2, AlertCircle, Loader2, Info } from "lucide-react";
+import { FileArchive, CheckCircle2, AlertCircle, Loader2, Info, WifiOff } from "lucide-react";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ interface BulkImportDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Phase = "idle" | "uploading" | "processing" | "done" | "error";
+type Phase = "idle" | "uploading" | "processing" | "done" | "error" | "interrupted";
 
 interface UploadProgress {
   chunk: number; // chunks sent so far
@@ -57,6 +57,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   const [phase, setPhase] = useState<Phase>("idle");
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({ chunk: 0, total: 1 });
   const [savedCount, setSavedCount] = useState(0);
+  const [statusMsg, setStatusMsg] = useState(""); // server status during assembly
   const [result, setResult] = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -71,6 +72,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
     setPhase("idle");
     setUploadProgress({ chunk: 0, total: 1 });
     setSavedCount(0);
+    setStatusMsg("");
     setResult(null);
     setErrorMsg("");
     if (fileRef.current) fileRef.current.value = "";
@@ -164,6 +166,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         const reader = processResp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let receivedDone = false;
 
         outer: while (true) {
           const { done, value } = await reader.read();
@@ -185,9 +188,14 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
                 message?: string;
               };
 
-              if (event.type === "progress") {
+              if (event.type === "status") {
+                // Server status message during assembly / archive opening
+                setStatusMsg(event.message ?? "");
+              } else if (event.type === "progress") {
+                setStatusMsg("");
                 setSavedCount(event.imported ?? 0);
               } else if (event.type === "done") {
+                receivedDone = true;
                 setResult({
                   imported: event.imported ?? 0,
                   skipped: event.skipped ?? 0,
@@ -213,6 +221,23 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
             }
           }
         }
+
+        // Stream ended without a "done" event — the connection was probably
+        // dropped by the network (phone screen off, iOS backgrounded the tab).
+        // The server may have finished anyway, so refresh the list and let
+        // the user check rather than showing a scary error.
+        if (!receivedDone) {
+          queryClient.invalidateQueries({
+            queryKey: getListThreadsQueryKey(),
+            exact: false,
+            refetchType: "all",
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetStatsQueryKey(),
+            refetchType: "all",
+          });
+          setPhase("interrupted");
+        }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorMsg(
@@ -221,7 +246,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         setPhase("error");
       }
     },
-    [queryClient],
+    [queryClient, getToken],
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,11 +298,15 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         )}
 
         {phase === "processing" && (
-          <ProcessingView savedCount={savedCount} onCancel={handleClose} />
+          <ProcessingView savedCount={savedCount} statusMsg={statusMsg} onCancel={handleClose} />
         )}
 
         {phase === "done" && result && (
           <DoneView result={result} onImportAnother={resetState} onClose={handleClose} />
+        )}
+
+        {phase === "interrupted" && (
+          <InterruptedView onClose={handleClose} />
         )}
 
         {phase === "error" && (
@@ -403,28 +432,60 @@ function UploadingView({
 
 function ProcessingView({
   savedCount,
+  statusMsg,
   onCancel,
 }: {
   savedCount: number;
+  statusMsg: string;
   onCancel: () => void;
 }) {
+  const label = statusMsg
+    ? statusMsg
+    : savedCount > 0
+      ? `Saving conversations… ${savedCount} done so far`
+      : "Analysing your conversations…";
+
   return (
     <div className="mt-2 space-y-5">
       <div className="flex items-center gap-3 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
-        <span>
-          {savedCount > 0
-            ? `Saving conversations… ${savedCount} done so far`
-            : "Analysing your conversations…"}
-        </span>
+        <span>{label}</span>
       </div>
 
       <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
         <div className="h-full bg-primary rounded-full animate-pulse w-full opacity-40" />
       </div>
 
+      <p className="text-xs text-muted-foreground text-center">
+        Keep this screen open — processing large files can take a few minutes.
+      </p>
+
       <Button variant="outline" size="sm" onClick={onCancel} className="w-full">
         Cancel
+      </Button>
+    </div>
+  );
+}
+
+function InterruptedView({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="mt-2 space-y-4">
+      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+        <WifiOff className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-medium text-amber-500">Connection was interrupted</p>
+          <p className="text-muted-foreground mt-1">
+            Your file uploaded successfully. The server may have finished saving your
+            conversations — check your conversation list now. If nothing appears, try
+            importing again.
+          </p>
+        </div>
+      </div>
+      <Button
+        className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        onClick={onClose}
+      >
+        Check my conversations
       </Button>
     </div>
   );

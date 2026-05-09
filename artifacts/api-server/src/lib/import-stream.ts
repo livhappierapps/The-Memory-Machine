@@ -91,19 +91,7 @@ interface ParsedConversation {
   messages: ParsedMessage[];
 }
 
-function parseConversationItem(o: unknown): ParsedConversation | null {
-  if (!o || typeof o !== "object") return null;
-  const c = o as Record<string, unknown>;
-
-  // Locate the message list under several common key names
-  let raws: unknown[] = [];
-  if (Array.isArray(c.messages)) raws = c.messages;
-  else if (Array.isArray(c.turns)) raws = c.turns;
-  else if (Array.isArray(c.conversation)) raws = c.conversation;
-  else if (Array.isArray(c.history)) raws = c.history;
-  else if (c.mapping && typeof c.mapping === "object")
-    raws = Object.values(c.mapping as Record<string, unknown>);
-
+function tryExtractMessages(raws: unknown[]): ParsedMessage[] {
   const messages: ParsedMessage[] = [];
 
   for (const m of raws) {
@@ -142,32 +130,27 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
         inner.response ??
         inner.message ??
         (typeof msg.message === "string" ? msg.message : undefined) ??
-        // Audio transcription fields (Grok voice / camera conversations)
         msg.transcription ??
         msg.audioTranscription ??
         msg.audio_transcription ??
         inner.transcription ??
         inner.audioTranscription ??
-        // Grok sometimes puts the text inside a nested responseData object
         (msg.responseData && typeof msg.responseData === "object"
           ? (msg.responseData as Record<string, unknown>).text
           : undefined) ??
-        // Some exporters nest content inside a userMedia or mediaMessage object
         (msg.userMedia && typeof msg.userMedia === "object"
           ? (msg.userMedia as Record<string, unknown>).transcription
           : undefined);
       content = extractText(rawContent);
     }
 
-    // Fallback 1: attachment labels (images, files, videos)
+    // Fallback 1: attachment labels
     if (!content.trim()) {
       const attachments = msg.attachments ?? inner.attachments ?? msg.files ?? inner.files;
       content = attachmentLabel(attachments);
     }
 
-    // Fallback 2: detect audio/voice markers and use a placeholder so that
-    // voice-only conversations (very common in Grok camera/audio mode) are
-    // still preserved rather than lost entirely.
+    // Fallback 2: audio/voice placeholder
     if (!content.trim()) {
       const hasAudio =
         msg.audio != null ||
@@ -184,12 +167,59 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
     if (content.trim()) messages.push({ role, content: content.trim() });
   }
 
+  return messages;
+}
+
+function parseConversationItem(o: unknown): ParsedConversation | null {
+  if (!o || typeof o !== "object") return null;
+  const c = o as Record<string, unknown>;
+
+  // ── Step 1: locate the message list ────────────────────────────────────────
+  // Try known key names first, then fall back to scanning every array-valued
+  // key in the object (handles unknown / future Grok export formats).
+  let raws: unknown[] = [];
+  let foundKey = "";
+
+  const knownKeys = ["messages", "turns", "conversation", "history", "responses", "exchanges", "items", "entries", "chat", "dialogue", "thread"];
+  for (const key of knownKeys) {
+    if (Array.isArray(c[key]) && (c[key] as unknown[]).length > 0) {
+      raws = c[key] as unknown[];
+      foundKey = key;
+      break;
+    }
+  }
+
+  // mapping is a special object-of-objects format (ChatGPT style)
+  if (raws.length === 0 && c.mapping && typeof c.mapping === "object") {
+    raws = Object.values(c.mapping as Record<string, unknown>);
+    foundKey = "mapping";
+  }
+
+  // Last resort: scan every key for a non-empty array and try to parse messages from it
+  if (raws.length === 0) {
+    for (const [key, val] of Object.entries(c)) {
+      if (Array.isArray(val) && val.length > 0) {
+        const candidate = tryExtractMessages(val as unknown[]);
+        if (candidate.length > 0) {
+          raws = val as unknown[];
+          foundKey = key;
+          break;
+        }
+      }
+    }
+  }
+
+  if (foundKey) {
+    logger.debug({ foundKey, rawCount: raws.length }, "Import: found message array");
+  }
+
+  const messages = tryExtractMessages(raws);
+
   if (messages.length === 0) {
-    // Log a safe sample of the raw structure so we can improve the parser
-    // without needing to see the user's actual file.
-    const sample = raws[0] !== undefined ? JSON.stringify(raws[0]) : "(empty messages array)";
+    // Log the raw structure of the first message so we can see unknown formats
+    const sample = raws[0] !== undefined ? JSON.stringify(raws[0]).slice(0, 500) : "(empty)";
     logger.warn(
-      { convKeys: Object.keys(c), sampleRaw: sample.slice(0, 400) },
+      { convKeys: Object.keys(c), foundKey, rawCount: raws.length, sampleRaw: sample },
       "Conversation skipped — no parseable messages",
     );
     return null;
@@ -200,8 +230,7 @@ function parseConversationItem(o: unknown): ParsedConversation | null {
     (typeof c.title === "string" && c.title) ||
     (typeof c.name === "string" && c.name) ||
     (typeof c.subject === "string" && c.subject) ||
-    (typeof (c as Record<string, unknown>).conversationTitle === "string" &&
-      (c as Record<string, unknown>).conversationTitle) ||
+    (typeof c.conversationTitle === "string" && c.conversationTitle) ||
     messages.find((m) => m.role === "user")?.content.slice(0, 80) ||
     "Imported conversation";
 

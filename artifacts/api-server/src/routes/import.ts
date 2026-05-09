@@ -63,7 +63,9 @@ router.post(
     } catch {
       // Fall back to copy+delete when crossing filesystem boundaries
       await fs.promises.copyFile(req.file.path, destPath);
-      fs.unlink(req.file.path, () => {});
+      await fs.promises.unlink(req.file.path).catch((e: unknown) => {
+        req.log.warn({ err: e, path: req.file!.path }, "Failed to delete temp chunk after copy");
+      });
     }
 
     res.json({ received: true, chunkIndex: idx });

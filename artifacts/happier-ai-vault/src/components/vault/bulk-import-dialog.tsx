@@ -13,7 +13,7 @@
  *   done      → success summary
  *   error     → error message with retry
  */
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +64,9 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Mirror phase into a ref so setTimeout callbacks can read the latest value
+  const phaseRef = useRef<Phase>("idle");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
 
@@ -78,21 +81,41 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // Only allow the dialog to close if we're not mid-upload/processing.
-  // On iOS, dismissing the native file-picker sheet fires an onOpenChange(false)
-  // event which would otherwise abort the upload and reset state immediately.
+  // Guard dialog close events that come from the system (backdrop tap, Escape,
+  // or — critically on Android/iOS — the file-picker sheet dismissing).
+  //
+  // Problem: on Android/Samsung, when the user picks a file the OS fires
+  // onOpenChange(false) BEFORE the input's onChange fires. At that instant
+  // phase is still "idle", so a naive phase check lets the close through and
+  // the dialog snaps shut before the upload even starts.
+  //
+  // Fix: when idle, delay 400 ms and re-check the phase via a ref. By then
+  // processFile has already run and changed phase to "uploading" → we swallow
+  // the close. If the user really did dismiss without picking a file the phase
+  // is still "idle" after the delay → we close normally.
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && phase !== "idle" && phase !== "done" && phase !== "error" && phase !== "interrupted") {
-      // Active upload/processing — swallow the close event
+    if (nextOpen) { onOpenChange(true); return; }
+
+    // Never close mid-upload or mid-processing
+    if (phase === "uploading" || phase === "processing") return;
+
+    if (phase === "idle") {
+      // Delay to let the file onChange fire first
+      setTimeout(() => {
+        if (phaseRef.current === "idle") {
+          abortRef.current?.abort();
+          resetState();
+          onOpenChange(false);
+        }
+        // else: a file was picked and upload started — keep dialog open
+      }, 400);
       return;
     }
-    if (!nextOpen) {
-      abortRef.current?.abort();
-      resetState();
-      onOpenChange(false);
-    } else {
-      onOpenChange(true);
-    }
+
+    // done / error / interrupted — allow close immediately
+    abortRef.current?.abort();
+    resetState();
+    onOpenChange(false);
   };
 
   const handleClose = () => {

@@ -16,8 +16,6 @@ import { streamGrokCompletion } from "../lib/grok";
 
 const router: IRouter = Router();
 
-const GROK_MAX_TOKENS = 131072;
-void GROK_MAX_TOKENS; // reserved for future per-request token limiting
 
 // Get messages for a thread
 router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res: Response) => {

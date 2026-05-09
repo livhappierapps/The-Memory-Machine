@@ -63,14 +63,24 @@ export function useChatStream() {
               if (event.type === "user_message") {
                 queryClient.setQueryData<Message[]>(
                   getGetThreadMessagesQueryKey(threadId),
-                  (old) => [...(old ?? []), event.message],
+                  (old) => {
+                    const msgs = old ?? [];
+                    return msgs.some((m) => m.id === event.message.id)
+                      ? msgs
+                      : [...msgs, event.message];
+                  },
                 );
               } else if (event.type === "token") {
                 setStreamingContent((prev) => prev + event.content);
               } else if (event.type === "done") {
                 queryClient.setQueryData<Message[]>(
                   getGetThreadMessagesQueryKey(threadId),
-                  (old) => [...(old ?? []), event.message],
+                  (old) => {
+                    const msgs = old ?? [];
+                    return msgs.some((m) => m.id === event.message.id)
+                      ? msgs
+                      : [...msgs, event.message];
+                  },
                 );
                 setStreamingContent("");
               } else if (event.type === "error") {

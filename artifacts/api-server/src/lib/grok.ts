@@ -51,7 +51,11 @@ export async function streamGrokCompletion(
     return;
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    callbacks.onError("Grok API returned an empty response body");
+    return;
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";

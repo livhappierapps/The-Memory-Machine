@@ -78,6 +78,23 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  // Only allow the dialog to close if we're not mid-upload/processing.
+  // On iOS, dismissing the native file-picker sheet fires an onOpenChange(false)
+  // event which would otherwise abort the upload and reset state immediately.
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && phase !== "idle" && phase !== "done" && phase !== "error" && phase !== "interrupted") {
+      // Active upload/processing — swallow the close event
+      return;
+    }
+    if (!nextOpen) {
+      abortRef.current?.abort();
+      resetState();
+      onOpenChange(false);
+    } else {
+      onOpenChange(true);
+    }
+  };
+
   const handleClose = () => {
     abortRef.current?.abort();
     resetState();
@@ -267,7 +284,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
       : 0;
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Import Grok Export</DialogTitle>

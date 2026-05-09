@@ -285,7 +285,13 @@ export async function streamImportFile(
       return;
     }
 
-    const jsonEntries = Object.entries(zip.files).filter(
+    const allEntries = Object.entries(zip.files);
+    logger.info(
+      { allFiles: allEntries.map(([name, f]) => ({ name, dir: f.dir })).slice(0, 50) },
+      "Import: ZIP contents",
+    );
+
+    const jsonEntries = allEntries.filter(
       ([name, f]) => !f.dir && name.toLowerCase().endsWith(".json"),
     );
 
@@ -295,10 +301,12 @@ export async function streamImportFile(
     }
 
     // Prefer the known Grok backend export; otherwise take the first JSON entry
-    const [, bestEntry] =
+    const [bestName, bestEntry] =
       jsonEntries.find(([name]) => name.toLowerCase().includes("grok-backend")) ??
       jsonEntries.find(([name]) => name.toLowerCase().includes("conversation")) ??
       jsonEntries[0];
+
+    logger.info({ selectedFile: bestName, totalJsonFiles: jsonEntries.length }, "Import: selected JSON file");
 
     jsonText = await bestEntry.async("string");
   } else {
@@ -317,6 +325,17 @@ export async function streamImportFile(
   (jsonText as unknown) = null;
 
   const rawConversations = extractConversations(json);
+
+  // Log the top-level shape so we can diagnose unknown formats
+  if (json && typeof json === "object" && !Array.isArray(json)) {
+    logger.info(
+      { topLevelKeys: Object.keys(json as Record<string, unknown>).slice(0, 30) },
+      "Import: top-level JSON keys",
+    );
+  } else if (Array.isArray(json)) {
+    logger.info({ isArray: true, length: (json as unknown[]).length }, "Import: top-level is array");
+  }
+
   (json as unknown) = null;
 
   if (rawConversations.length === 0) {
@@ -327,6 +346,16 @@ export async function streamImportFile(
         "Make sure you are using a Grok export ZIP or a conversations JSON file.",
     });
     return;
+  }
+
+  // Log the shape of the first few raw conversation objects so we can see unknown formats
+  for (let i = 0; i < Math.min(3, rawConversations.length); i++) {
+    const item = rawConversations[i];
+    if (item && typeof item === "object") {
+      const keys = Object.keys(item as Record<string, unknown>);
+      const sample = JSON.stringify(item).slice(0, 600);
+      logger.info({ index: i, keys, sample }, "Import: raw conversation sample");
+    }
   }
 
   // ── 3. Parse + batch-insert ─────────────────────────────────────────────

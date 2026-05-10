@@ -2,7 +2,7 @@ import { useGetThread, useGetThreadMessages, useUpdateThread, useDeleteThread, g
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
 
-export function ChatArea({ threadId, onBack }: { threadId: number; onBack?: () => void }) {
+export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; onBack?: () => void; onDeleted?: () => void }) {
   const { data: thread, isLoading: threadLoading } = useGetThread(threadId, {
     query: { enabled: !!threadId, queryKey: getGetThreadQueryKey(threadId) }
   });
@@ -81,7 +81,7 @@ export function ChatArea({ threadId, onBack }: { threadId: number; onBack?: () =
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
-          window.location.reload(); // Simple way to clear active thread
+          onDeleted?.();
         }
       });
     }
@@ -176,7 +176,7 @@ export function ChatArea({ threadId, onBack }: { threadId: number; onBack?: () =
               <div className="flex gap-2 items-center mt-1.5 text-xs text-muted-foreground px-1 opacity-60">
                 <span>{msg.role === 'user' ? 'You' : 'Grok'}</span>
                 <span>•</span>
-                <span>{format(new Date(msg.createdAt), "h:mm a")}</span>
+                <span>{isValid(new Date(msg.createdAt)) ? format(new Date(msg.createdAt), "h:mm a") : ""}</span>
               </div>
             </div>
           ))

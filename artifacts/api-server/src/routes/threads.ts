@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, ilike } from "drizzle-orm";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -35,16 +35,15 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
       conditions.push(eq(threadsTable.archived, query.archived));
     }
 
-    let rows = await db
+    if (query.search) {
+      conditions.push(ilike(threadsTable.title, `%${query.search}%`));
+    }
+
+    const rows = await db
       .select()
       .from(threadsTable)
       .where(and(...conditions))
       .orderBy(desc(threadsTable.pinned), desc(threadsTable.lastMessageAt), desc(threadsTable.createdAt));
-
-    if (query.search) {
-      const s = query.search.toLowerCase();
-      rows = rows.filter((r) => r.title.toLowerCase().includes(s));
-    }
 
     res.json(rows);
   } catch (err) {

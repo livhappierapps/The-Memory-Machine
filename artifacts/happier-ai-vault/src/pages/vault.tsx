@@ -18,6 +18,11 @@ export default function Vault() {
     setMobileChatVisible(false);
   };
 
+  const handleDeleted = () => {
+    setActiveThreadId(null);
+    setMobileChatVisible(false);
+  };
+
   return (
     <>
       <Show when="signed-out">
@@ -49,7 +54,7 @@ export default function Vault() {
               `}
             >
               {activeThreadId ? (
-                <ChatArea threadId={activeThreadId} onBack={handleBack} />
+                <ChatArea threadId={activeThreadId} onBack={handleBack} onDeleted={handleDeleted} />
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
                   <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">

@@ -6,6 +6,7 @@ import path from "path";
 import { pipeline } from "stream/promises";
 import { requireAuth } from "../middlewares/auth";
 import { streamImportFile } from "../lib/import-stream";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -144,8 +145,12 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });
   } finally {
     clearInterval(heartbeat);
-    fs.rm(chunkDir, { recursive: true, force: true }, () => {});
-    fs.unlink(assembledPath, () => {});
+    fs.rm(chunkDir, { recursive: true, force: true }, (err) => {
+      if (err) logger.warn({ err, chunkDir }, "Failed to remove chunk directory");
+    });
+    fs.unlink(assembledPath, (err) => {
+      if (err) logger.warn({ err, assembledPath }, "Failed to remove assembled file");
+    });
     res.end();
   }
 });

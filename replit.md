@@ -233,12 +233,18 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
 - **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
 - **ZIP import crashing on mobile / "not fetching"** — Root cause: browser-side parsing of a 379 MB ZIP required loading the full archive + decompressed JSON into RAM, killing the tab on low-memory devices. Fixed by moving all parsing to the server with chunked upload: the browser sends 10 MB slices, the server reassembles, parses, and inserts, streaming SSE progress back. No browser memory limits; works on any device.
-- **Import dialog closing immediately on Android** — Android fires `onOpenChange(false)` before the file picker `onChange` fires. Fixed with a 400 ms delayed check using a `phaseRef` — if the phase moved to "uploading" by then, the close event is swallowed.
+- **Import dialog closing immediately on Android** — Android fires `onOpenChange(false)` the instant the file picker sheet opens (not when the user picks a file). The old 400 ms timer fix was too short — the picker stays open for several seconds while browsing. Fixed with `filePickerOpenRef` + `window focus` event: `openFilePicker()` sets the flag true and listens for `window focus` (once), which fires 600 ms after the picker closes. `handleOpenChange` blocks all closes while the flag is set. `onFileChange` immediately clears the flag. No timing assumptions or race conditions.
 - **Import showing "done, 0 saved"** — Parser format mismatch. Fixed by refactoring `import-stream.ts` into a `tryExtractMessages()` helper with an aggressive fallback that scans all array-valued keys on conversation objects when known field names (`messages`, `turns`, etc.) are absent.
 - **SSE connection drop UX** — Long imports through a mobile network could silently stall. Fixed by reducing heartbeat interval to 8 s and adding an `interrupted` phase in the dialog with a "Check my conversations" button instead of a silent hang.
 - **Duplicate messages on network retry** — `setQueryData` in `use-chat-stream.ts` could append the same message twice if an SSE event was replayed. Fixed by deduplicating on message ID before appending.
 
-## Security Scan Results (last run: May 9 2026)
+- **White-screen crash on bad data** — No React Error Boundary meant any component throw (e.g. bad date from API, undefined property on a message) would crash the entire app to a blank page. Fixed by adding `ErrorBoundary` class component wrapping the whole app in `App.tsx`, showing a "Something went wrong / Try again" recovery screen.
+- **Date parsing crash in chat area** — `format(new Date(msg.createdAt), ...)` would throw if the API returned an invalid date string, crashing the message list. Fixed by wrapping with `isValid(new Date(...))` guard — invalid dates render as an empty string instead.
+- **Delete vault caused full page reload on mobile** — `window.location.reload()` in `handleDelete` caused a jarring full-page flicker on mobile. Fixed by adding an `onDeleted` prop to `ChatArea`; vault page clears `activeThreadId` and returns to the sidebar cleanly without a reload.
+- **Thread search was in-memory (slow at scale)** — The search filter was fetching all threads from the DB and filtering in JavaScript. Fixed by pushing the filter into the SQL query using Drizzle's `ilike()` so only matching rows are returned.
+- **Silent cleanup failures in import finalize** — `fs.rm` and `fs.unlink` in the finalize route used empty `() => {}` callbacks, swallowing any cleanup errors silently. Fixed by logging warnings via the module-level `logger` if either call fails.
+
+## Security Scan Results (last run: May 10 2026)
 
 ### Dependency Audit — 0 critical, 0 high, 0 moderate
 
@@ -250,6 +256,17 @@ All previously reported vulnerabilities have been fully remediated via `pnpm-wor
 - `[MEDIUM]` unsafe dynamic module lookup in `artifacts/mockup-sandbox/src/App.tsx` — internal component preview sandboxing framework, not user-facing. Not a production risk.
 
 ### HoundDog — 0 findings
+
+## E2E Test Results (last run: May 10 2026)
+
+Full pass — all flows tested:
+- Clerk sign-in (programmatic)
+- Vault page loads, sidebar visible, empty state correct
+- New thread creation via "New Vault" button
+- Sending a chat message (user message appears; assistant error is expected with no API key)
+- Chat header dropdown opens with Archive/Delete options
+- Settings page loads without crash (API key, model, context fields visible)
+- Navigation back to vault — thread persists in sidebar
 
 ## Workflows
 

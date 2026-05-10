@@ -64,14 +64,29 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // phaseRef must stay in sync with phase so the 400 ms setTimeout in
-  // handleOpenChange always sees the latest value — even before React has
-  // re-rendered.  We update it synchronously here instead of via useEffect
-  // so there is no window where the ref lags behind the state.
+  // True while the OS file-picker sheet is open. Android/Samsung fires
+  // onOpenChange(false) the instant the picker opens (before the user picks
+  // anything), so we block dialog closes while this is set.
+  const filePickerOpenRef = useRef(false);
+  // Synchronous phase mirror so handleOpenChange can read the latest phase
+  // without waiting for a React re-render.
   const phaseRef = useRef<Phase>("idle");
   const setPhaseSync = useCallback((p: Phase) => {
     phaseRef.current = p;
     setPhase(p);
+  }, []);
+
+  // Open the native file picker and mark the picker as "in progress".
+  // When the picker closes — whether the user picked a file or hit Back —
+  // the window regains focus. We wait 600 ms after that to let onFileChange
+  // fire first, then clear the flag so the dialog can be dismissed normally.
+  const openFilePicker = useCallback(() => {
+    filePickerOpenRef.current = true;
+    fileRef.current?.click();
+    const onFocus = () => {
+      setTimeout(() => { filePickerOpenRef.current = false; }, 600);
+    };
+    window.addEventListener("focus", onFocus, { once: true });
   }, []);
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
@@ -88,37 +103,19 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   };
 
   // Guard dialog close events that come from the system (backdrop tap, Escape,
-  // or — critically on Android/iOS — the file-picker sheet dismissing).
+  // or — critically on Android/Samsung — the file-picker sheet dismissing).
   //
-  // Problem: on Android/Samsung, when the user picks a file the OS fires
-  // onOpenChange(false) BEFORE the input's onChange fires. At that instant
-  // phase is still "idle", so a naive phase check lets the close through and
-  // the dialog snaps shut before the upload even starts.
-  //
-  // Fix: when idle, delay 400 ms and re-check the phase via a ref. By then
-  // processFile has already run and changed phase to "uploading" → we swallow
-  // the close. If the user really did dismiss without picking a file the phase
-  // is still "idle" after the delay → we close normally.
+  // Android fires onOpenChange(false) the instant the system file picker
+  // opens, long before the user has picked anything. We block all closes
+  // while filePickerOpenRef is true. Once the picker closes (window focus
+  // returns), the ref is cleared after 600 ms and the dialog becomes
+  // dismissable normally again.
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) { onOpenChange(true); return; }
-
     // Never close mid-upload or mid-processing
-    if (phase === "uploading" || phase === "processing") return;
-
-    if (phase === "idle") {
-      // Delay to let the file onChange fire first
-      setTimeout(() => {
-        if (phaseRef.current === "idle") {
-          abortRef.current?.abort();
-          resetState();
-          onOpenChange(false);
-        }
-        // else: a file was picked and upload started — keep dialog open
-      }, 400);
-      return;
-    }
-
-    // done / error / interrupted — allow close immediately
+    if (phaseRef.current === "uploading" || phaseRef.current === "processing") return;
+    // Never close while the OS file picker sheet is still open
+    if (filePickerOpenRef.current) return;
     abortRef.current?.abort();
     resetState();
     onOpenChange(false);
@@ -296,6 +293,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    filePickerOpenRef.current = false; // picker definitely closed
     const file = e.target.files?.[0];
     if (file) processFile(file);
   };
@@ -327,6 +325,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
           <DropZone
             dragOver={dragOver}
             fileRef={fileRef}
+            onBrowse={openFilePicker}
             onFileChange={onFileChange}
             onDrop={onDrop}
             onDragOver={() => setDragOver(true)}
@@ -368,6 +367,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 function DropZone({
   dragOver,
   fileRef,
+  onBrowse,
   onFileChange,
   onDrop,
   onDragOver,
@@ -375,6 +375,7 @@ function DropZone({
 }: {
   dragOver: boolean;
   fileRef: React.RefObject<HTMLInputElement | null>;
+  onBrowse: () => void;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDrop: (e: React.DragEvent) => void;
   onDragOver: () => void;
@@ -391,8 +392,8 @@ function DropZone({
       role="button"
       tabIndex={0}
       aria-label="Click or drag a file here to import"
-      onClick={() => fileRef.current?.click()}
-      onKeyDown={(e) => e.key === "Enter" && fileRef.current?.click()}
+      onClick={onBrowse}
+      onKeyDown={(e) => e.key === "Enter" && onBrowse()}
       onDragOver={(e) => {
         e.preventDefault();
         onDragOver();

@@ -13,7 +13,7 @@
  *   done      → success summary
  *   error     → error message with retry
  */
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -64,15 +64,21 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
 
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // Mirror phase into a ref so setTimeout callbacks can read the latest value
+  // phaseRef must stay in sync with phase so the 400 ms setTimeout in
+  // handleOpenChange always sees the latest value — even before React has
+  // re-rendered.  We update it synchronously here instead of via useEffect
+  // so there is no window where the ref lags behind the state.
   const phaseRef = useRef<Phase>("idle");
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const setPhaseSync = useCallback((p: Phase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  }, []);
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
 
   const resetState = () => {
     abortRef.current = null;
-    setPhase("idle");
+    setPhaseSync("idle");
     setUploadProgress({ chunk: 0, total: 1 });
     setSavedCount(0);
     setStatusMsg("");
@@ -148,7 +154,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         return token ? { Authorization: `Bearer ${token}` } : {};
       };
 
-      setPhase("uploading");
+      setPhaseSync("uploading");
       setUploadProgress({ chunk: 0, total: totalChunks });
 
       try {
@@ -184,7 +190,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         }
 
         // ── 2. Trigger server-side processing (SSE response) ────────────────
-        setPhase("processing");
+        setPhaseSync("processing");
         setSavedCount(0);
 
         const processResp = await fetch(`${basePath}/api/import/finalize`, {
@@ -241,7 +247,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
                   skipped: event.skipped ?? 0,
                   errors: event.errors ?? 0,
                 });
-                setPhase("done");
+                setPhaseSync("done");
                 queryClient.invalidateQueries({
                   queryKey: getListThreadsQueryKey(),
                   exact: false,
@@ -276,14 +282,14 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
             queryKey: getGetStatsQueryKey(),
             refetchType: "all",
           });
-          setPhase("interrupted");
+          setPhaseSync("interrupted");
         }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorMsg(
           err instanceof Error ? err.message : "Something went wrong. Please try again.",
         );
-        setPhase("error");
+        setPhaseSync("error");
       }
     },
     [queryClient, getToken],

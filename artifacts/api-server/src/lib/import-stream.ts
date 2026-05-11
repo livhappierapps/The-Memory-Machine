@@ -99,10 +99,13 @@ function tryExtractMessages(raws: unknown[]): ParsedMessage[] {
     const msg = m as Record<string, unknown>;
 
     // When msg.message is an object, treat it as the inner payload;
+    // when msg.response is an object (Grok's wrapped export format), unwrap it;
     // otherwise fall back to msg itself (covers Grok's flat structure)
     const inner =
       msg.message && typeof msg.message === "object"
         ? (msg.message as Record<string, unknown>)
+        : msg.response && typeof msg.response === "object"
+        ? (msg.response as Record<string, unknown>)
         : msg;
 
     // Role — try every field name different exporters use

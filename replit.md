@@ -243,6 +243,7 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 - **Delete vault caused full page reload on mobile** — `window.location.reload()` in `handleDelete` caused a jarring full-page flicker on mobile. Fixed by adding an `onDeleted` prop to `ChatArea`; vault page clears `activeThreadId` and returns to the sidebar cleanly without a reload.
 - **Thread search was in-memory (slow at scale)** — The search filter was fetching all threads from the DB and filtering in JavaScript. Fixed by pushing the filter into the SQL query using Drizzle's `ilike()` so only matching rows are returned.
 - **Silent cleanup failures in import finalize** — `fs.rm` and `fs.unlink` in the finalize route used empty `() => {}` callbacks, swallowing any cleanup errors silently. Fixed by logging warnings via the module-level `logger` if either call fails.
+- **Grok export format: 0 conversations imported (207 skipped)** — Grok's actual ZIP export wraps every message one level deeper than expected: `{ "response": { "message": "...", "sender": "human" }, "share_link": null }`. The parser was looking for `sender`/`message` directly on each item but they were always inside a `response` key. Fixed in `tryExtractMessages()` by checking `msg.response` as a candidate for `inner` before falling back to `msg` itself. Confirmed by reading server warn logs (`sampleRaw`) from a real import run.
 
 ## Security Scan Results (last run: May 10 2026)
 

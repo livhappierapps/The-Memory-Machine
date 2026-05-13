@@ -1175,6 +1175,87 @@ export const useUpdateSettings = <
 };
 
 /**
+ * @summary Generate or regenerate the MCP connector token
+ */
+export const getGenerateMcpTokenUrl = () => {
+  return `/api/settings/mcp-token`;
+};
+
+export const generateMcpToken = async (
+  options?: RequestInit,
+): Promise<Settings> => {
+  return customFetch<Settings>(getGenerateMcpTokenUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getGenerateMcpTokenMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateMcpToken>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateMcpToken>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["generateMcpToken"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateMcpToken>>,
+    void
+  > = () => {
+    return generateMcpToken(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateMcpTokenMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateMcpToken>>
+>;
+
+export type GenerateMcpTokenMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Generate or regenerate the MCP connector token
+ */
+export const useGenerateMcpToken = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateMcpToken>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateMcpToken>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getGenerateMcpTokenMutationOptions(options));
+};
+
+/**
  * @summary Get overall vault stats
  */
 export const getGetStatsUrl = () => {

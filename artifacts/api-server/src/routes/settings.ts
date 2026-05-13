@@ -4,41 +4,48 @@ import { settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { UpdateSettingsBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
 
-// Get settings — auto-creates defaults on first access
+async function getOrCreateSettings(userId: string) {
+  let [settings] = await db
+    .select()
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId));
+
+  if (!settings) {
+    [settings] = await db
+      .insert(settingsTable)
+      .values({ userId, defaultModel: "grok-3", maxContextMessages: 100 })
+      .returning();
+  }
+
+  return settings;
+}
+
+function formatSettings(settings: typeof settingsTable.$inferSelect) {
+  return {
+    userId: settings.userId,
+    hasApiKey: !!settings.apiKey,
+    defaultModel: settings.defaultModel,
+    maxContextMessages: settings.maxContextMessages,
+    mcpToken: settings.mcpToken ?? null,
+    createdAt: settings.createdAt.toISOString(),
+    updatedAt: settings.updatedAt.toISOString(),
+  };
+}
+
 router.get("/settings", requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-
-    let [settings] = await db
-      .select()
-      .from(settingsTable)
-      .where(eq(settingsTable.userId, userId));
-
-    if (!settings) {
-      [settings] = await db
-        .insert(settingsTable)
-        .values({ userId, defaultModel: "grok-3", maxContextMessages: 100 })
-        .returning();
-    }
-
-    res.json({
-      userId: settings.userId,
-      hasApiKey: !!settings.apiKey,
-      defaultModel: settings.defaultModel,
-      maxContextMessages: settings.maxContextMessages,
-      createdAt: settings.createdAt.toISOString(),
-      updatedAt: settings.updatedAt.toISOString(),
-    });
+    const settings = await getOrCreateSettings(req.userId!);
+    res.json(formatSettings(settings));
   } catch (err) {
     req.log.error({ err }, "Failed to get settings");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Update settings (upsert)
 router.put("/settings", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
@@ -73,16 +80,30 @@ router.put("/settings", requireAuth, async (req: Request, res: Response) => {
       })
       .returning();
 
-    res.json({
-      userId: settings.userId,
-      hasApiKey: !!settings.apiKey,
-      defaultModel: settings.defaultModel,
-      maxContextMessages: settings.maxContextMessages,
-      createdAt: settings.createdAt.toISOString(),
-      updatedAt: settings.updatedAt.toISOString(),
-    });
+    res.json(formatSettings(settings));
   } catch (err) {
     req.log.error({ err }, "Failed to update settings");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/settings/mcp-token", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const newToken = randomUUID();
+
+    const [settings] = await db
+      .insert(settingsTable)
+      .values({ userId, defaultModel: "grok-3", maxContextMessages: 100, mcpToken: newToken })
+      .onConflictDoUpdate({
+        target: settingsTable.userId,
+        set: { mcpToken: newToken },
+      })
+      .returning();
+
+    res.json(formatSettings(settings));
+  } catch (err) {
+    req.log.error({ err }, "Failed to generate MCP token");
     res.status(500).json({ error: "Internal server error" });
   }
 });

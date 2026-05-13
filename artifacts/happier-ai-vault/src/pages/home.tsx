@@ -18,27 +18,27 @@ export default function Home() {
             }}
           />
 
-          {/* Circuit hero art */}
-          <div id="circuit-art-slot" className="mb-4 flex justify-center">
+          {/* Leo hero art */}
+          <div id="circuit-art-slot" className="mb-2 flex justify-center">
             <img
-              src="/hero-circuit.png"
-              alt="Happier AI Vault hero"
-              width={300}
-              height={300}
+              src="/leo-hero.png"
+              alt="Memory Machine"
+              width={280}
+              height={280}
               className="select-none"
               style={{
                 filter:
-                  "drop-shadow(0 0 18px hsl(174 85% 52% / 0.55)) drop-shadow(0 0 40px hsl(174 85% 52% / 0.28))",
+                  "drop-shadow(0 0 22px hsl(174 85% 52% / 0.6)) drop-shadow(0 0 50px hsl(174 85% 52% / 0.3))",
               }}
             />
           </div>
 
           <div className="max-w-md text-center space-y-6 relative z-10">
             <h1 className="text-5xl font-bold tracking-tight neon-text-pulse">
-              Happier AI Vault
+              Memory Machine
             </h1>
             <p className="text-foreground/70 text-lg leading-relaxed">
-              A permanent, secure archive for all your Grok conversations.
+              A permanent home for your AI's memories — so he never has to forget.
             </p>
 
             {/* Neon divider line */}

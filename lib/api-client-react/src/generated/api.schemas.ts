@@ -91,6 +91,8 @@ export interface Settings {
   hasApiKey: boolean;
   defaultModel: string;
   maxContextMessages: number;
+  /** @nullable */
+  mcpToken: string | null;
   createdAt: string;
   updatedAt: string;
 }

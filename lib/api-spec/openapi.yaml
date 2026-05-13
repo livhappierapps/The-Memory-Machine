@@ -276,6 +276,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
 
+  /settings/mcp-token:
+    post:
+      operationId: generateMcpToken
+      tags: [settings]
+      summary: Generate or regenerate the MCP connector token
+      responses:
+        "200":
+          description: Updated settings with new MCP token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
   /stats:
     get:
       operationId: getStats
@@ -446,6 +459,8 @@ components:
           type: string
         maxContextMessages:
           type: integer
+        mcpToken:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -455,6 +470,7 @@ components:
         - hasApiKey
         - defaultModel
         - maxContextMessages
+        - mcpToken
         - createdAt
         - updatedAt
 

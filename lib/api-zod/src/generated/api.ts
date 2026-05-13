@@ -212,6 +212,7 @@ export const GetSettingsResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  mcpToken: zod.string().nullable(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -230,6 +231,20 @@ export const UpdateSettingsResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  mcpToken: zod.string().nullable(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Generate or regenerate the MCP connector token
+ */
+export const GenerateMcpTokenResponse = zod.object({
+  userId: zod.string(),
+  hasApiKey: zod.boolean(),
+  defaultModel: zod.string(),
+  maxContextMessages: zod.number(),
+  mcpToken: zod.string().nullable(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

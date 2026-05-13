@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/mobile/"
+title = "Memory Machine (Mobile)"
+version = "1.0.0"
+id = "artifacts/memory-machine-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/mobile/" ]
+localPort = 21025
+
+[services.development]
+run = "pnpm --filter @workspace/memory-machine-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/memory-machine-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/memory-machine-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "21025"
+BASE_PATH = "/mobile/"

@@ -2,7 +2,9 @@
 
 ## Overview
 
-A full-stack dark-mode web application for permanently storing and continuing Grok AI conversations. Users sign in, create conversation threads, chat with Grok (streamed in real-time), and have every message persisted to PostgreSQL forever. The app works as Grok's "memory keeper" — it sends the full conversation history back to Grok on every message so context is never lost across sessions.
+A full-stack dark-mode Grok AI conversation vault. Users sign in, create conversation threads, chat with Grok (streamed in real-time), and have every message persisted to PostgreSQL forever. The app works as Grok's "memory keeper" — it sends the full conversation history back to Grok on every message so context is never lost across sessions.
+
+Available on **web** (React + Vite) and **mobile** (Expo React Native for iOS + Android), both sharing the same Express backend and PostgreSQL database.
 
 ## Architecture
 
@@ -10,15 +12,16 @@ pnpm monorepo with TypeScript across all packages.
 
 ```
 artifacts/
-  api-server/          — Express 5 backend (port 8080, path /api)
-  happier-ai-vault/    — React + Vite frontend (port 5173, path /)
-  mockup-sandbox/      — Component preview server (port 8081, path /__mockup)
+  api-server/               — Express 5 backend (port 8080, path /api)
+  happier-ai-vault/         — React + Vite web frontend (port 5173, path /)
+  memory-machine-mobile/    — Expo React Native mobile app (iOS + Android)
+  mockup-sandbox/           — Component preview server (port 8081, path /__mockup)
 lib/
-  db/                  — Drizzle ORM schema + PostgreSQL client
-  api-spec/            — OpenAPI spec + Orval codegen config
-  api-zod/             — Generated Zod schemas (from OpenAPI)
-  api-client-react/    — Generated TanStack Query hooks (from OpenAPI)
-scripts/               — Workspace utility scripts
+  db/                       — Drizzle ORM schema + PostgreSQL client
+  api-spec/                 — OpenAPI spec + Orval codegen config
+  api-zod/                  — Generated Zod schemas (from OpenAPI)
+  api-client-react/         — Generated TanStack Query hooks (from OpenAPI)
+scripts/                    — Workspace utility scripts
 ```
 
 ## Stack
@@ -28,12 +31,14 @@ scripts/               — Workspace utility scripts
 | Monorepo | pnpm workspaces |
 | Node.js | v24 |
 | TypeScript | 5.9 |
-| Frontend | React 19, Vite 7, Tailwind CSS v4, shadcn/ui |
-| Routing | wouter |
+| Web Frontend | React 19, Vite 7, Tailwind CSS v4, shadcn/ui |
+| Mobile | Expo SDK 54, React Native 0.81, Expo Router v4 |
+| Routing (web) | wouter |
+| Routing (mobile) | Expo Router (file-based) |
 | Server state | TanStack Query v5 |
 | Backend | Express 5 |
 | Database | PostgreSQL + Drizzle ORM |
-| Auth | Clerk (`@clerk/react`, `@clerk/express`) |
+| Auth | Clerk (`@clerk/react`, `@clerk/express`, `@clerk/expo`) |
 | Validation | Zod v4, drizzle-zod |
 | API contract | OpenAPI → Orval codegen |
 | Build | esbuild (API server) |
@@ -48,7 +53,7 @@ scripts/               — Workspace utility scripts
 
 ## File Structure (Key Files)
 
-### Frontend (`artifacts/happier-ai-vault/src/`)
+### Web Frontend (`artifacts/happier-ai-vault/src/`)
 
 ```
 pages/
@@ -77,6 +82,40 @@ hooks/
 lib/
   queryClient.ts       — TanStack Query client config
   utils.ts             — Tailwind cn() helper
+```
+
+### Mobile App (`artifacts/memory-machine-mobile/`)
+
+```
+app/
+  _layout.tsx          — Root layout: Clerk, QueryClient, dark splash guard,
+                         push notification bootstrap, SecureStore token cache
+  index.tsx            — Landing/splash redirect
+  sign-in.tsx          — Email+password sign-in (Clerk v3 API)
+  sign-up.tsx          — Email+password sign-up + email verification
+  (tabs)/
+    _layout.tsx        — Tab bar (Vault + Settings); auth guard → /sign-in
+    vault.tsx          — Thread list, profile switcher, import trigger
+    settings.tsx       — API key, model, max context settings
+
+  thread/[id].tsx      — Full-screen chat: streaming SSE, haptics, keyboard avoidance
+
+components/
+  ImportSheet.tsx      — Bottom-sheet ZIP/JSON import (5 MB chunked upload + SSE finalize)
+  ProfileSwitcher.tsx  — Modal profile picker with sign-out
+  ErrorBoundary.tsx    — Catches render throws, shows recovery screen
+
+contexts/
+  ProfileContext.tsx   — Active profile state + AsyncStorage persistence (storedProfileId)
+
+hooks/
+  useChatStream.ts     — SSE streaming via expo/fetch with StreamEvent union type
+  useColors.ts         — Theme color map (dark palette, #1ad4be accent)
+  useNotifications.ts  — Push notification permission + Expo token registration
+  useMobile.tsx        — Breakpoint helper
+
+app.json               — Bundle IDs, expo-notifications + expo-document-picker plugins
+eas.json               — EAS build profiles (development/preview/production)
 ```
 
 ### Backend (`artifacts/api-server/src/`)
@@ -152,28 +191,27 @@ middlewares/
 | GET | /api/settings | Get user settings |
 | PUT | /api/settings | Update user settings |
 | GET | /api/stats | Get vault stats (thread/message counts) |
-| POST | /api/import/chunk | Upload one 10 MB chunk (multipart) |
+| POST | /api/import/chunk | Upload one chunk (multipart, field: "chunk") |
 | POST | /api/import/finalize | Assemble chunks, parse, insert — streams SSE progress |
 
 ## Bulk Import (chunked upload + server-side streaming)
 
-Triggered by the folder-archive icon in the sidebar. The file is split into 10 MB chunks in the browser; each chunk is uploaded independently before the server reassembles, parses, and inserts everything. This means no single HTTP request is large enough to be killed by a reverse proxy or mobile network timeout.
+Triggered by the upload icon in the sidebar (web) or vault header (mobile). The file is split into chunks (10 MB web / 5 MB mobile); each chunk is uploaded independently before the server reassembles, parses, and inserts everything.
 
 **Flow:**
 1. User selects a `.zip` or `.json` file
-2. `BulkImportDialog` splits the file into 10 MB slices
-3. Each slice is POSTed to `POST /api/import/chunk` with `uploadId`, `chunkIndex`, `totalChunks`; a fresh Clerk auth token is fetched per chunk
-4. Once all chunks are received, `POST /api/import/finalize` is called — server concatenates chunks, opens the ZIP with JSZip, finds the target JSON entry
-5. `JSON.parse()` produces the full object; `extractConversations()` locates the conversation array
-6. Conversations are parsed and batch-inserted to PostgreSQL in groups of 20
-7. An SSE progress event is sent after every batch: `{ type: "progress", processed, imported, skipped }`
-8. A final `{ type: "done", imported, skipped, errors }` event closes the stream
-9. Temp files are deleted; the client refreshes the thread list
+2. File is sliced into chunks; each is POSTed to `POST /api/import/chunk` with `uploadId` (UUID v4), `chunkIndex`, `totalChunks`; a fresh Clerk token is fetched per chunk
+3. Once all chunks are received, `POST /api/import/finalize` is called with `{ uploadId, totalChunks, isZip }` — server concatenates chunks, opens the ZIP with JSZip
+4. `JSON.parse()` produces the full object; `extractConversations()` locates the conversation array
+5. Conversations are parsed and batch-inserted to PostgreSQL in groups of 20
+6. An SSE progress event is sent after every batch: `{ type: "progress", processed, imported, skipped }`
+7. A final `{ type: "done", imported, skipped, errors }` event closes the stream
+8. Temp files are deleted; the client refreshes the thread list
 
 **`src/lib/import-stream.ts`** handles:
 - ZIP archives and plain JSON files
 - Top-level arrays and container objects (`conversations`, `chats`, `data`, `history`, `items`)
-- Grok's `prod-grok-backend.json` format (`sender` / `message` fields)
+- Grok's `prod-grok-backend.json` format (`response.sender` / `response.message` fields)
 - Various role names: `user`, `human`, `assistant`, `grok`, `ai`, `bot`
 - Nested content: `.parts[]`, `.message.content`, author-as-object
 - Aggressive fallback: scans ALL array-valued keys on conversation objects if known keys fail
@@ -184,15 +222,39 @@ Triggered by the folder-archive icon in the sidebar. The file is split into 10 M
 
 ## Grok Streaming
 
-`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message, fetches the user's xAI API key from settings, loads thread history, and calls `streamGrokCompletion()` from `lib/grok.ts`.
+`POST /api/threads/:id/stream` accepts `{ content: string }`, saves the user message first (so it always appears in UI even on error), fetches the user's xAI API key from settings, loads thread history, and calls `streamGrokCompletion()` from `lib/grok.ts`.
 
-`streamGrokCompletion(apiKey, model, messages, callbacks)` calls `https://api.x.ai/v1/chat/completions` with `stream: true` and fires `onToken(delta)` for each chunk and `onDone(fullContent)` / `onError(message)` at completion. Guards against a null `response.body` before reading.
+`streamGrokCompletion(apiKey, model, messages, callbacks)` calls `https://api.x.ai/v1/chat/completions` with `stream: true` and fires `onToken(delta)` for each chunk and `onDone(fullContent)` / `onError(message)` at completion.
 
-Tokens are forwarded to the client via SSE (`data: { type: "token", content: "..." }`). On completion the assistant message is saved and `data: { type: "done", message: {...} }` is emitted.
+Tokens are forwarded to the client via SSE (`data: { type: "token", content: "..." }`). On completion the assistant message is saved and `data: { type: "done", message: {...} }` is emitted. If no API key is set, a `user_message` event is emitted first (so the bubble appears), then an `error` event.
 
 The stream route respects `maxContextMessages` from the user's settings:
 - `0` → send the **full conversation history** (no limit)
 - `1–1000` → send only the last N messages (`history.slice(-N)`)
+
+## Mobile App — Key Design Decisions
+
+### Auth
+- Clerk `@clerk/expo` with `tokenCache` backed by `expo-secure-store` — sessions persist across cold launches on both iOS and Android
+- Tab layout (`(tabs)/_layout.tsx`) has an auth guard: redirects to `/sign-in` if `!isSignedIn`
+
+### Profile Restoration
+- Active profile ID saved to `AsyncStorage` on every switch
+- On app start, `ProfileContext` exposes `storedProfileId`; vault matches it against loaded profiles before defaulting to `profiles[0]`
+
+### Push Notifications
+- `hooks/useNotifications.ts` requests permission, acquires Expo push token, and wires foreground + response listeners on every session start
+- Config plugin registered in `app.json` (icon, color, default channel)
+
+### Chunked Import (Mobile)
+- `expo-file-system` reads 5 MB slices via `position + length` options
+- Each slice uploaded with a fresh Clerk token; AbortController cancels in-flight requests on user cancel
+- ZIP detection by file extension (`.zip`) not MIME type (MIME is unreliable from iOS picker)
+
+### Startup
+- `SplashScreen.preventAutoHideAsync()` holds the splash until fonts load
+- While fonts are loading, a dark `View` (`#2f2f37`) is shown so no white flash occurs
+- `app.json` has `backgroundColor: "#2f2f37"` to match the OS-level background
 
 ## Frontend Pages
 
@@ -209,7 +271,7 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 
 ## Design System
 
-- **Theme**: Medium grey background (`hsl(240 8% 20%)`), white text, neon minty aqua (`hsl(174 85% 52%)`) accent — like the Statue of Liberty patina shifted cooler
+- **Theme**: Medium grey background (`hsl(240 8% 20%)` / `#2f2f37`), white text, neon minty aqua (`hsl(174 85% 52%)` / `#1ad4be`) accent — like the Statue of Liberty patina shifted cooler
 - **Neon effects**: `neon-text`, `neon-text-pulse`, `neon-border`, `neon-box-pulse`, `neon-glow` CSS utility classes defined in `index.css`
 - **Hero**: Circuit art PNG with transparent background and aqua drop-shadow at `public/hero-circuit.png`
 - **Scrollbars**: Styled neon aqua
@@ -224,50 +286,76 @@ The vault uses a **full-screen panel toggle** pattern for mobile:
 | `CLERK_SECRET_KEY` | API server | Clerk server-side verification |
 | `DATABASE_URL` / `PG*` | lib/db | PostgreSQL connection |
 
-**Note**: The frontend uses `CLERK_PUBLISHABLE_KEY` exposed via `vite.config.ts` `define` (as `VITE_CLERK_PUBLISHABLE_KEY`). Do NOT use `publishableKeyFromHost()` — it generates `clerk.localhost` URLs in the dev proxy context.
+**Note**: The web frontend uses `CLERK_PUBLISHABLE_KEY` exposed via `vite.config.ts` `define` (as `VITE_CLERK_PUBLISHABLE_KEY`). Do NOT use `publishableKeyFromHost()` — it generates `clerk.localhost` URLs in the dev proxy context.
+
+The mobile app dev workflow injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_PUBLISHABLE_KEY` and `EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN` automatically.
 
 ## Known Bugs Fixed
 
 - **Thread list empty after navigation** — `zod.coerce.boolean()` coerces the string `"false"` to `true`, so `?archived=false` was querying for archived threads. Fixed by manually converting the string before Zod parsing in the threads route.
 - **Thread list not refreshing after create** — HTTP 304 responses from server cache were hiding new threads. Fixed by adding `Cache-Control: no-store` middleware for all `/api` routes, and using `refetchType: "all"` in query invalidation.
 - **Clerk JS failing to load** — `publishableKeyFromHost(hostname, key)` was generating `clerk.localhost` URLs via the dev proxy. Fixed by using the raw `CLERK_PUBLISHABLE_KEY` directly.
-- **Vault layout overflowing on mobile** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle: sidebar and chat each take 100% width on mobile and alternate visibility based on state, with a back button in the chat header.
-- **ZIP import crashing on mobile / "not fetching"** — Root cause: browser-side parsing of a 379 MB ZIP required loading the full archive + decompressed JSON into RAM, killing the tab on low-memory devices. Fixed by moving all parsing to the server with chunked upload: the browser sends 10 MB slices, the server reassembles, parses, and inserts, streaming SSE progress back. No browser memory limits; works on any device.
-- **Import dialog closing immediately on Android** — Android fires `onOpenChange(false)` the instant the file picker sheet opens (not when the user picks a file). The old 400 ms timer fix was too short — the picker stays open for several seconds while browsing. Fixed with `filePickerOpenRef` + `window focus` event: `openFilePicker()` sets the flag true and listens for `window focus` (once), which fires 600 ms after the picker closes. `handleOpenChange` blocks all closes while the flag is set. `onFileChange` immediately clears the flag. No timing assumptions or race conditions.
-- **Import showing "done, 0 saved"** — Parser format mismatch. Fixed by refactoring `import-stream.ts` into a `tryExtractMessages()` helper with an aggressive fallback that scans all array-valued keys on conversation objects when known field names (`messages`, `turns`, etc.) are absent.
-- **SSE connection drop UX** — Long imports through a mobile network could silently stall. Fixed by reducing heartbeat interval to 8 s and adding an `interrupted` phase in the dialog with a "Check my conversations" button instead of a silent hang.
-- **Duplicate messages on network retry** — `setQueryData` in `use-chat-stream.ts` could append the same message twice if an SSE event was replayed. Fixed by deduplicating on message ID before appending.
+- **Vault layout overflowing on mobile (web)** — sidebar was a fixed `w-80` (320px) with the chat area alongside it, causing overflow on phones (390px screen). Fixed with a full-screen panel toggle.
+- **ZIP import crashing on mobile / "not fetching"** — Browser-side parsing of a 379 MB ZIP required loading the full archive into RAM, killing the tab on low-memory devices. Fixed by moving all parsing to the server with chunked upload.
+- **Import dialog closing immediately on Android (web)** — Android fires `onOpenChange(false)` the instant the file picker sheet opens. Fixed with `filePickerOpenRef` + `window focus` event.
+- **Import showing "done, 0 saved"** — Parser format mismatch. Fixed by refactoring `import-stream.ts` into a `tryExtractMessages()` helper with an aggressive fallback.
+- **SSE connection drop UX** — Long imports through a mobile network could silently stall. Fixed by reducing heartbeat interval to 8 s and adding an `interrupted` phase in the dialog.
+- **Duplicate messages on network retry** — `setQueryData` could append the same message twice if an SSE event was replayed. Fixed by deduplicating on message ID.
+- **White-screen crash on bad data** — No React Error Boundary. Fixed by adding `ErrorBoundary` wrapping the whole app in `App.tsx`.
+- **Date parsing crash in chat area** — `format(new Date(msg.createdAt), ...)` throws on invalid dates. Fixed with `isValid()` guard.
+- **Delete vault caused full page reload on mobile (web)** — `window.location.reload()` in `handleDelete`. Fixed with `onDeleted` prop on `ChatArea`.
+- **Thread search was in-memory (slow at scale)** — Fixed by pushing the filter into SQL via Drizzle's `ilike()`.
+- **Silent cleanup failures in import finalize** — Empty callbacks swallowed `fs.rm`/`fs.unlink` errors. Fixed by logging warnings.
+- **Grok export format: 0 conversations imported** — Parser missed `{ "response": { "message": "...", "sender": "human" } }` wrapper. Fixed in `tryExtractMessages()` by checking `msg.response` as inner candidate.
+- **User message disappearing on API key error (API server)** — The stream route checked for the API key before saving the user message, so if no key was set the message was never stored. Fixed: user message is saved first, then API key is checked; if missing, emits `user_message` + `error` SSE events so the bubble appears with an error banner.
+- **Mobile SSE error events silently swallowed** — Error events were caught inside the JSON parse try/catch and discarded. Fixed with isolated parse try/catch and discriminated `StreamEvent` union; reads both `event.error` and `event.content` for compatibility.
+- **Mobile sessions not persisted (Android cold launch)** — `tokenCache` was not wired to `ClerkProvider`. Fixed by adding `expo-secure-store`-backed `tokenCache` in `_layout.tsx`.
+- **Mobile import: wrong multer field name** — Client was sending field `"file"` but server expects `"chunk"`. Fixed.
+- **Mobile import: invalid uploadId format** — Server validates UUID v4; client was generating `"mob-${Date.now()}-..."`. Fixed with `Crypto.randomUUID()`.
+- **Mobile import: missing `totalChunks` + `isZip` in finalize body** — Server needs both fields. Fixed.
+- **expo-file-system v55 breaking change** — `readAsStringAsync` and `getInfoAsync` moved to `expo-file-system/legacy`. Import updated in `ImportSheet.tsx`.
+- **Blank frame on cold start (mobile)** — Missing `backgroundColor` in `app.json` top-level config caused a light flash during OS splash transition. Fixed by adding `"backgroundColor": "#2f2f37"`.
 
-- **White-screen crash on bad data** — No React Error Boundary meant any component throw (e.g. bad date from API, undefined property on a message) would crash the entire app to a blank page. Fixed by adding `ErrorBoundary` class component wrapping the whole app in `App.tsx`, showing a "Something went wrong / Try again" recovery screen.
-- **Date parsing crash in chat area** — `format(new Date(msg.createdAt), ...)` would throw if the API returned an invalid date string, crashing the message list. Fixed by wrapping with `isValid(new Date(...))` guard — invalid dates render as an empty string instead.
-- **Delete vault caused full page reload on mobile** — `window.location.reload()` in `handleDelete` caused a jarring full-page flicker on mobile. Fixed by adding an `onDeleted` prop to `ChatArea`; vault page clears `activeThreadId` and returns to the sidebar cleanly without a reload.
-- **Thread search was in-memory (slow at scale)** — The search filter was fetching all threads from the DB and filtering in JavaScript. Fixed by pushing the filter into the SQL query using Drizzle's `ilike()` so only matching rows are returned.
-- **Silent cleanup failures in import finalize** — `fs.rm` and `fs.unlink` in the finalize route used empty `() => {}` callbacks, swallowing any cleanup errors silently. Fixed by logging warnings via the module-level `logger` if either call fails.
-- **Grok export format: 0 conversations imported (207 skipped)** — Grok's actual ZIP export wraps every message one level deeper than expected: `{ "response": { "message": "...", "sender": "human" }, "share_link": null }`. The parser was looking for `sender`/`message` directly on each item but they were always inside a `response` key. Fixed in `tryExtractMessages()` by checking `msg.response` as a candidate for `inner` before falling back to `msg` itself. Confirmed by reading server warn logs (`sampleRaw`) from a real import run.
-
-## Security Scan Results (last run: May 10 2026)
+## Security Scan Results (last run: May 13 2026)
 
 ### Dependency Audit — 0 critical, 0 high, 0 moderate
 
-All previously reported vulnerabilities have been fully remediated via `pnpm-workspace.yaml` overrides. The dependency scanner shows no remaining findings.
+No actionable vulnerabilities in project dependencies. All previously reported findings remain remediated.
 
-### SAST
+### SAST — 0 findings in application code
 
-- `[MEDIUM]` path traversal warnings in `import.ts` and `import-stream.ts` — false positives. The `uploadId` is UUID-regex validated before use; `filePath` is a server-generated temp path, not user-supplied. No actual traversal risk.
-- `[MEDIUM]` unsafe dynamic module lookup in `artifacts/mockup-sandbox/src/App.tsx` — internal component preview sandboxing framework, not user-facing. Not a production risk.
+All HIGH/CRITICAL SAST findings are in `.agents/skills/` third-party skill scripts (brainstorming helper, docx processor) — none are in application source code. No findings in `artifacts/`, `lib/`, or `scripts/`.
 
 ### HoundDog — 0 findings
 
-## E2E Test Results (last run: May 10 2026)
+### Expo Package Versions
+Corrected to match Expo SDK 54 expected ranges:
+- `expo-document-picker` → `~14.0.8`
+- `expo-file-system` → `~19.0.22`
+- `expo-notifications` → `~0.32.17`
 
-Full pass — all flows tested:
-- Clerk sign-in (programmatic)
-- Vault page loads, sidebar visible, empty state correct
-- New thread creation via "New Vault" button
-- Sending a chat message (user message appears; assistant error is expected with no API key)
-- Chat header dropdown opens with Archive/Delete options
-- Settings page loads without crash (API key, model, context fields visible)
-- Navigation back to vault — thread persists in sidebar
+## E2E Test Results (last run: May 13 2026)
+
+Three full passes — all flows tested and green:
+
+**Run 1 — Core web vault flow:**
+- Clerk programmatic sign-in, redirect to /vault
+- Sidebar visible, new thread creation ("New Memory" button)
+- Message sent → user bubble appears, input clears
+- Settings page (API key, model, context fields visible)
+- Thread persists in sidebar after navigation
+- Thread archive + delete (via dropdown), confirmation dialog handled
+
+**Run 2 — Archive, search, stats, import dialog:**
+- Archive thread → disappears from active list → visible under Archived filter
+- Search input filters thread list; clearing restores full list
+- Vault Statistics dialog opens and shows counts
+- Import dialog opens (upload icon), shows "Choose File", closes cleanly
+
+**Run 3 — Settings persistence + 404:**
+- Settings save (max context = 50) → page reload → field persists at 50
+- Reset to 0 saves without error
+- Navigation to `/this-page-does-not-exist` shows 404 page (no crash)
 
 ## Workflows
 
@@ -275,4 +363,5 @@ Full pass — all flows tested:
 |---|---|---|
 | API Server | `pnpm --filter @workspace/api-server run dev` | 8080 |
 | Happier AI Vault (web) | `pnpm --filter @workspace/happier-ai-vault run dev` | 5173 |
+| Memory Machine (mobile) | `pnpm --filter @workspace/memory-machine-mobile run dev` | Expo QR |
 | Component Preview Server | `pnpm --filter @workspace/mockup-sandbox run dev` | 8081 |

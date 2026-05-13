@@ -34,7 +34,7 @@ export default function VaultScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
-  const { activeProfile, setActiveProfile, activeProfileId } = useProfile();
+  const { activeProfile, setActiveProfile, activeProfileId, storedProfileId } = useProfile();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -52,9 +52,12 @@ export default function VaultScreen() {
 
   useEffect(() => {
     if (!activeProfile && profiles && profiles.length > 0) {
-      setActiveProfile(profiles[0]!);
+      const restored = storedProfileId
+        ? profiles.find((p) => p.id === storedProfileId)
+        : undefined;
+      setActiveProfile(restored ?? profiles[0]!);
     }
-  }, [profiles, activeProfile, setActiveProfile]);
+  }, [profiles, activeProfile, setActiveProfile, storedProfileId]);
 
   const {
     data: threads,

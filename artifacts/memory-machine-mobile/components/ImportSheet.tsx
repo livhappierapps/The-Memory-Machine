@@ -298,10 +298,10 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
                 <Text style={[styles.resultTitle, { color: colors.foreground }]}>Import complete</Text>
               </View>
               <View style={styles.resultStats}>
-                <StatRow label="Imported" value={result.imported} valueColor={colors.primary} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
-                <StatRow label="Skipped" value={result.skipped} valueColor={colors.mutedForeground} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
+                <StatRow label="Imported" value={result.imported} valueColor={colors.primary} mutedColor={colors.mutedForeground} />
+                <StatRow label="Skipped" value={result.skipped} valueColor={colors.mutedForeground} mutedColor={colors.mutedForeground} />
                 {result.errors > 0 && (
-                  <StatRow label="Errors" value={result.errors} valueColor={colors.destructive} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
+                  <StatRow label="Errors" value={result.errors} valueColor={colors.destructive} mutedColor={colors.mutedForeground} />
                 )}
               </View>
               <TouchableOpacity
@@ -362,16 +362,13 @@ function StatRow({
   label,
   value,
   valueColor,
-  textColor,
   mutedColor,
 }: {
   label: string;
   value: number;
   valueColor: string;
-  textColor: string;
   mutedColor: string;
 }) {
-  void textColor;
   return (
     <View style={styles.statRow}>
       <Text style={[styles.statLabel, { color: mutedColor }]}>{label}</Text>

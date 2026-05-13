@@ -13,19 +13,21 @@ interface ProfileContextValue {
   activeProfile: Profile | null;
   setActiveProfile: (profile: Profile | null) => void;
   activeProfileId: number | undefined;
+  storedProfileId: number | null;
 }
 
 const ProfileContext = createContext<ProfileContextValue>({
   activeProfile: null,
   setActiveProfile: () => {},
   activeProfileId: undefined,
+  storedProfileId: null,
 });
 
 const STORAGE_KEY = "mm_active_profile_id";
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [activeProfile, setActiveProfileState] = useState<Profile | null>(null);
-  const [_storedId, setStoredId] = useState<number | null>(null);
+  const [storedId, setStoredId] = useState<number | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -52,6 +54,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         activeProfile,
         setActiveProfile,
         activeProfileId: activeProfile?.id,
+        storedProfileId: storedId,
       }}
     >
       {children}

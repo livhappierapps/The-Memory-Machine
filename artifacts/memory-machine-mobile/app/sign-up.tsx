@@ -1,4 +1,4 @@
-import { useSignUp } from "@clerk/expo";
+import { useClerk, useSignUp } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -20,6 +20,7 @@ type Step = "details" | "verify";
 
 export default function SignUpScreen() {
   const { signUp } = useSignUp();
+  const { setActive } = useClerk();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -74,12 +75,8 @@ export default function SignUpScreen() {
         setError(verifyError.longMessage ?? verifyError.message ?? "Invalid code.");
         return;
       }
-      if (signUp.status === "complete") {
-        const { error: finalizeError } = await signUp.finalize();
-        if (finalizeError) {
-          setError(finalizeError.longMessage ?? finalizeError.message ?? "Session error.");
-          return;
-        }
+      if (signUp.status === "complete" && signUp.createdSessionId) {
+        await setActive({ session: signUp.createdSessionId });
         router.replace("/(tabs)/vault");
       } else {
         setError("Verification incomplete. Please try again.");

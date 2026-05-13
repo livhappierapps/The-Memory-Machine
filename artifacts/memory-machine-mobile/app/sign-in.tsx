@@ -1,4 +1,4 @@
-import { useSignIn } from "@clerk/expo";
+import { useClerk, useSignIn } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -18,6 +18,7 @@ import { useColors } from "@/hooks/useColors";
 
 export default function SignInScreen() {
   const { signIn } = useSignIn();
+  const { setActive } = useClerk();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -43,12 +44,8 @@ export default function SignInScreen() {
         setError(createError.longMessage ?? createError.message ?? "Sign-in failed.");
         return;
       }
-      if (signIn.status === "complete") {
-        const { error: finalizeError } = await signIn.finalize();
-        if (finalizeError) {
-          setError(finalizeError.longMessage ?? finalizeError.message ?? "Session error.");
-          return;
-        }
+      if (signIn.status === "complete" && signIn.createdSessionId) {
+        await setActive({ session: signIn.createdSessionId });
         router.replace("/(tabs)/vault");
       } else {
         setError("Sign-in incomplete. Please try again.");
@@ -126,7 +123,7 @@ export default function SignInScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.submitBtn, { backgroundColor: colors.primary }, loading && styles.disabled]}
+            style={[styles.submitBtn, { backgroundColor: colors.primary }, (loading || !email || !password) && styles.disabled]}
             onPress={handleSignIn}
             activeOpacity={0.8}
             disabled={loading || !email || !password}

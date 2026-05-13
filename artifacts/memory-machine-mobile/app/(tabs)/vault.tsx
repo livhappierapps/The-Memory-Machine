@@ -25,6 +25,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Thread } from "@workspace/api-client-react";
 
+import { ImportSheet } from "@/components/ImportSheet";
 import { ProfileSwitcher } from "@/components/ProfileSwitcher";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useColors } from "@/hooks/useColors";
@@ -38,6 +39,7 @@ export default function VaultScreen() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [profileSwitcherOpen, setProfileSwitcherOpen] = useState(false);
+  const [importSheetOpen, setImportSheetOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -166,6 +168,13 @@ export default function VaultScreen() {
               />
             </TouchableOpacity>
             <TouchableOpacity
+              style={[styles.iconBtn, { backgroundColor: colors.card }]}
+              onPress={() => setImportSheetOpen(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="upload" size={18} color={colors.mutedForeground} />
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.iconBtn, { backgroundColor: colors.primary }]}
               onPress={handleNewThread}
               activeOpacity={0.8}
@@ -237,6 +246,14 @@ export default function VaultScreen() {
         onSignOut={async () => {
           await signOut();
           router.replace("/");
+        }}
+      />
+
+      <ImportSheet
+        visible={importSheetOpen}
+        onClose={() => setImportSheetOpen(false)}
+        onImported={() => {
+          void refetch();
         }}
       />
     </View>

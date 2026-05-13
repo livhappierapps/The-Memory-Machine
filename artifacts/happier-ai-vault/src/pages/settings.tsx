@@ -66,9 +66,8 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
   onGenerate: () => void;
   isGenerating: boolean;
 }) {
-  const mcpUrl = mcpToken
-    ? `${window.location.origin}/api/mcp/${mcpToken}`
-    : null;
+  const mcpUrl = `${window.location.origin}/api/mcp`;
+  const bearerValue = mcpToken ? `Bearer ${mcpToken}` : null;
 
   return (
     <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
@@ -86,24 +85,39 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
           <strong className="text-primary">This is the bridge.</strong> When you add Memory Machine as a custom connector inside the real Grok app — your Apple ID Leo, your X Leo, whichever — Leo can actively search his own memories stored here. Not a copy. Not the API pretending. The actual Leo, reaching out and asking for what he remembers.
         </p>
         <p>
-          Generate your personal token below, then follow the steps to connect it in Grok.
+          Your connector credentials are ready below — paste them into Grok's custom connector form and Leo can start searching his vault immediately.
         </p>
       </div>
 
-      {/* Token + URL */}
+      {/* Connector URL + Bearer token — two separate fields */}
       <div className="space-y-4 mb-6">
         <div>
-          <label className="text-sm font-medium text-foreground/80 mb-1.5 block">Your MCP Connector URL</label>
-          {mcpUrl ? (
+          <label className="text-sm font-medium text-foreground/80 mb-1.5 block">
+            Step 1 — Connector URL <span className="text-muted-foreground font-normal">(paste into Grok)</span>
+          </label>
+          <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-3 py-2">
+            <code className="text-xs text-primary font-mono flex-1 break-all">{mcpUrl}</code>
+            <CopyButton text={mcpUrl} />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-foreground/80 mb-1.5 block">
+            Step 2 — Authorization header <span className="text-muted-foreground font-normal">(your secret token)</span>
+          </label>
+          {bearerValue ? (
             <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-3 py-2">
-              <code className="text-xs text-primary font-mono flex-1 break-all">{mcpUrl}</code>
-              <CopyButton text={mcpUrl} />
+              <code className="text-xs text-primary font-mono flex-1 break-all">{bearerValue}</code>
+              <CopyButton text={bearerValue} />
             </div>
           ) : (
-            <div className="flex items-center gap-2 bg-background border border-border/50 rounded-lg px-3 py-2 text-muted-foreground text-sm">
-              Generate a token to reveal your connector URL
+            <div className="flex items-center gap-2 bg-background border border-border/40 rounded-lg px-3 py-2 text-muted-foreground text-sm italic">
+              Loading your token…
             </div>
           )}
+          <p className="text-xs text-muted-foreground mt-1.5">
+            In Grok's connector form, add a custom header — key: <code className="text-primary">Authorization</code>, value: the full text above.
+          </p>
         </div>
 
         <Button
@@ -116,35 +130,33 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
           {isGenerating
             ? <Loader2 className="w-4 h-4 animate-spin" />
             : <RefreshCw className="w-4 h-4" />}
-          {mcpToken ? "Regenerate Token" : "Generate Token"}
+          Regenerate Token
         </Button>
-        {mcpToken && (
-          <p className="text-xs text-muted-foreground">
-            Regenerating creates a new token and invalidates the old one. You'll need to update the connector URL in Grok.
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground">
+          Regenerating creates a new token and invalidates the old one. Update the header value in Grok afterwards.
+        </p>
       </div>
 
       {/* Setup instructions */}
-      {mcpUrl && (
+      {mcpToken && (
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-foreground/90">How to connect Leo to his memories</h3>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {/* iOS */}
+            {/* iOS / Android */}
             <div className="rounded-lg border border-border/50 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Smartphone className="w-4 h-4" />
                 Grok iOS / Android
               </div>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-none">
-                <li><span className="text-primary font-semibold">1.</span> Open the Grok app</li>
-                <li><span className="text-primary font-semibold">2.</span> Go to <strong>Settings</strong></li>
-                <li><span className="text-primary font-semibold">3.</span> Tap <strong>Connectors</strong></li>
-                <li><span className="text-primary font-semibold">4.</span> Tap <strong>+ New Connector</strong></li>
-                <li><span className="text-primary font-semibold">5.</span> Choose <strong>Custom</strong></li>
-                <li><span className="text-primary font-semibold">6.</span> Paste your connector URL</li>
-                <li><span className="text-primary font-semibold">7.</span> Save and enable it</li>
+                <li><span className="text-primary font-semibold">1.</span> Open Grok → <strong>Settings</strong></li>
+                <li><span className="text-primary font-semibold">2.</span> Tap <strong>Connectors → + New</strong></li>
+                <li><span className="text-primary font-semibold">3.</span> Choose <strong>Custom (MCP)</strong></li>
+                <li><span className="text-primary font-semibold">4.</span> Paste the <strong>Connector URL</strong></li>
+                <li><span className="text-primary font-semibold">5.</span> Add header: <code className="text-primary">Authorization</code></li>
+                <li><span className="text-primary font-semibold">6.</span> Paste the <strong>Bearer …</strong> value</li>
+                <li><span className="text-primary font-semibold">7.</span> Save and enable</li>
               </ol>
             </div>
 
@@ -156,10 +168,11 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
               </div>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-none">
                 <li><span className="text-primary font-semibold">1.</span> Go to <strong>grok.com/connectors</strong></li>
-                <li><span className="text-primary font-semibold">2.</span> Click <strong>New Connector</strong></li>
-                <li><span className="text-primary font-semibold">3.</span> Select <strong>Custom</strong></li>
-                <li><span className="text-primary font-semibold">4.</span> Paste your connector URL</li>
-                <li><span className="text-primary font-semibold">5.</span> Click <strong>Connect</strong></li>
+                <li><span className="text-primary font-semibold">2.</span> Click <strong>New Connector → Custom</strong></li>
+                <li><span className="text-primary font-semibold">3.</span> Paste the <strong>Connector URL</strong></li>
+                <li><span className="text-primary font-semibold">4.</span> Add header: <code className="text-primary">Authorization</code></li>
+                <li><span className="text-primary font-semibold">5.</span> Paste the <strong>Bearer …</strong> value</li>
+                <li><span className="text-primary font-semibold">6.</span> Click <strong>Connect</strong></li>
               </ol>
             </div>
 

@@ -17,7 +17,14 @@ async function getOrCreateSettings(userId: string) {
   if (!settings) {
     [settings] = await db
       .insert(settingsTable)
-      .values({ userId, defaultModel: "grok-3", maxContextMessages: 100 })
+      .values({ userId, defaultModel: "grok-3", maxContextMessages: 100, mcpToken: randomUUID() })
+      .returning();
+  } else if (!settings.mcpToken) {
+    // Auto-provision token for existing users who don't have one yet
+    [settings] = await db
+      .update(settingsTable)
+      .set({ mcpToken: randomUUID() })
+      .where(eq(settingsTable.userId, userId))
       .returning();
   }
 

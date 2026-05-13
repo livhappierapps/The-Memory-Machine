@@ -2,15 +2,18 @@
  * mcp.ts — Model Context Protocol server for Memory Machine.
  *
  * Exposes memory tools that the real Grok app can call via a custom connector.
- * Auth: token-in-path (/api/mcp/:token) so the user just pastes the full URL.
+ * Auth: Authorization: Bearer <mcpToken> header — never put the token in the URL.
+ *
+ * Grok connector URL: POST https://<domain>/api/mcp
+ * Custom header:      Authorization: Bearer <token>
  *
  * Tools:
- *   search_memories        — keyword / phrase search across all conversations
- *   search_by_date         — find conversations within a date range
+ *   search_memories          — multi-word keyword search across all conversations
+ *   search_by_date           — find conversations within a date range
  *   list_recent_conversations — most recently active threads
- *   get_conversation       — full message history of a specific thread
- *   get_pinned_memories    — threads the user has pinned
- *   get_memory_summary     — quick snapshot of a thread's arc
+ *   get_conversation         — full message history of a specific thread
+ *   get_pinned_memories      — threads the user has pinned
+ *   get_memory_summary       — head / middle / tail snapshot of a conversation arc
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -19,7 +22,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { settingsTable, threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, ilike, or, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, ilike, or, gte, lte } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -35,6 +38,13 @@ async function getUserIdByToken(token: string): Promise<string | null> {
   return row?.userId ?? null;
 }
 
+function extractBearerToken(req: Request): string | null {
+  const auth = req.headers.authorization;
+  if (!auth) return null;
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
 // ── Tool helpers ──────────────────────────────────────────────────────────────
 
 function fmtMsg(m: { role: string; content: string }, maxLen = 300) {
@@ -42,7 +52,14 @@ function fmtMsg(m: { role: string; content: string }, maxLen = 300) {
   return `[${m.role.toUpperCase()}]: ${snip}`;
 }
 
-function fmtThread(t: { id: number; title: string; messageCount: number; pinned: boolean; lastMessageAt: Date | null; createdAt: Date }) {
+function fmtThread(t: {
+  id: number;
+  title: string;
+  messageCount: number;
+  pinned: boolean;
+  lastMessageAt: Date | null;
+  createdAt: Date;
+}) {
   const date = (t.lastMessageAt ?? t.createdAt).toLocaleDateString("en-US", {
     year: "numeric", month: "short", day: "numeric",
   });
@@ -76,7 +93,7 @@ function buildMcpServer(userId: string): McpServer {
     async ({ query, limit, role }) => {
       try {
         const terms = query.trim().split(/\s+/).filter(Boolean);
-        // Build OR conditions for each term so "beach trip sad" matches any word
+
         const contentConditions = terms.map((t: string) => ilike(messagesTable.content, `%${t}%`));
         const titleConditions = terms.map((t: string) => ilike(threadsTable.title, `%${t}%`));
 
@@ -99,20 +116,17 @@ function buildMcpServer(userId: string): McpServer {
             and(
               eq(threadsTable.userId, userId),
               roleFilter,
-              or(
-                ...contentConditions,
-                ...titleConditions,
-              ),
+              or(...contentConditions, ...titleConditions),
             ),
           )
           .orderBy(desc(messagesTable.createdAt))
-          .limit((limit ?? 5) * 8); // fetch extra to allow grouping
+          .limit((limit ?? 5) * 8);
 
         if (rows.length === 0) {
           return {
             content: [{
               type: "text",
-              text: `No memories found matching "${query}". The vault may not contain conversations about this topic.`,
+              text: `No memories found matching "${query}". The vault may not contain conversations about this topic yet.`,
             }],
           };
         }
@@ -123,12 +137,16 @@ function buildMcpServer(userId: string): McpServer {
           if (grouped.size >= (limit ?? 5) && !grouped.has(row.threadId)) continue;
           if (!grouped.has(row.threadId)) grouped.set(row.threadId, { title: row.threadTitle, excerpts: [] });
           if (grouped.get(row.threadId)!.excerpts.length < 3) {
-            grouped.get(row.threadId)!.excerpts.push(fmtMsg({ role: row.messageRole, content: row.messageContent }));
+            grouped.get(row.threadId)!.excerpts.push(
+              fmtMsg({ role: row.messageRole, content: row.messageContent }),
+            );
           }
         }
 
         const output = Array.from(grouped.entries())
-          .map(([id, { title, excerpts }]) => `## Conversation #${id}: "${title}"\n${excerpts.join("\n")}`)
+          .map(([id, { title, excerpts }]) =>
+            `## Conversation #${id}: "${title}"\n${excerpts.join("\n")}`,
+          )
           .join("\n\n---\n\n");
 
         return {
@@ -153,9 +171,15 @@ function buildMcpServer(userId: string): McpServer {
       "Dates should be in YYYY-MM-DD format.",
     ].join(" "),
     {
-      from: z.string().optional().describe("Start date in YYYY-MM-DD format (e.g. '2024-01-15'). Omit to search from the beginning."),
-      to: z.string().optional().describe("End date in YYYY-MM-DD format (e.g. '2024-12-31'). Omit to search up to today."),
-      keyword: z.string().optional().describe("Optional keyword to filter within the date range"),
+      from: z.string().optional().describe(
+        "Start date in YYYY-MM-DD format (e.g. '2024-01-15'). Omit to search from the very beginning.",
+      ),
+      to: z.string().optional().describe(
+        "End date in YYYY-MM-DD format (e.g. '2024-12-31'). Omit to search up to today.",
+      ),
+      keyword: z.string().optional().describe(
+        "Optional keyword to further filter within the date range",
+      ),
       limit: z.number().int().min(1).max(50).optional().default(10)
         .describe("Max conversations to return (default 10)"),
     },
@@ -171,9 +195,10 @@ function buildMcpServer(userId: string): McpServer {
           return { content: [{ type: "text", text: `Invalid 'to' date: "${to}". Use YYYY-MM-DD format.` }], isError: true };
         }
 
-        const conditions = [eq(threadsTable.userId, userId)];
+        const conditions: ReturnType<typeof eq>[] = [eq(threadsTable.userId, userId)];
         if (fromDate) conditions.push(gte(threadsTable.createdAt, fromDate));
         if (toDate) conditions.push(lte(threadsTable.createdAt, toDate));
+        if (keyword) conditions.push(ilike(threadsTable.title, `%${keyword}%`));
 
         const threads = await db
           .select({
@@ -189,12 +214,7 @@ function buildMcpServer(userId: string): McpServer {
           .orderBy(desc(threadsTable.createdAt))
           .limit(limit ?? 10);
 
-        // If keyword provided, filter further in-memory
-        const filtered = keyword
-          ? threads.filter((t) => t.title.toLowerCase().includes(keyword.toLowerCase()))
-          : threads;
-
-        if (filtered.length === 0) {
+        if (threads.length === 0) {
           const dateRange = from || to
             ? ` between ${from ?? "the beginning"} and ${to ?? "today"}`
             : "";
@@ -213,11 +233,11 @@ function buildMcpServer(userId: string): McpServer {
           return "All conversations";
         })();
 
-        const lines = filtered.map(fmtThread);
+        const lines = threads.map(fmtThread);
         return {
           content: [{
             type: "text",
-            text: `${header} (${filtered.length} found):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text.`,
+            text: `${header} (${threads.length} found):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text.`,
           }],
         };
       } catch (err) {
@@ -349,7 +369,7 @@ function buildMcpServer(userId: string): McpServer {
           return {
             content: [{
               type: "text",
-              text: "No pinned memories yet. Pin conversations from the Memory Machine app to make them always accessible.",
+              text: "No pinned memories yet. Pin conversations from the Memory Machine app to make them always accessible here.",
             }],
           };
         }
@@ -371,7 +391,7 @@ function buildMcpServer(userId: string): McpServer {
   // ── get_memory_summary ───────────────────────────────────────────────────
   server.tool(
     "get_memory_summary",
-    "Get a condensed snapshot of a conversation — the opening, a middle note, and the closing exchanges. Gives the arc of a conversation without reading it all.",
+    "Get a condensed snapshot of a conversation — the opening exchanges, a note on length, and the closing exchanges. Gives the arc of a conversation without reading it all.",
     {
       thread_id: z.number().int().describe("The conversation ID to summarise"),
     },
@@ -422,7 +442,11 @@ function buildMcpServer(userId: string): McpServer {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async function handleMcpRequest(req: Request, res: Response) {
-  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const token = extractBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: "Missing Authorization: Bearer <token> header." });
+    return;
+  }
 
   const userId = await getUserIdByToken(token).catch(() => null);
   if (!userId) {
@@ -447,8 +471,9 @@ async function handleMcpRequest(req: Request, res: Response) {
   }
 }
 
-router.post("/mcp/:token", handleMcpRequest);
-router.get("/mcp/:token", handleMcpRequest);
-router.delete("/mcp/:token", handleMcpRequest);
+// MCP spec requires POST; GET and DELETE are also wired for probing clients
+router.post("/mcp", handleMcpRequest);
+router.get("/mcp", handleMcpRequest);
+router.delete("/mcp", handleMcpRequest);
 
 export default router;

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, count, ilike } from "drizzle-orm";
+import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -37,6 +37,18 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
 
     if (query.search) {
       conditions.push(ilike(threadsTable.title, `%${query.search}%`));
+    }
+
+    // Date range filter
+    const rawFrom = req.query.from as string | undefined;
+    const rawTo = req.query.to as string | undefined;
+    if (rawFrom) {
+      const d = new Date(rawFrom);
+      if (!isNaN(d.getTime())) conditions.push(gte(threadsTable.createdAt, d));
+    }
+    if (rawTo) {
+      const d = new Date(rawTo + "T23:59:59Z");
+      if (!isNaN(d.getTime())) conditions.push(lte(threadsTable.createdAt, d));
     }
 
     const rows = await db

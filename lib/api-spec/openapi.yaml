@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: Happier AI Vault API
+  description: Memory Machine API
 servers:
   - url: /api
     description: Base API path
@@ -47,6 +47,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: from
+          in: query
+          description: Filter threads created on or after this date (YYYY-MM-DD)
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Filter threads created on or before this date (YYYY-MM-DD)
+          schema:
+            type: string
       responses:
         "200":
           description: List of threads

@@ -1,4 +1,4 @@
-# Happier AI Vault — Project Documentation
+# Memory Machine — Project Documentation
 
 ## Overview
 

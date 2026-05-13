@@ -45,6 +45,8 @@ export interface RetrieveMemoriesOptions {
 
 const MAX_MESSAGES_PER_THREAD = 8;
 const MAX_SUMMARY_CHARS = 2000;
+/** Soft character budget for all injected memory context (avoids huge context windows). */
+const MAX_TOTAL_CONTEXT_CHARS = 40_000;
 
 /** Load the best representative messages from a thread for context injection. */
 async function loadThreadSnippet(
@@ -226,19 +228,31 @@ export async function retrieveMemories(
     }
   }
 
-  // ── 5. Load snippets for each source thread ───────────────────────────────
+  // ── 5. Load snippets for each source thread (respect context budget) ─────
   const contextMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
+  let totalChars = 0;
 
   for (const src of sources) {
+    if (totalChars >= MAX_TOTAL_CONTEXT_CHARS) {
+      logger.debug({ threadId: src.threadId }, "Context budget exhausted — skipping memory thread");
+      break;
+    }
     try {
       const snippet = await loadThreadSnippet(src.threadId);
       if (snippet.length > 0) {
+        const snippetChars = snippet.reduce((acc, m) => acc + m.content.length, 0);
+        if (totalChars + snippetChars > MAX_TOTAL_CONTEXT_CHARS && contextMessages.length > 0) {
+          // Skip this source to stay under budget (but always include at least one)
+          logger.debug({ threadId: src.threadId, snippetChars }, "Memory snippet skipped — would exceed context budget");
+          break;
+        }
         // Prefix the block so Leo knows this is from memory
         contextMessages.push({
           role: "system",
           content: `--- Memory: "${src.title}" (${src.reason}) ---`,
         });
         contextMessages.push(...snippet);
+        totalChars += snippetChars;
       }
     } catch (err) {
       logger.warn({ err, threadId: src.threadId }, "Failed to load snippet for memory thread");

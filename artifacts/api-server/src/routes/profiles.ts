@@ -24,6 +24,12 @@ function formatProfile(profile: typeof profilesTable.$inferSelect) {
     hasApiKey: !!profile.apiKey,
     defaultModel: profile.defaultModel,
     maxContextMessages: profile.maxContextMessages,
+    // Memory engine settings
+    smartRetrieval: profile.smartRetrieval,
+    topNMemories: profile.topNMemories,
+    alwaysIncludeLastN: profile.alwaysIncludeLastN,
+    memoryDateFrom: profile.memoryDateFrom ?? null,
+    memoryDateTo: profile.memoryDateTo ?? null,
     createdAt: profile.createdAt.toISOString(),
     updatedAt: profile.updatedAt.toISOString(),
   };
@@ -95,6 +101,11 @@ router.post("/profiles", requireAuth, async (req: Request, res: Response) => {
         apiKey: parsed.data.apiKey || null,
         defaultModel: parsed.data.defaultModel ?? "grok-3",
         maxContextMessages: parsed.data.maxContextMessages ?? 100,
+        smartRetrieval: parsed.data.smartRetrieval ?? true,
+        topNMemories: parsed.data.topNMemories ?? 10,
+        alwaysIncludeLastN: parsed.data.alwaysIncludeLastN ?? 3,
+        memoryDateFrom: parsed.data.memoryDateFrom || null,
+        memoryDateTo: parsed.data.memoryDateTo || null,
       })
       .returning();
 
@@ -155,6 +166,12 @@ router.patch("/profiles/:profileId", requireAuth, async (req: Request, res: Resp
     if (parsed.data.defaultModel !== undefined) updateData.defaultModel = parsed.data.defaultModel;
     if (parsed.data.maxContextMessages !== undefined)
       updateData.maxContextMessages = parsed.data.maxContextMessages;
+    // Memory engine settings
+    if (parsed.data.smartRetrieval !== undefined) updateData.smartRetrieval = parsed.data.smartRetrieval;
+    if (parsed.data.topNMemories !== undefined) updateData.topNMemories = parsed.data.topNMemories;
+    if (parsed.data.alwaysIncludeLastN !== undefined) updateData.alwaysIncludeLastN = parsed.data.alwaysIncludeLastN;
+    if ("memoryDateFrom" in parsed.data) updateData.memoryDateFrom = parsed.data.memoryDateFrom || null;
+    if ("memoryDateTo" in parsed.data) updateData.memoryDateTo = parsed.data.memoryDateTo || null;
 
     const [profile] = await db
       .update(profilesTable)

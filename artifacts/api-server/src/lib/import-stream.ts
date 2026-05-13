@@ -15,6 +15,7 @@ import JSZip from "jszip";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
 import { logger } from "./logger";
+import { embedMessageAsync } from "./embeddings";
 
 // ── Event types ───────────────────────────────────────────────────────────────
 
@@ -266,7 +267,12 @@ const BATCH_SIZE = 20;
 // Postgres hard limit is 65 535 parameters; each message row uses 4 fields
 const MAX_MSG_ROWS_PER_QUERY = Math.floor(60_000 / 4);
 
-async function insertBatch(userId: string, batch: ParsedConversation[]): Promise<void> {
+async function insertBatch(
+  userId: string,
+  batch: ParsedConversation[],
+  profileId: number | null = null,
+  apiKey?: string,
+): Promise<void> {
   if (batch.length === 0) return;
 
   const threads = await db
@@ -276,6 +282,7 @@ async function insertBatch(userId: string, batch: ParsedConversation[]): Promise
         userId,
         title: c.title,
         model: "grok-3" as const,
+        profileId: profileId ?? undefined,
         messageCount: c.messages.length,
       })),
     )
@@ -291,8 +298,25 @@ async function insertBatch(userId: string, batch: ParsedConversation[]): Promise
   );
 
   // Chunk to stay under the PG parameter limit
+  const insertedMessages: Array<typeof messagesTable.$inferSelect> = [];
   for (let i = 0; i < allMessages.length; i += MAX_MSG_ROWS_PER_QUERY) {
-    await db.insert(messagesTable).values(allMessages.slice(i, i + MAX_MSG_ROWS_PER_QUERY));
+    const chunk = await db
+      .insert(messagesTable)
+      .values(allMessages.slice(i, i + MAX_MSG_ROWS_PER_QUERY))
+      .returning();
+    insertedMessages.push(...chunk);
+  }
+
+  // Fire-and-forget: generate embeddings for all inserted messages so that
+  // smart memory retrieval works on imported conversations.
+  // Embedding is skipped gracefully when apiKey is absent.
+  if (apiKey) {
+    for (const msg of insertedMessages) {
+      // Only embed user/assistant turns (skip any system messages)
+      if (msg.role === "user" || msg.role === "assistant") {
+        embedMessageAsync(msg.id, msg.threadId, profileId, msg.content, apiKey);
+      }
+    }
   }
 }
 
@@ -303,6 +327,7 @@ export async function streamImportFile(
   isZip: boolean,
   userId: string,
   onEvent: (event: ImportEvent) => void,
+  opts?: { profileId?: number | null; apiKey?: string },
 ): Promise<void> {
   // ── 1. Read & extract ───────────────────────────────────────────────────
   let jsonText: string;
@@ -373,10 +398,12 @@ export async function streamImportFile(
   let errors = 0;
   let batch: ParsedConversation[] = [];
 
+  const { profileId = null, apiKey } = opts ?? {};
+
   const flush = async () => {
     if (batch.length === 0) return;
     try {
-      await insertBatch(userId, batch);
+      await insertBatch(userId, batch, profileId, apiKey);
       imported += batch.length;
     } catch (err) {
       logger.error({ err }, "Batch insert failed during import");

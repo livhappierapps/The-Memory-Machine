@@ -7,6 +7,9 @@ import { pipeline } from "stream/promises";
 import { requireAuth } from "../middlewares/auth";
 import { streamImportFile } from "../lib/import-stream";
 import { logger } from "../lib/logger";
+import { db } from "@workspace/db";
+import { settingsTable, profilesTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -139,7 +142,18 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
       "Chunks assembled, starting import",
     );
 
-    await streamImportFile(assembledPath, !!isZip, req.userId!, sendEvent);
+    // Resolve the user's API key and default profile for embedding generation
+    const userId = req.userId!;
+    const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
+    const [firstProfile] = await db
+      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey })
+      .from(profilesTable)
+      .where(eq(profilesTable.userId, userId))
+      .limit(1);
+    const apiKey = firstProfile?.apiKey || settings?.apiKey || undefined;
+    const profileId = firstProfile?.id ?? null;
+
+    await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey });
   } catch (err) {
     req.log.error({ err }, "Import finalize failed");
     sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });

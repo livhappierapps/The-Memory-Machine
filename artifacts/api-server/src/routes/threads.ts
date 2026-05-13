@@ -88,19 +88,29 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify the profileId belongs to this user before assigning it;
-    // also capture the profile's defaultModel so new threads inherit it
+    // Resolve the target profile:
+    // - If profileId is provided, verify ownership and capture its defaultModel
+    // - If omitted, fall back to the user's first (Default) profile so all threads are scoped
+    let resolvedProfileId: number | null = parsed.data.profileId ?? null;
     let profileDefaultModel: string | null = null;
-    if (parsed.data.profileId != null) {
+
+    if (resolvedProfileId != null) {
       const [profile] = await db
         .select({ id: profilesTable.id, defaultModel: profilesTable.defaultModel })
         .from(profilesTable)
-        .where(and(eq(profilesTable.id, parsed.data.profileId), eq(profilesTable.userId, userId)));
+        .where(and(eq(profilesTable.id, resolvedProfileId), eq(profilesTable.userId, userId)));
       if (!profile) {
         res.status(403).json({ error: "Profile not found or does not belong to you" });
         return;
       }
       profileDefaultModel = profile.defaultModel ?? null;
+    } else {
+      // Default to the user's first profile (ensureDefaultProfile guarantees at least one exists)
+      const userProfiles = await ensureDefaultProfile(userId);
+      if (userProfiles.length > 0) {
+        resolvedProfileId = userProfiles[0].id;
+        profileDefaultModel = userProfiles[0].defaultModel ?? null;
+      }
     }
 
     // Model priority: explicit request model > profile defaultModel > hardcoded fallback
@@ -112,7 +122,7 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
         userId,
         title: parsed.data.title,
         model,
-        profileId: parsed.data.profileId ?? null,
+        profileId: resolvedProfileId,
       })
       .returning();
 

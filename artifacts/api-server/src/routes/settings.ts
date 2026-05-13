@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { settingsTable, profilesTable } from "@workspace/db";
+import { eq, asc } from "drizzle-orm";
 import { UpdateSettingsBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { randomUUID } from "crypto";
@@ -20,7 +20,6 @@ async function getOrCreateSettings(userId: string) {
       .values({ userId, defaultModel: "grok-3", maxContextMessages: 100, mcpToken: randomUUID() })
       .returning();
   } else if (!settings.mcpToken) {
-    // Auto-provision token for existing users who don't have one yet
     [settings] = await db
       .update(settingsTable)
       .set({ mcpToken: randomUUID() })
@@ -31,12 +30,27 @@ async function getOrCreateSettings(userId: string) {
   return settings;
 }
 
-function formatSettings(settings: typeof settingsTable.$inferSelect) {
+// Return the user's first (default) profile, if any
+async function getDefaultProfile(userId: string) {
+  const [profile] = await db
+    .select()
+    .from(profilesTable)
+    .where(eq(profilesTable.userId, userId))
+    .orderBy(asc(profilesTable.createdAt))
+    .limit(1);
+  return profile ?? null;
+}
+
+function formatSettings(
+  settings: typeof settingsTable.$inferSelect,
+  profile: typeof profilesTable.$inferSelect | null,
+) {
   return {
     userId: settings.userId,
-    hasApiKey: !!settings.apiKey,
-    defaultModel: settings.defaultModel,
-    maxContextMessages: settings.maxContextMessages,
+    // Prefer per-profile values; fall back to global settingsTable row
+    hasApiKey: profile ? !!profile.apiKey : !!settings.apiKey,
+    defaultModel: profile?.defaultModel ?? settings.defaultModel,
+    maxContextMessages: profile?.maxContextMessages ?? settings.maxContextMessages,
     mcpToken: settings.mcpToken ?? null,
     createdAt: settings.createdAt.toISOString(),
     updatedAt: settings.updatedAt.toISOString(),
@@ -45,8 +59,11 @@ function formatSettings(settings: typeof settingsTable.$inferSelect) {
 
 router.get("/settings", requireAuth, async (req: Request, res: Response) => {
   try {
-    const settings = await getOrCreateSettings(req.userId!);
-    res.json(formatSettings(settings));
+    const [settings, profile] = await Promise.all([
+      getOrCreateSettings(req.userId!),
+      getDefaultProfile(req.userId!),
+    ]);
+    res.json(formatSettings(settings, profile));
   } catch (err) {
     req.log.error({ err }, "Failed to get settings");
     res.status(500).json({ error: "Internal server error" });
@@ -62,32 +79,52 @@ router.put("/settings", requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    const updateData: Record<string, unknown> = {};
+    const globalUpdate: Record<string, unknown> = {};
+    const profileUpdate: Record<string, unknown> = {};
+
     if (parsed.data.apiKey !== undefined) {
-      updateData.apiKey = parsed.data.apiKey || null;
+      const apiKeyVal = parsed.data.apiKey || null;
+      globalUpdate.apiKey = apiKeyVal;
+      profileUpdate.apiKey = apiKeyVal;
     }
     if (parsed.data.defaultModel !== undefined) {
-      updateData.defaultModel = parsed.data.defaultModel;
+      globalUpdate.defaultModel = parsed.data.defaultModel;
+      profileUpdate.defaultModel = parsed.data.defaultModel;
     }
     if (parsed.data.maxContextMessages !== undefined) {
-      updateData.maxContextMessages = parsed.data.maxContextMessages;
+      globalUpdate.maxContextMessages = parsed.data.maxContextMessages;
+      profileUpdate.maxContextMessages = parsed.data.maxContextMessages;
     }
 
+    // Write to global settings (primary for mcpToken fallback)
     const [settings] = await db
       .insert(settingsTable)
       .values({
         userId,
-        apiKey: (updateData.apiKey as string | null) ?? null,
-        defaultModel: (updateData.defaultModel as string) ?? "grok-3",
-        maxContextMessages: (updateData.maxContextMessages as number) ?? 100,
+        apiKey: (globalUpdate.apiKey as string | null) ?? null,
+        defaultModel: (globalUpdate.defaultModel as string) ?? "grok-3",
+        maxContextMessages: (globalUpdate.maxContextMessages as number) ?? 100,
       })
       .onConflictDoUpdate({
         target: settingsTable.userId,
-        set: updateData,
+        set: globalUpdate,
       })
       .returning();
 
-    res.json(formatSettings(settings));
+    // Also sync to the user's default profile so settings are profile-aware
+    const profile = await getDefaultProfile(userId);
+    if (profile && Object.keys(profileUpdate).length > 0) {
+      await db
+        .update(profilesTable)
+        .set(profileUpdate)
+        .where(eq(profilesTable.id, profile.id));
+    }
+
+    const updatedProfile = profile
+      ? { ...profile, ...profileUpdate } as typeof profilesTable.$inferSelect
+      : null;
+
+    res.json(formatSettings(settings, updatedProfile));
   } catch (err) {
     req.log.error({ err }, "Failed to update settings");
     res.status(500).json({ error: "Internal server error" });
@@ -108,7 +145,8 @@ router.post("/settings/mcp-token", requireAuth, async (req: Request, res: Respon
       })
       .returning();
 
-    res.json(formatSettings(settings));
+    const profile = await getDefaultProfile(userId);
+    res.json(formatSettings(settings, profile));
   } catch (err) {
     req.log.error({ err }, "Failed to generate MCP token");
     res.status(500).json({ error: "Internal server error" });

@@ -193,6 +193,19 @@ router.delete("/profiles/:profileId", requireAuth, async (req: Request, res: Res
       return;
     }
 
+    // Pick a sibling profile to receive this profile's threads before deleting
+    const fallbackProfile = allProfiles.find((p) => p.id !== params.data.profileId);
+    if (!fallbackProfile) {
+      res.status(400).json({ error: "Cannot delete the last profile" });
+      return;
+    }
+
+    // Reassign threads to the fallback profile so they are never orphaned
+    await db
+      .update(threadsTable)
+      .set({ profileId: fallbackProfile.id })
+      .where(and(eq(threadsTable.profileId, params.data.profileId), eq(threadsTable.userId, userId)));
+
     const [profile] = await db
       .delete(profilesTable)
       .where(and(eq(profilesTable.id, params.data.profileId), eq(profilesTable.userId, userId)))

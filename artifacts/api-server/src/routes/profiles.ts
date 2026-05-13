@@ -26,6 +26,7 @@ function formatProfile(profile: typeof profilesTable.$inferSelect) {
     maxContextMessages: profile.maxContextMessages,
     // Memory engine settings
     embeddingProvider: profile.embeddingProvider ?? "xai",
+    hasOpenAiApiKey: !!profile.openAiApiKey,
     smartRetrieval: profile.smartRetrieval,
     topNMemories: profile.topNMemories,
     alwaysIncludeLastN: profile.alwaysIncludeLastN,
@@ -103,6 +104,7 @@ router.post("/profiles", requireAuth, async (req: Request, res: Response) => {
         defaultModel: parsed.data.defaultModel ?? "grok-3",
         maxContextMessages: parsed.data.maxContextMessages ?? 100,
         embeddingProvider: parsed.data.embeddingProvider ?? "xai",
+        openAiApiKey: parsed.data.openAiApiKey || null,
         smartRetrieval: parsed.data.smartRetrieval ?? true,
         topNMemories: parsed.data.topNMemories ?? 10,
         alwaysIncludeLastN: parsed.data.alwaysIncludeLastN ?? 3,
@@ -170,6 +172,7 @@ router.patch("/profiles/:profileId", requireAuth, async (req: Request, res: Resp
       updateData.maxContextMessages = parsed.data.maxContextMessages;
     // Memory engine settings
     if (parsed.data.embeddingProvider !== undefined) updateData.embeddingProvider = parsed.data.embeddingProvider;
+    if (parsed.data.openAiApiKey !== undefined) updateData.openAiApiKey = parsed.data.openAiApiKey || null;
     if (parsed.data.smartRetrieval !== undefined) updateData.smartRetrieval = parsed.data.smartRetrieval;
     if (parsed.data.topNMemories !== undefined) updateData.topNMemories = parsed.data.topNMemories;
     if (parsed.data.alwaysIncludeLastN !== undefined) updateData.alwaysIncludeLastN = parsed.data.alwaysIncludeLastN;

@@ -710,6 +710,8 @@ components:
         embeddingProvider:
           type: string
           enum: [xai, openai]
+        hasOpenAiApiKey:
+          type: boolean
         smartRetrieval:
           type: boolean
         topNMemories:
@@ -734,6 +736,7 @@ components:
         - defaultModel
         - maxContextMessages
         - embeddingProvider
+        - hasOpenAiApiKey
         - smartRetrieval
         - topNMemories
         - alwaysIncludeLastN
@@ -760,6 +763,8 @@ components:
         embeddingProvider:
           type: string
           enum: [xai, openai]
+        openAiApiKey:
+          type: string
         smartRetrieval:
           type: boolean
         topNMemories:
@@ -793,6 +798,8 @@ components:
         embeddingProvider:
           type: string
           enum: [xai, openai]
+        openAiApiKey:
+          type: string
         smartRetrieval:
           type: boolean
         topNMemories:

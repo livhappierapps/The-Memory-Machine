@@ -22,6 +22,7 @@ async function applyRequiredSchema(): Promise<void> {
   await db.execute(sql`
     ALTER TABLE profiles
       ADD COLUMN IF NOT EXISTS embedding_provider    text    NOT NULL DEFAULT 'xai',
+      ADD COLUMN IF NOT EXISTS open_ai_api_key       text,
       ADD COLUMN IF NOT EXISTS smart_retrieval       boolean NOT NULL DEFAULT true,
       ADD COLUMN IF NOT EXISTS top_n_memories        integer NOT NULL DEFAULT 10,
       ADD COLUMN IF NOT EXISTS always_include_last_n integer NOT NULL DEFAULT 3,

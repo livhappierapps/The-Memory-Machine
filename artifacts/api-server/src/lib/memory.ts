@@ -41,6 +41,7 @@ export interface RetrieveMemoriesOptions {
   dateFrom?: string | null;
   dateTo?: string | null;
   apiKey: string;
+  embeddingProvider?: string;
 }
 
 const MAX_MESSAGES_PER_THREAD = 8;
@@ -96,6 +97,7 @@ export async function retrieveMemories(
     dateFrom,
     dateTo,
     apiKey,
+    embeddingProvider = "xai",
   } = opts;
 
   const sources: MemorySource[] = [];
@@ -131,7 +133,7 @@ export async function retrieveMemories(
 
   // ── 3. Semantic similarity search via pgvector ────────────────────────────
   if (smartRetrieval && topN > 0) {
-    const queryVec = await generateEmbedding(query, apiKey);
+    const queryVec = await generateEmbedding(query, apiKey, embeddingProvider);
 
     if (queryVec) {
       const vecLiteral = `[${queryVec.join(",")}]`;

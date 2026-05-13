@@ -27,6 +27,7 @@ const profileSettingsSchema = z.object({
   defaultModel: z.string(),
   maxContextMessages: z.number().min(0).max(1000),
   embeddingProvider: z.enum(["xai", "openai"]),
+  openAiApiKey: z.string().optional(),
   smartRetrieval: z.boolean(),
   topNMemories: z.number().min(1).max(50),
   alwaysIncludeLastN: z.number().min(0).max(20),
@@ -221,6 +222,7 @@ function ProfileSettingsForm() {
       defaultModel: "grok-3",
       maxContextMessages: 100,
       embeddingProvider: "xai" as const,
+      openAiApiKey: "",
       smartRetrieval: true,
       topNMemories: 10,
       alwaysIncludeLastN: 3,
@@ -237,6 +239,7 @@ function ProfileSettingsForm() {
         defaultModel: activeProfile.defaultModel ?? "grok-3",
         maxContextMessages: activeProfile.maxContextMessages ?? 100,
         embeddingProvider: (activeProfile.embeddingProvider ?? "xai") as "xai" | "openai",
+        openAiApiKey: "",
         smartRetrieval: activeProfile.smartRetrieval ?? true,
         topNMemories: activeProfile.topNMemories ?? 10,
         alwaysIncludeLastN: activeProfile.alwaysIncludeLastN ?? 3,
@@ -261,6 +264,7 @@ function ProfileSettingsForm() {
       memoryDateTo: values.memoryDateTo || null,
     };
     if (values.apiKey) updateData.apiKey = values.apiKey;
+    if (values.openAiApiKey) updateData.openAiApiKey = values.openAiApiKey;
 
     updateProfile.mutate(
       { profileId: activeProfileId, data: updateData },
@@ -429,6 +433,29 @@ function ProfileSettingsForm() {
                 </FormItem>
               )}
             />
+
+            {form.watch("embeddingProvider") === "openai" && (
+              <FormField
+                control={form.control}
+                name="openAiApiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>OpenAI API Key</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder={activeProfile?.hasOpenAiApiKey ? "••••••••••••••••••••••• (saved)" : "sk-..."}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Used only for generating embeddings via OpenAI. Your Grok API key above is still used for chat.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <FormField
               control={form.control}

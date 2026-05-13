@@ -40,10 +40,13 @@ router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res:
       return;
     }
 
+    // Exclude isSummary=true rows — summaries are internal memory artifacts,
+    // not conversation turns that the user should see or that should be sent
+    // back into the thread context.
     const messages = await db
       .select()
       .from(messagesTable)
-      .where(eq(messagesTable.threadId, params.data.threadId))
+      .where(and(eq(messagesTable.threadId, params.data.threadId), eq(messagesTable.isSummary, false)))
       .orderBy(asc(messagesTable.createdAt));
 
     res.json(messages);
@@ -98,11 +101,13 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
     // ── Async: embed the saved message (best-effort) ───────────────────────
     if (thread.profileId) {
       const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
+        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
       if (profile?.apiKey) {
-        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, profile.apiKey, profile.embeddingProvider ?? "xai");
+        const provider = profile.embeddingProvider ?? "xai";
+        const embKey = (provider === "openai" ? profile.openAiApiKey : null) ?? profile.apiKey;
+        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, embKey, provider);
       }
     }
   } catch (err) {
@@ -169,11 +174,12 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       })
       .returning();
 
-    // Load current thread history
+    // Load current thread history — exclude summary messages (they are internal
+    // memory artifacts and must not be sent back as conversation turns to Grok)
     const history = await db
       .select()
       .from(messagesTable)
-      .where(eq(messagesTable.threadId, params.data.threadId))
+      .where(and(eq(messagesTable.threadId, params.data.threadId), eq(messagesTable.isSummary, false)))
       .orderBy(asc(messagesTable.createdAt));
 
     const model = thread.model || profile?.defaultModel || settings?.defaultModel || "grok-3";
@@ -195,6 +201,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     if (profile && (smartRetrieval || alwaysIncludeLastN > 0)) {
       try {
+        // Resolve the key to use for embedding the query (may differ from chat key)
+        const embeddingApiKey =
+          (profile.embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? apiKey;
+
         const memoryResult = await retrieveMemories({
           profileId: profile.id,
           userId,
@@ -205,7 +215,8 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
           alwaysIncludeLastN,
           dateFrom: profile.memoryDateFrom,
           dateTo: profile.memoryDateTo,
-          apiKey,
+          apiKey: embeddingApiKey,
+          embeddingProvider: profile.embeddingProvider ?? "xai",
         });
         memorySources = memoryResult.sources;
         memoryMessages = memoryResult.messages;
@@ -329,9 +340,12 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     // ── Async: generate embeddings for user + assistant messages ──────────
     const embeddingProvider = profile?.embeddingProvider ?? "xai";
-    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, apiKey, embeddingProvider);
+    // Resolve the right API key for embedding (may differ from the chat/Grok key)
+    const embeddingKey =
+      (embeddingProvider === "openai" ? profile?.openAiApiKey : null) ?? apiKey;
+    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, embeddingKey, embeddingProvider);
     if (fullContent) {
-      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, apiKey, embeddingProvider);
+      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
@@ -459,13 +473,15 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     // ── Async: embed imported messages (best-effort) ───────────────────────
     if (thread.profileId) {
       const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
+        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
       if (profile?.apiKey) {
+        const provider = profile.embeddingProvider ?? "xai";
+        const embKey = (provider === "openai" ? profile.openAiApiKey : null) ?? profile.apiKey;
         for (const msg of inserted) {
           if (msg.role === "user" || msg.role === "assistant") {
-            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, profile.apiKey, profile.embeddingProvider ?? "xai");
+            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, embKey, provider);
           }
         }
       }

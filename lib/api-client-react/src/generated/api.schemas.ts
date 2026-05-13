@@ -164,6 +164,7 @@ export interface Profile {
   defaultModel: string;
   maxContextMessages: number;
   embeddingProvider: ProfileEmbeddingProvider;
+  hasOpenAiApiKey: boolean;
   smartRetrieval: boolean;
   topNMemories: number;
   alwaysIncludeLastN: number;
@@ -192,6 +193,7 @@ export interface CreateProfileBody {
   defaultModel?: string;
   maxContextMessages?: number;
   embeddingProvider?: CreateProfileBodyEmbeddingProvider;
+  openAiApiKey?: string;
   smartRetrieval?: boolean;
   topNMemories?: number;
   alwaysIncludeLastN?: number;
@@ -218,6 +220,7 @@ export interface UpdateProfileBody {
   defaultModel?: string;
   maxContextMessages?: number;
   embeddingProvider?: UpdateProfileBodyEmbeddingProvider;
+  openAiApiKey?: string;
   smartRetrieval?: boolean;
   topNMemories?: number;
   alwaysIncludeLastN?: number;

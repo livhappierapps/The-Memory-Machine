@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 async function applyRequiredSchema(): Promise<void> {
-  // Ensure smart-memory columns exist on profiles
+  // Ensure smart-memory and multi-provider columns exist on profiles
   await db.execute(sql`
     ALTER TABLE profiles
       ADD COLUMN IF NOT EXISTS embedding_provider    text    NOT NULL DEFAULT 'xai',
@@ -15,7 +15,10 @@ async function applyRequiredSchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS top_n_memories        integer NOT NULL DEFAULT 10,
       ADD COLUMN IF NOT EXISTS always_include_last_n integer NOT NULL DEFAULT 3,
       ADD COLUMN IF NOT EXISTS memory_date_from      text,
-      ADD COLUMN IF NOT EXISTS memory_date_to        text
+      ADD COLUMN IF NOT EXISTS memory_date_to        text,
+      ADD COLUMN IF NOT EXISTS chat_provider         text    NOT NULL DEFAULT 'xai',
+      ADD COLUMN IF NOT EXISTS anthropic_api_key     text,
+      ADD COLUMN IF NOT EXISTS google_api_key        text
   `);
 
   // Ensure memory_weight column exists on threads

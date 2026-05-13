@@ -704,7 +704,14 @@ components:
           type: string
         personalityNotes:
           type: ["string", "null"]
+        chatProvider:
+          type: string
+          enum: [xai, openai, anthropic, google]
         hasApiKey:
+          type: boolean
+        hasAnthropicApiKey:
+          type: boolean
+        hasGoogleApiKey:
           type: boolean
         defaultModel:
           type: string
@@ -735,7 +742,10 @@ components:
         - name
         - emoji
         - color
+        - chatProvider
         - hasApiKey
+        - hasAnthropicApiKey
+        - hasGoogleApiKey
         - defaultModel
         - maxContextMessages
         - embeddingProvider
@@ -757,7 +767,14 @@ components:
           type: string
         personalityNotes:
           type: string
+        chatProvider:
+          type: string
+          enum: [xai, openai, anthropic, google]
         apiKey:
+          type: string
+        anthropicApiKey:
+          type: string
+        googleApiKey:
           type: string
         defaultModel:
           type: string
@@ -792,7 +809,14 @@ components:
           type: string
         personalityNotes:
           type: string
+        chatProvider:
+          type: string
+          enum: [xai, openai, anthropic, google]
         apiKey:
+          type: string
+        anthropicApiKey:
+          type: string
+        googleApiKey:
           type: string
         defaultModel:
           type: string

@@ -21,7 +21,10 @@ function formatProfile(profile: typeof profilesTable.$inferSelect) {
     emoji: profile.emoji,
     color: profile.color,
     personalityNotes: profile.personalityNotes ?? null,
+    chatProvider: profile.chatProvider ?? "xai",
     hasApiKey: !!profile.apiKey,
+    hasAnthropicApiKey: !!profile.anthropicApiKey,
+    hasGoogleApiKey: !!profile.googleApiKey,
     defaultModel: profile.defaultModel,
     maxContextMessages: profile.maxContextMessages,
     // Memory engine settings
@@ -100,7 +103,10 @@ router.post("/profiles", requireAuth, async (req: Request, res: Response) => {
         emoji: parsed.data.emoji ?? "🤖",
         color: parsed.data.color ?? "#2dd4bf",
         personalityNotes: parsed.data.personalityNotes || null,
+        chatProvider: parsed.data.chatProvider ?? "xai",
         apiKey: parsed.data.apiKey || null,
+        anthropicApiKey: parsed.data.anthropicApiKey || null,
+        googleApiKey: parsed.data.googleApiKey || null,
         defaultModel: parsed.data.defaultModel ?? "grok-3",
         maxContextMessages: parsed.data.maxContextMessages ?? 100,
         embeddingProvider: parsed.data.embeddingProvider ?? "xai",
@@ -166,7 +172,10 @@ router.patch("/profiles/:profileId", requireAuth, async (req: Request, res: Resp
     if (parsed.data.color !== undefined) updateData.color = parsed.data.color;
     if (parsed.data.personalityNotes !== undefined)
       updateData.personalityNotes = parsed.data.personalityNotes || null;
+    if (parsed.data.chatProvider !== undefined) updateData.chatProvider = parsed.data.chatProvider;
     if (parsed.data.apiKey !== undefined) updateData.apiKey = parsed.data.apiKey || null;
+    if (parsed.data.anthropicApiKey !== undefined) updateData.anthropicApiKey = parsed.data.anthropicApiKey || null;
+    if (parsed.data.googleApiKey !== undefined) updateData.googleApiKey = parsed.data.googleApiKey || null;
     if (parsed.data.defaultModel !== undefined) updateData.defaultModel = parsed.data.defaultModel;
     if (parsed.data.maxContextMessages !== undefined)
       updateData.maxContextMessages = parsed.data.maxContextMessages;

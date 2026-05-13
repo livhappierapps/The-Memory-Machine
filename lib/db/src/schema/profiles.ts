@@ -12,6 +12,10 @@ export const profilesTable = pgTable("profiles", {
   apiKey: text("api_key"),
   defaultModel: text("default_model").notNull().default("grok-3"),
   maxContextMessages: integer("max_context_messages").notNull().default(100),
+  // Chat provider (which AI to use for completions)
+  chatProvider: text("chat_provider").notNull().default("xai"),
+  anthropicApiKey: text("anthropic_api_key"),
+  googleApiKey: text("google_api_key"),
   // Memory engine settings
   embeddingProvider: text("embedding_provider").notNull().default("xai"),
   openAiApiKey: text("open_ai_api_key"),

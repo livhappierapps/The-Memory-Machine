@@ -145,6 +145,16 @@ export interface VaultStats {
   newestThreadAt?: string | null;
 }
 
+export type ProfileChatProvider =
+  (typeof ProfileChatProvider)[keyof typeof ProfileChatProvider];
+
+export const ProfileChatProvider = {
+  xai: "xai",
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+} as const;
+
 export type ProfileEmbeddingProvider =
   (typeof ProfileEmbeddingProvider)[keyof typeof ProfileEmbeddingProvider];
 
@@ -161,7 +171,10 @@ export interface Profile {
   color: string;
   /** @nullable */
   personalityNotes?: string | null;
+  chatProvider: ProfileChatProvider;
   hasApiKey: boolean;
+  hasAnthropicApiKey: boolean;
+  hasGoogleApiKey: boolean;
   defaultModel: string;
   maxContextMessages: number;
   embeddingProvider: ProfileEmbeddingProvider;
@@ -177,6 +190,16 @@ export interface Profile {
   updatedAt: string;
 }
 
+export type CreateProfileBodyChatProvider =
+  (typeof CreateProfileBodyChatProvider)[keyof typeof CreateProfileBodyChatProvider];
+
+export const CreateProfileBodyChatProvider = {
+  xai: "xai",
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+} as const;
+
 export type CreateProfileBodyEmbeddingProvider =
   (typeof CreateProfileBodyEmbeddingProvider)[keyof typeof CreateProfileBodyEmbeddingProvider];
 
@@ -190,7 +213,10 @@ export interface CreateProfileBody {
   emoji?: string;
   color?: string;
   personalityNotes?: string;
+  chatProvider?: CreateProfileBodyChatProvider;
   apiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
   embeddingProvider?: CreateProfileBodyEmbeddingProvider;
@@ -203,6 +229,16 @@ export interface CreateProfileBody {
   /** @nullable */
   memoryDateTo?: string | null;
 }
+
+export type UpdateProfileBodyChatProvider =
+  (typeof UpdateProfileBodyChatProvider)[keyof typeof UpdateProfileBodyChatProvider];
+
+export const UpdateProfileBodyChatProvider = {
+  xai: "xai",
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+} as const;
 
 export type UpdateProfileBodyEmbeddingProvider =
   (typeof UpdateProfileBodyEmbeddingProvider)[keyof typeof UpdateProfileBodyEmbeddingProvider];
@@ -217,7 +253,10 @@ export interface UpdateProfileBody {
   emoji?: string;
   color?: string;
   personalityNotes?: string;
+  chatProvider?: UpdateProfileBodyChatProvider;
   apiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
   embeddingProvider?: UpdateProfileBodyEmbeddingProvider;

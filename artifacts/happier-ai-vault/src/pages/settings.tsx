@@ -22,12 +22,61 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
+// Models available for each provider
+const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+  xai: [
+    { value: "grok-3", label: "Grok-3" },
+    { value: "grok-3-mini", label: "Grok-3-Mini" },
+    { value: "grok-2-1212", label: "Grok-2-1212" },
+  ],
+  openai: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4o-mini", label: "GPT-4o-Mini" },
+    { value: "gpt-4-turbo", label: "GPT-4-Turbo" },
+    { value: "o3-mini", label: "o3-mini" },
+  ],
+  anthropic: [
+    { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
+    { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+    { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  ],
+  google: [
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+  ],
+};
+
+const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
+  xai: "grok-3",
+  openai: "gpt-4o",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
+};
+
+const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
+  xai: "xai-…",
+  openai: "sk-…",
+  anthropic: "sk-ant-…",
+  google: "AIza…",
+};
+
+const PROVIDER_KEY_LABEL: Record<string, string> = {
+  xai: "xAI / Grok API Key",
+  openai: "OpenAI API Key",
+  anthropic: "Anthropic API Key",
+  google: "Google Gemini API Key",
+};
+
 const profileSettingsSchema = z.object({
+  chatProvider: z.enum(["xai", "openai", "anthropic", "google"]),
   apiKey: z.string().optional(),
+  openAiApiKey: z.string().optional(),
+  anthropicApiKey: z.string().optional(),
+  googleApiKey: z.string().optional(),
   defaultModel: z.string(),
   maxContextMessages: z.number().min(0).max(1000),
   embeddingProvider: z.enum(["xai", "openai"]),
-  openAiApiKey: z.string().optional(),
   smartRetrieval: z.boolean(),
   topNMemories: z.number().min(1).max(50),
   alwaysIncludeLastN: z.number().min(0).max(20),
@@ -218,11 +267,14 @@ function ProfileSettingsForm() {
   const form = useForm<z.infer<typeof profileSettingsSchema>>({
     resolver: zodResolver(profileSettingsSchema),
     defaultValues: {
+      chatProvider: "xai" as const,
       apiKey: "",
+      openAiApiKey: "",
+      anthropicApiKey: "",
+      googleApiKey: "",
       defaultModel: "grok-3",
       maxContextMessages: 100,
       embeddingProvider: "xai" as const,
-      openAiApiKey: "",
       smartRetrieval: true,
       topNMemories: 10,
       alwaysIncludeLastN: 3,
@@ -231,15 +283,20 @@ function ProfileSettingsForm() {
     },
   });
 
+  const chatProvider = form.watch("chatProvider");
+
   // Re-initialize form whenever the active profile changes
   useEffect(() => {
     if (activeProfile && formInitialized.current !== activeProfile.id) {
       form.reset({
+        chatProvider: (activeProfile.chatProvider ?? "xai") as "xai" | "openai" | "anthropic" | "google",
         apiKey: "",
-        defaultModel: activeProfile.defaultModel ?? "grok-3",
+        openAiApiKey: "",
+        anthropicApiKey: "",
+        googleApiKey: "",
+        defaultModel: activeProfile.defaultModel ?? DEFAULT_MODEL_FOR_PROVIDER[activeProfile.chatProvider ?? "xai"] ?? "grok-3",
         maxContextMessages: activeProfile.maxContextMessages ?? 100,
         embeddingProvider: (activeProfile.embeddingProvider ?? "xai") as "xai" | "openai",
-        openAiApiKey: "",
         smartRetrieval: activeProfile.smartRetrieval ?? true,
         topNMemories: activeProfile.topNMemories ?? 10,
         alwaysIncludeLastN: activeProfile.alwaysIncludeLastN ?? 3,
@@ -250,10 +307,22 @@ function ProfileSettingsForm() {
     }
   }, [activeProfile, form]);
 
+  // When provider changes, auto-select the default model for that provider
+  // (only if the current model isn't valid for the new provider)
+  const handleProviderChange = (newProvider: string) => {
+    form.setValue("chatProvider", newProvider as "xai" | "openai" | "anthropic" | "google");
+    const validModels = PROVIDER_MODELS[newProvider]?.map((m) => m.value) ?? [];
+    const currentModel = form.getValues("defaultModel");
+    if (!validModels.includes(currentModel)) {
+      form.setValue("defaultModel", DEFAULT_MODEL_FOR_PROVIDER[newProvider] ?? validModels[0] ?? "");
+    }
+  };
+
   const onSubmit = (values: z.infer<typeof profileSettingsSchema>) => {
     if (!activeProfileId) return;
 
     const updateData: Record<string, unknown> = {
+      chatProvider: values.chatProvider,
       defaultModel: values.defaultModel,
       maxContextMessages: values.maxContextMessages,
       embeddingProvider: values.embeddingProvider,
@@ -263,8 +332,11 @@ function ProfileSettingsForm() {
       memoryDateFrom: values.memoryDateFrom || null,
       memoryDateTo: values.memoryDateTo || null,
     };
+    // Only send API keys if the user typed something new
     if (values.apiKey) updateData.apiKey = values.apiKey;
     if (values.openAiApiKey) updateData.openAiApiKey = values.openAiApiKey;
+    if (values.anthropicApiKey) updateData.anthropicApiKey = values.anthropicApiKey;
+    if (values.googleApiKey) updateData.googleApiKey = values.googleApiKey;
 
     updateProfile.mutate(
       { profileId: activeProfileId, data: updateData },
@@ -273,7 +345,11 @@ function ProfileSettingsForm() {
           queryClient.invalidateQueries({ queryKey: getListProfilesQueryKey() });
           refetchProfiles();
           toast({ title: "Profile settings saved", description: "Your active profile preferences have been updated." });
-          if (values.apiKey) form.setValue("apiKey", "");
+          // Clear key fields after save
+          form.setValue("apiKey", "");
+          form.setValue("openAiApiKey", "");
+          form.setValue("anthropicApiKey", "");
+          form.setValue("googleApiKey", "");
         },
         onError: () => {
           toast({ title: "Error", description: "Failed to save settings. Please try again.", variant: "destructive" });
@@ -290,45 +366,93 @@ function ProfileSettingsForm() {
     );
   }
 
+  // Determine which key fields are already saved for this profile
+  const hasCurrentKey =
+    chatProvider === "xai" ? activeProfile.hasApiKey :
+    chatProvider === "openai" ? activeProfile.hasOpenAiApiKey :
+    chatProvider === "anthropic" ? activeProfile.hasAnthropicApiKey :
+    chatProvider === "google" ? activeProfile.hasGoogleApiKey : false;
+
+  const currentKeyFieldName = (): "apiKey" | "openAiApiKey" | "anthropicApiKey" | "googleApiKey" => {
+    switch (chatProvider) {
+      case "openai": return "openAiApiKey";
+      case "anthropic": return "anthropicApiKey";
+      case "google": return "googleApiKey";
+      default: return "apiKey";
+    }
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+
+        {/* AI Provider section */}
         <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
             <Key className="w-5 h-5 text-primary" />
             <div>
-              <h2 className="text-xl font-semibold">API Key</h2>
+              <h2 className="text-xl font-semibold">AI Provider</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
                 Active profile: <span className="text-foreground font-medium">{activeProfile.emoji} {activeProfile.name}</span>
               </p>
             </div>
           </div>
 
-          <FormField
-            control={form.control}
-            name="apiKey"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Grok API Key</FormLabel>
-                <FormControl>
-                  <Input
-                    type="password"
-                    placeholder={activeProfile.hasApiKey ? "•••••••••••••••••••••••• (Key saved)" : "xai-..."}
-                    className="font-mono"
-                    {...field}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {activeProfile.hasApiKey
-                    ? `${activeProfile.name} already has an API key. Enter a new one to overwrite it.`
-                    : `Enter your Grok API key from console.x.ai — this key is used only for ${activeProfile.name}.`}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <div className="space-y-6">
+            <FormField
+              control={form.control}
+              name="chatProvider"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Provider</FormLabel>
+                  <Select onValueChange={handleProviderChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="xai">xAI / Grok</SelectItem>
+                      <SelectItem value="openai">OpenAI (ChatGPT)</SelectItem>
+                      <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
+                      <SelectItem value="google">Google Gemini</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Which AI to use for chat responses under {activeProfile.name}.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name={currentKeyFieldName()}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{PROVIDER_KEY_LABEL[chatProvider]}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="password"
+                      placeholder={hasCurrentKey ? "•••••••••••••••••••••••• (Key saved)" : PROVIDER_KEY_PLACEHOLDER[chatProvider]}
+                      className="font-mono"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {hasCurrentKey
+                      ? `${activeProfile.name} already has a ${PROVIDER_KEY_LABEL[chatProvider]}. Enter a new one to overwrite it.`
+                      : `Get your API key from the ${chatProvider === "xai" ? "console.x.ai" : chatProvider === "openai" ? "platform.openai.com" : chatProvider === "anthropic" ? "console.anthropic.com" : "aistudio.google.com"} dashboard.`}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         </div>
 
+        {/* Model Preferences */}
         <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
             <Settings2 className="w-5 h-5 text-primary" />
@@ -354,9 +478,9 @@ function ProfileSettingsForm() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="grok-3">Grok-3</SelectItem>
-                      <SelectItem value="grok-3-mini">Grok-3-Mini</SelectItem>
-                      <SelectItem value="grok-2-1212">Grok-2-1212</SelectItem>
+                      {(PROVIDER_MODELS[chatProvider] ?? PROVIDER_MODELS.xai).map((m) => (
+                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormDescription>The model used for new conversations under {activeProfile.name}.</FormDescription>
@@ -422,12 +546,12 @@ function ProfileSettingsForm() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="xai">xAI (default — uses your Grok API key)</SelectItem>
-                      <SelectItem value="openai">OpenAI (uses a separate OpenAI API key)</SelectItem>
+                      <SelectItem value="xai">xAI (uses your Grok API key)</SelectItem>
+                      <SelectItem value="openai">OpenAI (uses your OpenAI API key)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormDescription>
-                    Which AI provider to use for generating memory embeddings. Both support the same embedding model.
+                    Which provider to use for generating memory embeddings. Both support the same embedding model.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -440,16 +564,16 @@ function ProfileSettingsForm() {
                 name="openAiApiKey"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>OpenAI API Key</FormLabel>
+                    <FormLabel>OpenAI API Key (for embeddings)</FormLabel>
                     <FormControl>
                       <Input
                         type="password"
-                        placeholder={activeProfile?.hasOpenAiApiKey ? "••••••••••••••••••••••• (saved)" : "sk-..."}
+                        placeholder={activeProfile?.hasOpenAiApiKey ? "••••••••••••••••••••••• (saved)" : "sk-…"}
                         {...field}
                       />
                     </FormControl>
                     <FormDescription>
-                      Used only for generating embeddings via OpenAI. Your Grok API key above is still used for chat.
+                      Used only for generating embeddings. Your chat provider key above is used for conversations.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

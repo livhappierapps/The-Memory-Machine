@@ -12,7 +12,7 @@ import {
   StreamMessageBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
-import { streamGrokCompletion } from "../lib/grok";
+import { streamCompletion, resolveChatKey, type ChatProvider } from "../lib/ai-provider";
 import { embedMessageAsync } from "../lib/embeddings";
 import { retrieveMemories } from "../lib/memory";
 import { maybeSummarizeAsync } from "../lib/summarizer";
@@ -158,10 +158,25 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    // Profile API key takes precedence over global settings fallback
-    const apiKey = profile?.apiKey || settings?.apiKey;
+    // Determine which AI provider and key to use for this chat request
+    const chatProvider = (profile?.chatProvider ?? "xai") as ChatProvider;
+    const apiKey = resolveChatKey(
+      chatProvider,
+      profile?.apiKey ?? settings?.apiKey ?? null,
+      profile?.openAiApiKey ?? null,
+      profile?.anthropicApiKey ?? null,
+      profile?.googleApiKey ?? null,
+    );
     if (!apiKey) {
-      res.status(400).json({ error: "No API key configured. Add your Grok API key in the profile editor or Settings." });
+      const providerLabels: Record<ChatProvider, string> = {
+        xai: "Grok (xAI) API key (xai-…)",
+        openai: "OpenAI API key (sk-…)",
+        anthropic: "Anthropic API key (sk-ant-…)",
+        google: "Google Gemini API key (AIza…)",
+      };
+      res.status(400).json({
+        error: `No API key configured for ${providerLabels[chatProvider]}. Add it in Settings → AI Provider.`,
+      });
       return;
     }
 
@@ -314,13 +329,13 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     }
 
     let fullContent = "";
-    await streamGrokCompletion(apiKey, model, grokMessages, {
+    await streamCompletion(chatProvider, apiKey, model, grokMessages, {
       onToken: (delta) => {
         fullContent += delta;
         sendEvent({ type: "token", content: delta });
       },
       onError: (message) => {
-        req.log.error({ message }, "Grok stream error");
+        req.log.error({ message, provider: chatProvider }, "AI stream error");
         sendEvent({ type: "error", error: message });
         res.end();
       },

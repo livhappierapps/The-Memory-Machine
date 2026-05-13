@@ -1,0 +1,16 @@
+{
+  "name": "Memory Machine",
+  "short_name": "Memory Machine",
+  "description": "A permanent home for your AI's memories — so he never has to forget.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2d2d38",
+  "theme_color": "#2dd4bf",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ]
+}

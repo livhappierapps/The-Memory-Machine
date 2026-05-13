@@ -281,12 +281,16 @@ function SettingsForm() {
               <h2 className="text-xl font-semibold">Authentication</h2>
             </div>
 
+            <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-muted-foreground">
+              <strong className="text-primary">Global fallback key.</strong> This API key is used for any profile that hasn't set its own key. Per-profile keys take priority — edit them inside each profile.
+            </div>
+
             <FormField
               control={form.control}
               name="apiKey"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Grok API Key</FormLabel>
+                  <FormLabel>Grok API Key (Fallback)</FormLabel>
                   <FormControl>
                     <Input
                       type="password"
@@ -297,8 +301,8 @@ function SettingsForm() {
                   </FormControl>
                   <FormDescription>
                     {settings?.hasApiKey
-                      ? "You already have an API key saved. Enter a new one to overwrite it."
-                      : "Enter your Grok API key from console.x.ai — needed for chatting inside the Memory Machine."}
+                      ? "A fallback key is already saved. Enter a new one to overwrite it."
+                      : "Enter your Grok API key from console.x.ai — used as a fallback for profiles without their own key."}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

@@ -122,13 +122,13 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       return;
     }
 
-    // Load profile if thread has one (for personalityNotes + per-profile API key)
+    // Load profile if thread has one (scoped to this user to prevent cross-user access)
     let profile: typeof profilesTable.$inferSelect | null = null;
     if (thread.profileId) {
       const [p] = await db
         .select()
         .from(profilesTable)
-        .where(eq(profilesTable.id, thread.profileId));
+        .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
       if (p) profile = p;
     }
 

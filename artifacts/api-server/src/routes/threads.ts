@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { threadsTable, messagesTable } from "@workspace/db";
+import { threadsTable, messagesTable, profilesTable } from "@workspace/db";
 import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
 import {
   CreateThreadBody,
@@ -81,6 +81,18 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
       return;
+    }
+
+    // Verify the profileId belongs to this user before assigning it
+    if (parsed.data.profileId != null) {
+      const [profile] = await db
+        .select({ id: profilesTable.id })
+        .from(profilesTable)
+        .where(and(eq(profilesTable.id, parsed.data.profileId), eq(profilesTable.userId, userId)));
+      if (!profile) {
+        res.status(403).json({ error: "Profile not found or does not belong to you" });
+        return;
+      }
     }
 
     const [thread] = await db

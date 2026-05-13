@@ -381,8 +381,16 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
-    // Pass the thread's configured model so summarization uses the same model as chat
-    maybeSummarizeAsync(params.data.threadId, apiKey, model);
+    // Summarization always uses xAI (callGrokForSummary is xAI-only), so always
+    // pass the xAI key explicitly — never the chat provider key (which may be
+    // Anthropic/Google for this profile). Skip if no xAI key is configured.
+    const xaiKeyForSummary = profile?.apiKey ?? settings?.apiKey;
+    if (xaiKeyForSummary) {
+      const summaryModel = chatProvider === "xai" ? model : (profile?.defaultModel ?? "grok-3-mini");
+      maybeSummarizeAsync(params.data.threadId, xaiKeyForSummary, summaryModel);
+    } else {
+      req.log.debug({ chatProvider, threadId: params.data.threadId }, "Skipping summarization — no xAI key configured for this profile");
+    }
   } catch (err) {
     req.log.error({ err }, "Stream error");
     if (!res.headersSent) {

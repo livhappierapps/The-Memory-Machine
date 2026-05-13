@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { threadsTable, messagesTable, settingsTable } from "@workspace/db";
+import { threadsTable, messagesTable, settingsTable, profilesTable } from "@workspace/db";
 import { eq, and, asc } from "drizzle-orm";
 import {
   GetThreadMessagesParams,
@@ -122,14 +122,25 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       return;
     }
 
+    // Load profile if thread has one (for personalityNotes + per-profile API key)
+    let profile: typeof profilesTable.$inferSelect | null = null;
+    if (thread.profileId) {
+      const [p] = await db
+        .select()
+        .from(profilesTable)
+        .where(eq(profilesTable.id, thread.profileId));
+      if (p) profile = p;
+    }
+
     const [settings] = await db
       .select()
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    const apiKey = settings?.apiKey;
+    // Profile API key takes precedence over global settings fallback
+    const apiKey = profile?.apiKey || settings?.apiKey;
     if (!apiKey) {
-      res.status(400).json({ error: "No API key configured. Please add your Grok API key in Settings." });
+      res.status(400).json({ error: "No API key configured. Add your Grok API key in the profile editor or Settings." });
       return;
     }
 
@@ -152,13 +163,22 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .orderBy(asc(messagesTable.createdAt));
 
     // Build messages for Grok API — respect maxContextMessages (0 = unlimited)
-    const model = thread.model || settings?.defaultModel || "grok-3";
-    const maxCtx = settings?.maxContextMessages ?? 0;
+    const model = thread.model || profile?.defaultModel || settings?.defaultModel || "grok-3";
+    const maxCtx = profile?.maxContextMessages ?? settings?.maxContextMessages ?? 0;
     const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
-    const grokMessages = historyToSend.map((m) => ({
-      role: m.role as "user" | "assistant" | "system",
-      content: m.content,
-    }));
+    const grokMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
+
+    // Prepend personality notes as system message if the profile has them
+    if (profile?.personalityNotes) {
+      grokMessages.push({ role: "system", content: profile.personalityNotes });
+    }
+
+    grokMessages.push(
+      ...historyToSend.map((m) => ({
+        role: m.role as "user" | "assistant" | "system",
+        content: m.content,
+      })),
+    );
 
     // Set up SSE
     res.setHeader("Content-Type", "text/event-stream");

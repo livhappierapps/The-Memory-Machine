@@ -28,11 +28,16 @@ export const ListThreadsQueryParams = zod.object({
     .string()
     .optional()
     .describe("Filter threads created on or before this date (YYYY-MM-DD)"),
+  profileId: zod.coerce
+    .number()
+    .optional()
+    .describe("Filter threads by profile ID"),
 });
 
 export const ListThreadsResponseItem = zod.object({
   id: zod.number(),
   userId: zod.string(),
+  profileId: zod.number().nullish(),
   title: zod.string(),
   archived: zod.boolean(),
   pinned: zod.boolean(),
@@ -50,6 +55,7 @@ export const ListThreadsResponse = zod.array(ListThreadsResponseItem);
 export const CreateThreadBody = zod.object({
   title: zod.string(),
   model: zod.string().optional(),
+  profileId: zod.number().optional(),
 });
 
 /**
@@ -62,6 +68,7 @@ export const GetThreadParams = zod.object({
 export const GetThreadResponse = zod.object({
   id: zod.number(),
   userId: zod.string(),
+  profileId: zod.number().nullish(),
   title: zod.string(),
   archived: zod.boolean(),
   pinned: zod.boolean(),
@@ -89,6 +96,7 @@ export const UpdateThreadBody = zod.object({
 export const UpdateThreadResponse = zod.object({
   id: zod.number(),
   userId: zod.string(),
+  profileId: zod.number().nullish(),
   title: zod.string(),
   archived: zod.boolean(),
   pinned: zod.boolean(),
@@ -269,4 +277,94 @@ export const GetStatsResponse = zod.object({
   assistantMessages: zod.number(),
   oldestThreadAt: zod.string().nullish(),
   newestThreadAt: zod.string().nullish(),
+});
+
+/**
+ * @summary List all profiles for the current user (auto-creates Default if none)
+ */
+export const ListProfilesResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  name: zod.string(),
+  emoji: zod.string(),
+  color: zod.string(),
+  personalityNotes: zod.string().nullish(),
+  hasApiKey: zod.boolean(),
+  defaultModel: zod.string(),
+  maxContextMessages: zod.number(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListProfilesResponse = zod.array(ListProfilesResponseItem);
+
+/**
+ * @summary Create a new profile
+ */
+export const CreateProfileBody = zod.object({
+  name: zod.string(),
+  emoji: zod.string().optional(),
+  color: zod.string().optional(),
+  personalityNotes: zod.string().optional(),
+  apiKey: zod.string().optional(),
+  defaultModel: zod.string().optional(),
+  maxContextMessages: zod.number().optional(),
+});
+
+/**
+ * @summary Get a profile by ID
+ */
+export const GetProfileParams = zod.object({
+  profileId: zod.coerce.number(),
+});
+
+export const GetProfileResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  name: zod.string(),
+  emoji: zod.string(),
+  color: zod.string(),
+  personalityNotes: zod.string().nullish(),
+  hasApiKey: zod.boolean(),
+  defaultModel: zod.string(),
+  maxContextMessages: zod.number(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Update a profile
+ */
+export const UpdateProfileParams = zod.object({
+  profileId: zod.coerce.number(),
+});
+
+export const UpdateProfileBody = zod.object({
+  name: zod.string().optional(),
+  emoji: zod.string().optional(),
+  color: zod.string().optional(),
+  personalityNotes: zod.string().optional(),
+  apiKey: zod.string().optional(),
+  defaultModel: zod.string().optional(),
+  maxContextMessages: zod.number().optional(),
+});
+
+export const UpdateProfileResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  name: zod.string(),
+  emoji: zod.string(),
+  color: zod.string(),
+  personalityNotes: zod.string().nullish(),
+  hasApiKey: zod.boolean(),
+  defaultModel: zod.string(),
+  maxContextMessages: zod.number(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Delete a profile
+ */
+export const DeleteProfileParams = zod.object({
+  profileId: zod.coerce.number(),
 });

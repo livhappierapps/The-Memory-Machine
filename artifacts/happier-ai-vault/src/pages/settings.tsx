@@ -32,7 +32,7 @@ export default function Settings() {
           <div className="h-full overflow-auto p-8 lg:p-12 max-w-4xl mx-auto">
             <div className="mb-8 border-b border-border/50 pb-6">
               <h1 className="text-3xl font-bold tracking-tight mb-2 neon-text">Settings</h1>
-              <p className="text-muted-foreground">Manage your API key, preferences, and Leo's memory bridge.</p>
+              <p className="text-muted-foreground">Manage your global fallback API key, preferences, and the Memory Bridge connector.</p>
             </div>
 
             <SettingsForm />

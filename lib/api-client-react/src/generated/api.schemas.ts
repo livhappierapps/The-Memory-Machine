@@ -12,6 +12,8 @@ export interface HealthStatus {
 export interface Thread {
   id: number;
   userId: string;
+  /** @nullable */
+  profileId?: number | null;
   title: string;
   archived: boolean;
   pinned: boolean;
@@ -26,6 +28,7 @@ export interface Thread {
 export interface CreateThreadBody {
   title: string;
   model?: string;
+  profileId?: number;
 }
 
 export interface UpdateThreadBody {
@@ -116,6 +119,41 @@ export interface VaultStats {
   newestThreadAt?: string | null;
 }
 
+export interface Profile {
+  id: number;
+  userId: string;
+  name: string;
+  emoji: string;
+  color: string;
+  /** @nullable */
+  personalityNotes?: string | null;
+  hasApiKey: boolean;
+  defaultModel: string;
+  maxContextMessages: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProfileBody {
+  name: string;
+  emoji?: string;
+  color?: string;
+  personalityNotes?: string;
+  apiKey?: string;
+  defaultModel?: string;
+  maxContextMessages?: number;
+}
+
+export interface UpdateProfileBody {
+  name?: string;
+  emoji?: string;
+  color?: string;
+  personalityNotes?: string;
+  apiKey?: string;
+  defaultModel?: string;
+  maxContextMessages?: number;
+}
+
 export type ListThreadsParams = {
   search?: string;
   archived?: boolean;
@@ -127,6 +165,10 @@ export type ListThreadsParams = {
    * Filter threads created on or before this date (YYYY-MM-DD)
    */
   to?: string;
+  /**
+   * Filter threads by profile ID
+   */
+  profileId?: number;
 };
 
 export type ExportThreadParams = {

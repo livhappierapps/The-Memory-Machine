@@ -1,10 +1,12 @@
 import { pgTable, text, serial, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { profilesTable } from "./profiles";
 
 export const threadsTable = pgTable("threads", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
+  profileId: integer("profile_id").references(() => profilesTable.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   archived: boolean("archived").notNull().default(false),
   pinned: boolean("pinned").notNull().default(false),

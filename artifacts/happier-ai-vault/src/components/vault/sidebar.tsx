@@ -16,6 +16,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BulkImportDialog } from "./bulk-import-dialog";
 import { StatsDialog } from "./stats-dialog";
+import { ProfileSwitcher } from "./profile-switcher";
+import { useProfile } from "@/contexts/profile-context";
 
 interface SidebarProps {
   activeThreadId: number | null;
@@ -30,6 +32,8 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
   const [filterTo, setFilterTo] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
+  const { activeProfileId } = useProfile();
+
   const hasActiveFilters = !!filterFrom || !!filterTo;
 
   const { data: threads, isLoading } = useListThreads(
@@ -38,6 +42,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
       archived: showArchived,
       from: filterFrom || undefined,
       to: filterTo || undefined,
+      profileId: activeProfileId ?? undefined,
     },
     {
       query: {
@@ -46,6 +51,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
           archived: showArchived,
           from: filterFrom || undefined,
           to: filterTo || undefined,
+          profileId: activeProfileId ?? undefined,
         }),
       },
     },
@@ -56,7 +62,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
 
   const handleCreateThread = () => {
     createThread.mutate(
-      { data: { title: "New Conversation" } },
+      { data: { title: "New Conversation", profileId: activeProfileId ?? undefined } },
       {
         onSuccess: (thread) => {
           queryClient.invalidateQueries({
@@ -81,13 +87,18 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
 
   return (
     <div className="flex flex-col h-full w-full bg-card border-r border-border/50">
+      {/* Profile switcher */}
+      <div className="px-3 pt-3 pb-2 border-b border-border/50">
+        <ProfileSwitcher />
+      </div>
+
       {/* Top toolbar */}
       <div className="p-4 border-b border-border/50 space-y-3">
         <div className="flex items-center gap-2">
           <Button
             className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleCreateThread}
-            disabled={createThread.isPending}
+            disabled={createThread.isPending || !activeProfileId}
           >
             {createThread.isPending ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

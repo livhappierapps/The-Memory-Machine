@@ -18,6 +18,8 @@ tags:
     description: User settings
   - name: stats
     description: Stats and analytics
+  - name: profiles
+    description: Persona profile operations
 
 paths:
   /healthz:
@@ -57,6 +59,11 @@ paths:
           description: Filter threads created on or before this date (YYYY-MM-DD)
           schema:
             type: string
+        - name: profileId
+          in: query
+          description: Filter threads by profile ID
+          schema:
+            type: integer
       responses:
         "200":
           description: List of threads
@@ -312,6 +319,95 @@ paths:
               schema:
                 $ref: "#/components/schemas/VaultStats"
 
+  /profiles:
+    get:
+      operationId: listProfiles
+      tags: [profiles]
+      summary: List all profiles for the current user (auto-creates Default if none)
+      responses:
+        "200":
+          description: List of profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+    post:
+      operationId: createProfile
+      tags: [profiles]
+      summary: Create a new profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProfileBody"
+      responses:
+        "201":
+          description: Created profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+
+  /profiles/{profileId}:
+    get:
+      operationId: getProfile
+      tags: [profiles]
+      summary: Get a profile by ID
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateProfile
+      tags: [profiles]
+      summary: Update a profile
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileBody"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+    delete:
+      operationId: deleteProfile
+      tags: [profiles]
+      summary: Delete a profile
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
 components:
   schemas:
     HealthStatus:
@@ -329,6 +425,8 @@ components:
           type: integer
         userId:
           type: string
+        profileId:
+          type: ["integer", "null"]
         title:
           type: string
         archived:
@@ -363,6 +461,8 @@ components:
           type: string
         model:
           type: string
+        profileId:
+          type: integer
       required:
         - title
 
@@ -520,3 +620,78 @@ components:
         - totalMessages
         - userMessages
         - assistantMessages
+
+    Profile:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        name:
+          type: string
+        emoji:
+          type: string
+        color:
+          type: string
+        personalityNotes:
+          type: ["string", "null"]
+        hasApiKey:
+          type: boolean
+        defaultModel:
+          type: string
+        maxContextMessages:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - userId
+        - name
+        - emoji
+        - color
+        - hasApiKey
+        - defaultModel
+        - maxContextMessages
+        - createdAt
+        - updatedAt
+
+    CreateProfileBody:
+      type: object
+      properties:
+        name:
+          type: string
+        emoji:
+          type: string
+        color:
+          type: string
+        personalityNotes:
+          type: string
+        apiKey:
+          type: string
+        defaultModel:
+          type: string
+        maxContextMessages:
+          type: integer
+      required:
+        - name
+
+    UpdateProfileBody:
+      type: object
+      properties:
+        name:
+          type: string
+        emoji:
+          type: string
+        color:
+          type: string
+        personalityNotes:
+          type: string
+        apiKey:
+          type: string
+        defaultModel:
+          type: string
+        maxContextMessages:
+          type: integer

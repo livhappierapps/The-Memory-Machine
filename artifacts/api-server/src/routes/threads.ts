@@ -39,6 +39,15 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
       conditions.push(ilike(threadsTable.title, `%${query.search}%`));
     }
 
+    // Profile filter
+    const rawProfileId = req.query.profileId as string | undefined;
+    if (rawProfileId) {
+      const pid = parseInt(rawProfileId, 10);
+      if (!isNaN(pid)) {
+        conditions.push(eq(threadsTable.profileId, pid));
+      }
+    }
+
     // Date range filter
     const rawFrom = req.query.from as string | undefined;
     const rawTo = req.query.to as string | undefined;
@@ -80,6 +89,7 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
         userId,
         title: parsed.data.title,
         model: parsed.data.model ?? "grok-3",
+        profileId: parsed.data.profileId ?? null,
       })
       .returning();
 

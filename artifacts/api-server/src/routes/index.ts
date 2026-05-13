@@ -6,10 +6,12 @@ import settingsRouter from "./settings";
 import statsRouter from "./stats";
 import importRouter from "./import";
 import mcpRouter from "./mcp";
+import profilesRouter from "./profiles";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(profilesRouter);
 router.use(threadsRouter);
 router.use(messagesRouter);
 router.use(settingsRouter);

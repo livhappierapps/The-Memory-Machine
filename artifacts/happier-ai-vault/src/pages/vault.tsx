@@ -3,6 +3,7 @@ import { Redirect } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Sidebar } from "@/components/vault/sidebar";
 import { ChatArea } from "@/components/vault/chat-area";
+import { ProfileProvider } from "@/contexts/profile-context";
 import { useState } from "react";
 
 export default function Vault() {
@@ -29,6 +30,7 @@ export default function Vault() {
         <Redirect to="/" />
       </Show>
       <Show when="signed-in">
+        <ProfileProvider>
         <AppLayout>
           <div className="flex h-full w-full overflow-hidden">
 
@@ -72,6 +74,7 @@ export default function Vault() {
 
           </div>
         </AppLayout>
+        </ProfileProvider>
       </Show>
     </>
   );

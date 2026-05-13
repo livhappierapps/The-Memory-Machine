@@ -8,6 +8,7 @@
     "scheme": "memory-machine-mobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "backgroundColor": "#2f2f37",
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",

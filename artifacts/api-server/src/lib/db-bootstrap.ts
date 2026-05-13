@@ -87,6 +87,13 @@ async function applyVectorSchema(): Promise<void> {
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
+let pgvectorAvailableFlag = false;
+
+/** Returns true if pgvector was successfully bootstrapped at startup. */
+export function isPgvectorAvailable(): boolean {
+  return pgvectorAvailableFlag;
+}
+
 export async function runDbBootstrap(): Promise<void> {
   // Phase 1: required columns — fail fast so the server doesn't start with
   // a broken schema that will cause runtime query errors.
@@ -96,6 +103,7 @@ export async function runDbBootstrap(): Promise<void> {
   // Phase 2: pgvector — best-effort; log and continue if unavailable.
   try {
     await applyVectorSchema();
+    pgvectorAvailableFlag = true;
     logger.info("DB bootstrap phase 2 (vector schema) completed");
   } catch (err) {
     logger.warn(

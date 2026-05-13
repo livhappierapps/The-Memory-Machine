@@ -42,6 +42,12 @@ export interface RetrieveMemoriesOptions {
   dateTo?: string | null;
   apiKey: string;
   embeddingProvider?: string;
+  /**
+   * When true (default), increments `memory_weight` on retrieved threads so
+   * the sidebar can show a "hot memory" indicator. Set to false for preview/
+   * debug calls that should not pollute usage counts.
+   */
+  trackUsage?: boolean;
 }
 
 const MAX_MESSAGES_PER_THREAD = 8;
@@ -98,6 +104,7 @@ export async function retrieveMemories(
     dateTo,
     apiKey,
     embeddingProvider = "xai",
+    trackUsage = true,
   } = opts;
 
   const sources: MemorySource[] = [];
@@ -284,14 +291,17 @@ export async function retrieveMemories(
     }
   }
 
-  // ── 6. Increment memoryWeight for retrieved threads ───────────────────────
-  const retrievedIds = sources.map((s) => s.threadId);
-  if (retrievedIds.length > 0) {
-    db.execute(sql`
-      UPDATE threads
-      SET memory_weight = memory_weight + 1
-      WHERE id = ANY(${retrievedIds}::int[])
-    `).catch((err) => logger.warn({ err }, "Failed to update memoryWeight"));
+  // ── 6. Increment memoryWeight for retrieved threads (only during real sessions)
+  // Preview/debug calls should pass trackUsage=false to avoid inflating counts.
+  if (trackUsage) {
+    const retrievedIds = sources.map((s) => s.threadId);
+    if (retrievedIds.length > 0) {
+      db.execute(sql`
+        UPDATE threads
+        SET memory_weight = memory_weight + 1
+        WHERE id = ANY(${retrievedIds}::int[])
+      `).catch((err) => logger.warn({ err }, "Failed to update memoryWeight"));
+    }
   }
 
   return { messages: contextMessages, sources };

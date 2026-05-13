@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { threadsTable, messagesTable, profilesTable, settingsTable } from "@workspace/db";
 import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
 import { retrieveMemories } from "../lib/memory";
+import { isPgvectorAvailable } from "../lib/db-bootstrap";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -341,12 +342,15 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       dateTo: profile.memoryDateTo,
       apiKey: embeddingApiKey,
       embeddingProvider,
+      // Preview calls must not inflate memory_weight usage counts
+      trackUsage: false,
     });
 
     res.json({
       sources: memoryResult.sources,
       totalContextMessages: memoryResult.messages.length,
       smartRetrievalEnabled: profile.smartRetrieval,
+      pgvectorAvailable: isPgvectorAvailable(),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get memory preview");

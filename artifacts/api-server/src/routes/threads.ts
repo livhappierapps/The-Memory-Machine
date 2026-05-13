@@ -88,24 +88,30 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify the profileId belongs to this user before assigning it
+    // Verify the profileId belongs to this user before assigning it;
+    // also capture the profile's defaultModel so new threads inherit it
+    let profileDefaultModel: string | null = null;
     if (parsed.data.profileId != null) {
       const [profile] = await db
-        .select({ id: profilesTable.id })
+        .select({ id: profilesTable.id, defaultModel: profilesTable.defaultModel })
         .from(profilesTable)
         .where(and(eq(profilesTable.id, parsed.data.profileId), eq(profilesTable.userId, userId)));
       if (!profile) {
         res.status(403).json({ error: "Profile not found or does not belong to you" });
         return;
       }
+      profileDefaultModel = profile.defaultModel ?? null;
     }
+
+    // Model priority: explicit request model > profile defaultModel > hardcoded fallback
+    const model = parsed.data.model ?? profileDefaultModel ?? "grok-3";
 
     const [thread] = await db
       .insert(threadsTable)
       .values({
         userId,
         title: parsed.data.title,
-        model: parsed.data.model ?? "grok-3",
+        model,
         profileId: parsed.data.profileId ?? null,
       })
       .returning();

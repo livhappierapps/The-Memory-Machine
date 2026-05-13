@@ -1,22 +1,10 @@
-/**
- * db-bootstrap.ts — one-shot idempotent DB migration that runs at startup.
- *
- * Design goals:
- *  • Every statement uses IF NOT EXISTS — safe to run on every boot.
- *  • Extension install is isolated: if pgvector is unavailable (restricted
- *    DB role) we still apply the non-vector schema columns so core API
- *    routes continue working. Only the embeddings table + indexes are skipped.
- *  • Columns required by API responses (threads.memory_weight,
- *    profiles.*memory*) are applied unconditionally before the server starts
- *    accepting requests, so a failure there propagates rather than being
- *    silently swallowed.
- */
+// Idempotent DB migration that runs at startup before accepting requests.
+// Phase 1 (required columns) fails fast; Phase 2 (pgvector) is best-effort.
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
-// ── Phase 1: non-vector schema changes (always run, propagate on failure) ────
 async function applyRequiredSchema(): Promise<void> {
   // Ensure smart-memory columns exist on profiles
   await db.execute(sql`
@@ -37,9 +25,9 @@ async function applyRequiredSchema(): Promise<void> {
   `);
 }
 
-// ── Phase 2: pgvector-dependent objects (best-effort — skip if ext missing) ──
+// Phase 2: pgvector — best-effort; log warning if extension is unavailable.
 async function applyVectorSchema(): Promise<void> {
-  // Enable extension — may fail if the DB role lacks CREATE privilege
+  // Enable extension — may fail if the DB role lacks CREATE privilege.
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
 
   // Create embeddings table with UNIQUE on message_id (required for ON CONFLICT)
@@ -84,8 +72,6 @@ async function applyVectorSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS embeddings_profile_id_idx ON embeddings (profile_id)
   `);
 }
-
-// ── Entry point ──────────────────────────────────────────────────────────────
 
 let pgvectorAvailableFlag = false;
 

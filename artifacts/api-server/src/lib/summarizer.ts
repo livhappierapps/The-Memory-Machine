@@ -1,13 +1,4 @@
-/**
- * summarizer.ts — Background thread summarization pipeline.
- *
- * When a thread grows beyond SUMMARIZE_THRESHOLD messages and has no existing
- * summary, this module calls Grok to produce a concise summary and stores it
- * as a message with isSummary=true. The summary is then preferentially used
- * by the memory retrieval engine instead of loading the raw messages.
- *
- * Called fire-and-forget after each streaming completion.
- */
+// Background thread summarization — called fire-and-forget after each stream.
 
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";

@@ -1,11 +1,4 @@
-/**
- * embeddings.ts — Embedding generation and storage service.
- *
- * Uses the xAI API (OpenAI-compatible) to generate text-embedding-3-small
- * vectors. All embedding work runs through a bounded-concurrency queue
- * (MAX_CONCURRENCY slots) with exponential-backoff retry on 429s, so
- * bulk imports never flood the xAI API with thousands of parallel requests.
- */
+// Embedding generation and storage — bounded queue with retry.
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -24,8 +17,6 @@ const MAX_CONCURRENCY = 4;
 const MAX_RETRIES = 3;
 /** Base backoff in ms; actual delay = BASE_BACKOFF * 2^attempt. */
 const BASE_BACKOFF_MS = 2_000;
-
-// ── Internal bounded-concurrency queue ──────────────────────────────────────
 
 type EmbedJob = () => Promise<void>;
 
@@ -49,8 +40,6 @@ function _enqueue(job: EmbedJob): void {
   _queue.push(job);
   _drain();
 }
-
-// ── Embedding generation ─────────────────────────────────────────────────────
 
 /** Result from a single embedding API call. */
 interface EmbedResult {

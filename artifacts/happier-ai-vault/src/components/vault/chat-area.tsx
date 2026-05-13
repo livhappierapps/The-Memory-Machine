@@ -1,4 +1,4 @@
-import { useGetThread, useGetThreadMessages, useUpdateThread, useDeleteThread, getGetThreadQueryKey, getListThreadsQueryKey, getGetThreadMessagesQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
+import { useGetThread, useGetThreadMessages, useUpdateThread, useDeleteThread, useGetMemoryPreview, getGetMemoryPreviewQueryKey, getGetThreadQueryKey, getListThreadsQueryKey, getGetThreadMessagesQueryKey, getGetStatsQueryKey, type MemorySource } from "@workspace/api-client-react";
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
 
-import { MemorySource } from "@/hooks/use-chat-stream";
+import type { MemorySource as StreamMemorySource } from "@/hooks/use-chat-stream";
 
 function MemoryReasonIcon({ reason }: { reason: string }) {
   if (reason === "pinned") return <Pin className="w-3 h-3 text-primary" />;
@@ -64,7 +64,24 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
   });
 
   const [input, setInput] = useState("");
-  const { streamMessage, stopStream, isStreaming, streamingContent, error, memorySources } = useChatStream();
+  const { streamMessage, stopStream, isStreaming, streamingContent, error, memorySources: streamMemorySources } = useChatStream();
+
+  // Fetch memory preview on session start so "What Leo knows" is populated
+  // immediately when opening a thread — not just after the first message send.
+  const previewParams = { q: thread?.title ?? "" };
+  const { data: memoryPreview } = useGetMemoryPreview(threadId, previewParams, {
+    query: {
+      enabled: !!threadId && !isStreaming,
+      staleTime: 30_000,
+      queryKey: getGetMemoryPreviewQueryKey(threadId, previewParams),
+    }
+  });
+
+  // During/after streaming, SSE sources take precedence (more targeted to last message).
+  // Before first send, show the session-start preview sources.
+  const memorySources: MemorySource[] = streamMemorySources.length > 0
+    ? (streamMemorySources as unknown as MemorySource[])
+    : (memoryPreview?.sources ?? []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const updateThread = useUpdateThread();

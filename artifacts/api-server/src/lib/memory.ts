@@ -1,15 +1,5 @@
-/**
- * memory.ts — Smart memory retrieval engine.
- *
- * Assembles a ranked list of past conversation snippets to inject as context
- * before each Grok request. Priority order:
- *   1. Pinned threads (always included)
- *   2. Semantically similar threads (cosine similarity on pgvector)
- *   3. Most recent sessions (fill remaining slots)
- *
- * Returns the assembled messages list plus a sources array for the
- * "What Leo knows" UI panel.
- */
+// Smart memory retrieval: merges pinned + semantic + recent thread snippets
+// into a ranked context block injected before each Grok request.
 
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";

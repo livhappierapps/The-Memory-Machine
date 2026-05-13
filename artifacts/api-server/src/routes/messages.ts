@@ -236,7 +236,37 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     }
 
     // 3. Current thread history (respects maxContextMessages)
-    const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
+    let historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
+
+    // ── Global context-window budget ──────────────────────────────────────
+    // Grok-3 has a ~131k token window. At ~4 chars/token that's ~524k chars.
+    // We reserve ~100k for the response and overhead, leaving 400k for the
+    // assembled prompt. If the combined content (personality + memories +
+    // thread history) exceeds the budget, trim the oldest thread messages
+    // first — but always keep the most recent user message.
+    const GLOBAL_CHAR_BUDGET = 400_000;
+    const fixedChars = grokMessages.reduce((sum, m) => sum + m.content.length, 0);
+
+    if (fixedChars < GLOBAL_CHAR_BUDGET) {
+      const historyBudget = GLOBAL_CHAR_BUDGET - fixedChars;
+      let usedChars = 0;
+      // Walk from newest → oldest, keep as many messages as fit the budget
+      const fittingHistory: typeof historyToSend = [];
+      for (let i = historyToSend.length - 1; i >= 0; i--) {
+        const msgLen = historyToSend[i]!.content.length;
+        if (usedChars + msgLen > historyBudget && fittingHistory.length > 0) break;
+        fittingHistory.unshift(historyToSend[i]!);
+        usedChars += msgLen;
+      }
+      if (fittingHistory.length < historyToSend.length) {
+        req.log.warn(
+          { originalCount: historyToSend.length, trimmedCount: fittingHistory.length },
+          "Thread history trimmed to fit global context budget",
+        );
+      }
+      historyToSend = fittingHistory;
+    }
+
     grokMessages.push(
       ...historyToSend.map((m) => ({
         role: m.role as "user" | "assistant" | "system",

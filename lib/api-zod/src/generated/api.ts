@@ -249,6 +249,7 @@ export const GetMemoryPreviewResponse = zod.object({
   ),
   totalContextMessages: zod.number(),
   smartRetrievalEnabled: zod.boolean(),
+  pgvectorAvailable: zod.boolean(),
 });
 
 /**

@@ -112,6 +112,7 @@ export interface MemoryPreview {
   sources: MemorySource[];
   totalContextMessages: number;
   smartRetrievalEnabled: boolean;
+  pgvectorAvailable: boolean;
 }
 
 export interface Settings {

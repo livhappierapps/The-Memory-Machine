@@ -204,8 +204,16 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     if (profile && (smartRetrieval || alwaysIncludeLastN > 0)) {
       try {
         // Resolve the key to use for embedding the query (may differ from chat key)
-        const embeddingApiKey =
-          (profile.embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? apiKey;
+        const embeddingProvider = profile.embeddingProvider ?? "xai";
+        const resolvedOpenAiKey = embeddingProvider === "openai" ? profile.openAiApiKey : null;
+        if (embeddingProvider === "openai" && !resolvedOpenAiKey) {
+          req.log.warn(
+            { profileId: profile.id },
+            "embeddingProvider=openai but no openAiApiKey configured — semantic retrieval will fall back to Grok key against OpenAI endpoint and likely fail; auto-falling back to xAI provider for this request",
+          );
+        }
+        const embeddingApiKey = resolvedOpenAiKey ?? apiKey;
+        const effectiveProvider = embeddingProvider === "openai" && !resolvedOpenAiKey ? "xai" : embeddingProvider;
 
         const memoryResult = await retrieveMemories({
           profileId: profile.id,
@@ -218,7 +226,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
           dateFrom: profile.memoryDateFrom,
           dateTo: profile.memoryDateTo,
           apiKey: embeddingApiKey,
-          embeddingProvider: profile.embeddingProvider ?? "xai",
+          embeddingProvider: effectiveProvider,
         });
         memorySources = memoryResult.sources;
         memoryMessages = memoryResult.messages;

@@ -359,7 +359,8 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
-    maybeSummarizeAsync(params.data.threadId, apiKey);
+    // Pass the thread's configured model so summarization uses the same model as chat
+    maybeSummarizeAsync(params.data.threadId, apiKey, model);
   } catch (err) {
     req.log.error({ err }, "Stream error");
     if (!res.headersSent) {

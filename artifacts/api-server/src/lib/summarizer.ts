@@ -24,7 +24,7 @@ const SYSTEM_PROMPT = `You are a concise memory summarizer.
 Summarize the following conversation into 3-5 bullet points that capture the most important facts, decisions, preferences, and context. 
 Be specific and factual. Avoid filler. Output ONLY the bullet points, no preamble.`;
 
-async function callGrokForSummary(apiKey: string, content: string): Promise<string | null> {
+async function callGrokForSummary(apiKey: string, content: string, model = "grok-3-mini"): Promise<string | null> {
   try {
     const resp = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
@@ -33,7 +33,7 @@ async function callGrokForSummary(apiKey: string, content: string): Promise<stri
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "grok-3-mini",
+        model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content },
@@ -66,6 +66,7 @@ async function callGrokForSummary(apiKey: string, content: string): Promise<stri
 export async function maybeSummarizeThread(
   threadId: number,
   apiKey: string,
+  model?: string,
 ): Promise<void> {
   try {
     // Already have a summary? Skip.
@@ -102,7 +103,7 @@ export async function maybeSummarizeThread(
 
     if (!source.trim()) return;
 
-    const summary = await callGrokForSummary(apiKey, source);
+    const summary = await callGrokForSummary(apiKey, source, model);
     if (!summary) return;
 
     await db.insert(messagesTable).values({
@@ -121,8 +122,8 @@ export async function maybeSummarizeThread(
 /**
  * Fire-and-forget wrapper — call this after streaming completes.
  */
-export function maybeSummarizeAsync(threadId: number, apiKey: string): void {
-  maybeSummarizeThread(threadId, apiKey).catch((err) =>
+export function maybeSummarizeAsync(threadId: number, apiKey: string, model?: string): void {
+  maybeSummarizeThread(threadId, apiKey, model).catch((err) =>
     logger.warn({ err, threadId }, "maybeSummarizeAsync unhandled error"),
   );
 }

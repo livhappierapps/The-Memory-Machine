@@ -299,7 +299,7 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
     }
 
     if (!thread.profileId) {
-      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false });
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });
       return;
     }
 
@@ -309,7 +309,7 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
 
     if (!profile) {
-      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false });
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });
       return;
     }
 
@@ -321,7 +321,7 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
 
     const chatApiKey = profile.apiKey || settings?.apiKey;
     if (!chatApiKey) {
-      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval });
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval, pgvectorAvailable: isPgvectorAvailable() });
       return;
     }
 

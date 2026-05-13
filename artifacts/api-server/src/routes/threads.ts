@@ -13,6 +13,7 @@ import {
   ExportThreadQueryParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { ensureDefaultProfile } from "./profiles";
 
 const router: IRouter = Router();
 
@@ -20,6 +21,10 @@ const router: IRouter = Router();
 router.get("/threads", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
+
+    // Deterministic migration: ensure the user has a Default profile (creates one if not)
+    // This runs on every thread list call so it's guaranteed to execute before any thread interaction
+    await ensureDefaultProfile(userId);
 
     // zod.coerce.boolean() converts the string "false" to true — handle manually
     const rawQuery = { ...req.query };

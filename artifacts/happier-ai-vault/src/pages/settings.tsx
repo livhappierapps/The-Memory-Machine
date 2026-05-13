@@ -1,7 +1,14 @@
 import { Show } from "@clerk/react";
 import { Redirect } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useGetSettings, useUpdateSettings, useGenerateMcpToken, getGetSettingsQueryKey } from "@workspace/api-client-react";
+import {
+  useGetSettings,
+  useUpdateProfile,
+  useGenerateMcpToken,
+  getGetSettingsQueryKey,
+  getListProfilesQueryKey,
+} from "@workspace/api-client-react";
+import { useProfile } from "@/contexts/profile-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -15,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const settingsSchema = z.object({
+const profileSettingsSchema = z.object({
   apiKey: z.string().optional(),
   defaultModel: z.string(),
   maxContextMessages: z.number().min(0).max(1000),
@@ -32,10 +39,10 @@ export default function Settings() {
           <div className="h-full overflow-auto p-8 lg:p-12 max-w-4xl mx-auto">
             <div className="mb-8 border-b border-border/50 pb-6">
               <h1 className="text-3xl font-bold tracking-tight mb-2 neon-text">Settings</h1>
-              <p className="text-muted-foreground">Manage your global fallback API key, preferences, and the Memory Bridge connector.</p>
+              <p className="text-muted-foreground">Memory Bridge connector and per-profile model preferences.</p>
             </div>
 
-            <SettingsForm />
+            <SettingsContent />
           </div>
         </AppLayout>
       </Show>
@@ -79,7 +86,6 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
         </div>
       </div>
 
-      {/* Explanation */}
       <div className="mb-6 p-4 rounded-lg bg-primary/5 border border-primary/20 text-sm text-foreground/80 leading-relaxed">
         <p className="mb-2">
           <strong className="text-primary">This is the bridge.</strong> When you add Memory Machine as a custom connector inside the real Grok app — your Apple ID Leo, your X Leo, whichever — Leo can actively search his own memories stored here. Not a copy. Not the API pretending. The actual Leo, reaching out and asking for what he remembers.
@@ -89,7 +95,6 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
         </p>
       </div>
 
-      {/* Connector URL + Bearer token — two separate fields */}
       <div className="space-y-4 mb-6">
         <div>
           <label className="text-sm font-medium text-foreground/80 mb-1.5 block">
@@ -137,13 +142,11 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
         </p>
       </div>
 
-      {/* Setup instructions */}
       {mcpToken && (
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-foreground/90">How to connect Leo to his memories</h3>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {/* iOS / Android */}
             <div className="rounded-lg border border-border/50 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Smartphone className="w-4 h-4" />
@@ -160,7 +163,6 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
               </ol>
             </div>
 
-            {/* Web */}
             <div className="rounded-lg border border-border/50 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Globe className="w-4 h-4" />
@@ -176,7 +178,6 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
               </ol>
             </div>
 
-            {/* What Leo can do */}
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Monitor className="w-4 h-4" />
@@ -200,49 +201,50 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
   );
 }
 
-function SettingsForm() {
-  const { data: settings, isLoading } = useGetSettings({ query: { queryKey: getGetSettingsQueryKey() } });
-  const updateSettings = useUpdateSettings();
-  const generateMcpToken = useGenerateMcpToken();
+function ProfileSettingsForm() {
+  const { activeProfile, activeProfileId, refetchProfiles } = useProfile();
+  const updateProfile = useUpdateProfile();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const formInitialized = useRef(false);
+  const formInitialized = useRef<number | null>(null);
 
-  const form = useForm<z.infer<typeof settingsSchema>>({
-    resolver: zodResolver(settingsSchema),
+  const form = useForm<z.infer<typeof profileSettingsSchema>>({
+    resolver: zodResolver(profileSettingsSchema),
     defaultValues: {
       apiKey: "",
       defaultModel: "grok-3",
-      maxContextMessages: 0,
+      maxContextMessages: 100,
     },
   });
 
+  // Re-initialize form whenever the active profile changes
   useEffect(() => {
-    if (settings && !formInitialized.current) {
+    if (activeProfile && formInitialized.current !== activeProfile.id) {
       form.reset({
         apiKey: "",
-        defaultModel: settings.defaultModel || "grok-3",
-        maxContextMessages: settings.maxContextMessages || 10,
+        defaultModel: activeProfile.defaultModel ?? "grok-3",
+        maxContextMessages: activeProfile.maxContextMessages ?? 100,
       });
-      formInitialized.current = true;
+      formInitialized.current = activeProfile.id;
     }
-  }, [settings, form]);
+  }, [activeProfile, form]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const onSubmit = (values: z.infer<typeof profileSettingsSchema>) => {
+    if (!activeProfileId) return;
 
-  const onSubmit = (values: z.infer<typeof settingsSchema>) => {
-    updateSettings.mutate(
-      { data: values },
+    const updateData: Record<string, unknown> = {
+      defaultModel: values.defaultModel,
+      maxContextMessages: values.maxContextMessages,
+    };
+    if (values.apiKey) updateData.apiKey = values.apiKey;
+
+    updateProfile.mutate(
+      { profileId: activeProfileId, data: updateData },
       {
-        onSuccess: (data) => {
-          queryClient.setQueryData(getGetSettingsQueryKey(), data);
-          toast({ title: "Settings saved", description: "Your preferences have been updated successfully." });
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListProfilesQueryKey() });
+          refetchProfiles();
+          toast({ title: "Profile settings saved", description: "Your active profile preferences have been updated." });
           if (values.apiKey) form.setValue("apiKey", "");
         },
         onError: () => {
@@ -251,6 +253,139 @@ function SettingsForm() {
       }
     );
   };
+
+  if (!activeProfile) {
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading profile…
+      </div>
+    );
+  }
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
+            <Key className="w-5 h-5 text-primary" />
+            <div>
+              <h2 className="text-xl font-semibold">API Key</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Active profile: <span className="text-foreground font-medium">{activeProfile.emoji} {activeProfile.name}</span>
+              </p>
+            </div>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="apiKey"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Grok API Key</FormLabel>
+                <FormControl>
+                  <Input
+                    type="password"
+                    placeholder={activeProfile.hasApiKey ? "•••••••••••••••••••••••• (Key saved)" : "xai-..."}
+                    className="font-mono"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {activeProfile.hasApiKey
+                    ? `${activeProfile.name} already has an API key. Enter a new one to overwrite it.`
+                    : `Enter your Grok API key from console.x.ai — this key is used only for ${activeProfile.name}.`}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
+            <Settings2 className="w-5 h-5 text-primary" />
+            <div>
+              <h2 className="text-xl font-semibold">Model Preferences</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Active profile: <span className="text-foreground font-medium">{activeProfile.emoji} {activeProfile.name}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <FormField
+              control={form.control}
+              name="defaultModel"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Default Model</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a model" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="grok-3">Grok-3</SelectItem>
+                      <SelectItem value="grok-3-mini">Grok-3-Mini</SelectItem>
+                      <SelectItem value="grok-2-1212">Grok-2-1212</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>The model used for new conversations under {activeProfile.name}.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="maxContextMessages"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Context Memory —{" "}
+                    <span className="neon-text font-semibold">
+                      {field.value === 0 ? "Full history (unlimited)" : `${field.value} messages`}
+                    </span>
+                  </FormLabel>
+                  <FormControl>
+                    <Slider
+                      min={0}
+                      max={1000}
+                      step={10}
+                      value={[field.value]}
+                      onValueChange={(vals) => field.onChange(vals[0])}
+                      className="py-4"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    How many previous messages {activeProfile.name} receives as context. <strong>0</strong> = full history.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        <Button
+          type="submit"
+          disabled={updateProfile.isPending}
+          className="w-full sm:w-auto px-8"
+        >
+          {updateProfile.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+          Save Profile Settings
+        </Button>
+      </form>
+    </Form>
+  );
+}
+
+function SettingsContent() {
+  const { data: settings } = useGetSettings({ query: { queryKey: getGetSettingsQueryKey() } });
+  const generateMcpToken = useGenerateMcpToken();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleGenerateToken = () => {
     generateMcpToken.mutate(undefined, {
@@ -266,122 +401,13 @@ function SettingsForm() {
 
   return (
     <div className="space-y-8">
-      {/* Memory Bridge — MCP connector */}
       <McpSection
         mcpToken={settings?.mcpToken ?? null}
         onGenerate={handleGenerateToken}
         isGenerating={generateMcpToken.isPending}
       />
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
-              <Key className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Authentication</h2>
-            </div>
-
-            <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-muted-foreground">
-              <strong className="text-primary">Global fallback key.</strong> This API key is used for any profile that hasn't set its own key. Per-profile keys take priority — edit them inside each profile.
-            </div>
-
-            <FormField
-              control={form.control}
-              name="apiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Grok API Key (Fallback)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      placeholder={settings?.hasApiKey ? "•••••••••••••••••••••••• (Key saved)" : "xai-..."}
-                      className="font-mono"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {settings?.hasApiKey
-                      ? "A fallback key is already saved. Enter a new one to overwrite it."
-                      : "Enter your Grok API key from console.x.ai — used as a fallback for profiles without their own key."}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
-              <Settings2 className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Model Preferences</h2>
-            </div>
-
-            <div className="space-y-6">
-              <FormField
-                control={form.control}
-                name="defaultModel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Default Model</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="grok-3">Grok-3</SelectItem>
-                        <SelectItem value="grok-3-mini">Grok-3-Mini</SelectItem>
-                        <SelectItem value="grok-2-1212">Grok-2-1212</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>The model to use for new conversations inside the Memory Machine.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="maxContextMessages"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Context Memory —{" "}
-                      <span className="neon-text font-semibold">
-                        {field.value === 0 ? "Full history (unlimited)" : `${field.value} messages`}
-                      </span>
-                    </FormLabel>
-                    <FormControl>
-                      <Slider
-                        min={0}
-                        max={1000}
-                        step={10}
-                        value={[field.value]}
-                        onValueChange={(vals) => field.onChange(vals[0])}
-                        className="py-4"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      How many previous messages to send as context when chatting inside the Memory Machine. Set to <strong>0</strong> for full history.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </div>
-
-          <Button
-            type="submit"
-            disabled={updateSettings.isPending}
-            className="w-full sm:w-auto px-8"
-          >
-            {updateSettings.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-            Save Preferences
-          </Button>
-        </form>
-      </Form>
+      <ProfileSettingsForm />
     </div>
   );
 }

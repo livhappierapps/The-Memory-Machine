@@ -12,6 +12,7 @@ import Home from "@/pages/home";
 import Vault from "@/pages/vault";
 import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
+import { ProfileProvider } from "@/contexts/profile-context";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
@@ -70,14 +71,16 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
-        <Switch>
-          <Route path="/" component={Home} />
-          <Route path="/sign-in/*?" component={SignInPage} />
-          <Route path="/sign-up/*?" component={SignUpPage} />
-          <Route path="/vault" component={Vault} />
-          <Route path="/settings" component={Settings} />
-          <Route component={NotFound} />
-        </Switch>
+        <ProfileProvider>
+          <Switch>
+            <Route path="/" component={Home} />
+            <Route path="/sign-in/*?" component={SignInPage} />
+            <Route path="/sign-up/*?" component={SignUpPage} />
+            <Route path="/vault" component={Vault} />
+            <Route path="/settings" component={Settings} />
+            <Route component={NotFound} />
+          </Switch>
+        </ProfileProvider>
       </QueryClientProvider>
     </ClerkProvider>
   );

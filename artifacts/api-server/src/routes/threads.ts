@@ -313,22 +313,22 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       return;
     }
 
-    // Fall back to global settings API key if profile has no key
+    // Fall back to global settings API key for xAI embeddings
     const [settings] = await db
       .select({ apiKey: settingsTable.apiKey })
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    const chatApiKey = profile.apiKey || settings?.apiKey;
-    if (!chatApiKey) {
+    // profile.apiKey is always the xAI key field — independent of chatProvider.
+    const embeddingProvider = profile.embeddingProvider ?? "xai";
+    const xaiApiKey = profile.apiKey || settings?.apiKey;
+    const embeddingApiKey =
+      (embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? xaiApiKey;
+
+    if (!embeddingApiKey) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval, pgvectorAvailable: isPgvectorAvailable() });
       return;
     }
-
-    // Resolve embedding key — OpenAI provider uses its own key, otherwise use the chat/Grok key
-    const embeddingProvider = profile.embeddingProvider ?? "xai";
-    const embeddingApiKey =
-      (embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? chatApiKey;
 
     const memoryResult = await retrieveMemories({
       profileId: profile.id,

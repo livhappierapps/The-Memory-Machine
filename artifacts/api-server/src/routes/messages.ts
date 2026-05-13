@@ -227,8 +227,14 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
             "embeddingProvider=openai but no openAiApiKey configured — semantic retrieval will fall back to Grok key against OpenAI endpoint and likely fail; auto-falling back to xAI provider for this request",
           );
         }
-        const embeddingApiKey = resolvedOpenAiKey ?? apiKey;
+        // For xAI embeddings, use profile.apiKey (the dedicated xAI key),
+        // not the chat key (which may be Anthropic/Google for this profile).
+        const embeddingApiKey = resolvedOpenAiKey ?? profile.apiKey ?? settings?.apiKey ?? "";
         const effectiveProvider = embeddingProvider === "openai" && !resolvedOpenAiKey ? "xai" : embeddingProvider;
+        if (!embeddingApiKey) {
+          req.log.warn({ profileId: profile.id, embeddingProvider }, "No embedding API key — skipping smart retrieval");
+          throw new Error("no-embedding-key");
+        }
 
         const memoryResult = await retrieveMemories({
           profileId: profile.id,
@@ -365,9 +371,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     // ── Async: generate embeddings for user + assistant messages ──────────
     const embeddingProvider = profile?.embeddingProvider ?? "xai";
-    // Resolve the right API key for embedding (may differ from the chat/Grok key)
+    // Embedding key is independent of chat provider:
+    // openai embeddings → openAiApiKey; xai embeddings → profile.apiKey (xAI key), not the chat key.
     const embeddingKey =
-      (embeddingProvider === "openai" ? profile?.openAiApiKey : null) ?? apiKey;
+      (embeddingProvider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey ?? settings?.apiKey ?? "";
     embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, embeddingKey, embeddingProvider);
     if (fullContent) {
       embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);

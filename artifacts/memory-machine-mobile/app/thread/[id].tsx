@@ -33,18 +33,13 @@ export default function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
-  const { data: thread, refetch: refetchThread } = useGetThread({
-    params: { path: { threadId } },
-  });
-  const { data: fetchedMessages, refetch: refetchMessages } = useGetThreadMessages({
-    params: { path: { threadId } },
-  });
+  const { data: thread, refetch: refetchThread } = useGetThread(threadId);
+  const { data: fetchedMessages, refetch: refetchMessages } = useGetThreadMessages(threadId);
 
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
-  const flatRef = useRef<FlatList<Message>>(null);
 
   const updateThread = useUpdateThread();
   const deleteThread = useDeleteThread();
@@ -99,7 +94,7 @@ export default function ChatScreen() {
         style: "destructive",
         onPress: async () => {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          await deleteThread.mutateAsync({ params: { path: { threadId } } });
+          await deleteThread.mutateAsync({ threadId });
           router.back();
         },
       },
@@ -112,16 +107,12 @@ export default function ChatScreen() {
       setRenaming(false);
       return;
     }
-    await updateThread.mutateAsync({
-      params: { path: { threadId } },
-      data: { title },
-    });
+    await updateThread.mutateAsync({ threadId, data: { title } });
     await refetchThread();
     setRenaming(false);
   }, [newTitle, updateThread, threadId, refetchThread]);
 
-  const allMessages = localMessages;
-  const reversedMessages = [...allMessages].reverse();
+  const reversedMessages = [...localMessages].reverse();
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -156,10 +147,13 @@ export default function ChatScreen() {
             onBlur={handleRename}
           />
         ) : (
-          <TouchableOpacity style={styles.titleBtn} onLongPress={() => {
-            setNewTitle(thread?.title ?? "");
-            setRenaming(true);
-          }}>
+          <TouchableOpacity
+            style={styles.titleBtn}
+            onLongPress={() => {
+              setNewTitle(thread?.title ?? "");
+              setRenaming(true);
+            }}
+          >
             <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
               {thread?.title ?? "Loading…"}
             </Text>
@@ -169,12 +163,18 @@ export default function ChatScreen() {
         <TouchableOpacity
           onPress={() => {
             Alert.alert(thread?.title ?? "Options", undefined, [
-              { text: "Rename", onPress: () => { setNewTitle(thread?.title ?? ""); setRenaming(true); } },
+              {
+                text: "Rename",
+                onPress: () => {
+                  setNewTitle(thread?.title ?? "");
+                  setRenaming(true);
+                },
+              },
               {
                 text: thread?.pinned ? "Unpin" : "Pin",
                 onPress: async () => {
                   await updateThread.mutateAsync({
-                    params: { path: { threadId } },
+                    threadId,
                     data: { pinned: !thread?.pinned },
                   });
                   refetchThread();
@@ -190,19 +190,18 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Messages */}
+      {/* Messages + Input */}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
         keyboardVerticalOffset={0}
       >
         <FlatList
-          ref={flatRef}
           data={reversedMessages}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderMessage}
           inverted
-          contentContainerStyle={[styles.messageList, { paddingBottom: 12 }]}
+          contentContainerStyle={styles.messageList}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
@@ -212,15 +211,12 @@ export default function ChatScreen() {
             ) : streamError ? (
               <View style={[styles.errorBubble, { backgroundColor: `${colors.destructive}22`, borderColor: colors.destructive }]}>
                 <Text style={[styles.errorBubbleText, { color: colors.destructive }]}>{streamError}</Text>
-                <TouchableOpacity onPress={() => refetchMessages()}>
-                  <Text style={[{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 4 }]}>Retry</Text>
-                </TouchableOpacity>
               </View>
             ) : null
           }
         />
 
-        {/* Input */}
+        {/* Input bar */}
         <View
           style={[
             styles.inputBar,
@@ -240,12 +236,11 @@ export default function ChatScreen() {
               placeholderTextColor={colors.mutedForeground}
               multiline
               maxLength={4000}
-              returnKeyType="default"
             />
             <TouchableOpacity
               style={[
                 styles.sendBtn,
-                { backgroundColor: input.trim() && !streaming ? colors.primary : colors.muted },
+                { backgroundColor: (input.trim() && !streaming) ? colors.primary : colors.muted },
               ]}
               onPress={streaming ? abort : handleSend}
               activeOpacity={0.8}
@@ -254,7 +249,11 @@ export default function ChatScreen() {
               {streaming ? (
                 <Feather name="square" size={14} color={colors.foreground} />
               ) : (
-                <Feather name="arrow-up" size={16} color={input.trim() ? colors.primaryForeground : colors.mutedForeground} />
+                <Feather
+                  name="arrow-up"
+                  size={16}
+                  color={input.trim() ? colors.primaryForeground : colors.mutedForeground}
+                />
               )}
             </TouchableOpacity>
           </View>
@@ -272,8 +271,7 @@ function ChatBubble({
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
 }) {
   const isUser = message.role === "user";
-  const isSystem = message.role === "system";
-  if (isSystem) return null;
+  if (message.role === "system") return null;
 
   return (
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
@@ -340,7 +338,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1.5,
     paddingBottom: 2,
   },
-  messageList: { paddingHorizontal: 12, paddingTop: 8, gap: 8 },
+  messageList: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, gap: 4 },
   bubbleRow: {
     flexDirection: "row",
     marginVertical: 3,
@@ -352,13 +350,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
   },
-  bubbleUser: {
-    borderBottomRightRadius: 4,
-  },
-  bubbleAssistant: {
-    borderWidth: 1,
-    borderBottomLeftRadius: 4,
-  },
+  bubbleUser: { borderBottomRightRadius: 4 },
+  bubbleAssistant: { borderWidth: 1, borderBottomLeftRadius: 4 },
   bubbleText: {
     fontSize: 15,
     fontFamily: "Inter_400Regular",

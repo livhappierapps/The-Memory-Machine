@@ -9,16 +9,16 @@ import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 
-// IMPORTANT: iOS 26 uses NativeTabs for native tabs with liquid glass support.
-// NativeTabs intentionally does NOT use custom design tokens — liquid glass
-// is a system-level appearance provided by iOS and cannot be overridden.
-// Custom brand colors are applied only on the ClassicTabLayout path (older iOS / Android / web).
 function NativeTabLayout() {
   return (
     <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+      <NativeTabs.Trigger name="vault">
+        <Icon sf={{ default: "archivebox", selected: "archivebox.fill" }} />
+        <Label>Vault</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="settings">
+        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
+        <Label>Settings</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -27,7 +27,7 @@ function NativeTabLayout() {
 function ClassicTabLayout() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const isDark = colorScheme === "dark" || true;
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
 
@@ -36,11 +36,11 @@ function ClassicTabLayout() {
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
-        headerShown: true,
+        headerShown: false,
         tabBarStyle: {
           position: "absolute",
           backgroundColor: isIOS ? "transparent" : colors.background,
-          borderTopWidth: isWeb ? 1 : 0,
+          borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
           ...(isWeb ? { height: 84 } : {}),
@@ -54,23 +54,32 @@ function ClassicTabLayout() {
             />
           ) : isWeb ? (
             <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: colors.background },
-              ]}
+              style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]}
             />
           ) : null,
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="vault"
         options={{
-          title: "Home",
+          title: "Vault",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="house" tintColor={color} size={24} />
+              <SymbolView name="archivebox" tintColor={color} size={24} />
             ) : (
-              <Feather name="home" size={22} color={color} />
+              <Feather name="inbox" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Settings",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="gearshape" tintColor={color} size={24} />
+            ) : (
+              <Feather name="settings" size={22} color={color} />
             ),
         }}
       />

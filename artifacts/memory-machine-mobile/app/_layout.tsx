@@ -1,3 +1,4 @@
+import { ClerkProvider, useAuth } from "@clerk/expo";
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -13,17 +14,47 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ProfileProvider } from "@/contexts/ProfileContext";
+
+// Point all generated hooks at the remote API server.
+setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"]}`);
+
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 1, staleTime: 10_000 },
+  },
+});
+
+function AuthSetup() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(async () => {
+      try {
+        return await getToken();
+      } catch {
+        return null;
+      }
+    });
+    return () => {
+      setAuthTokenGetter(null);
+    };
+  }, [getToken]);
+  return null;
+}
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+      <Stack.Screen name="sign-up" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="thread" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -44,17 +75,24 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
+  const publishableKey = process.env["EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY"] ?? "";
+
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView>
-            <KeyboardProvider>
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </QueryClientProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <ClerkProvider publishableKey={publishableKey}>
+      <AuthSetup />
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <QueryClientProvider client={queryClient}>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <ProfileProvider>
+                  <RootLayoutNav />
+                </ProfileProvider>
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </QueryClientProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </ClerkProvider>
   );
 }

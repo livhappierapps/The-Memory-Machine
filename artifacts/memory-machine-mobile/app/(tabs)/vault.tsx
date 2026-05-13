@@ -60,13 +60,9 @@ export default function VaultScreen() {
     refetch,
     isRefetching,
   } = useListThreads({
-    params: {
-      query: {
-        search: debouncedSearch || undefined,
-        archived: showArchived,
-        profileId: activeProfileId,
-      },
-    },
+    search: debouncedSearch || undefined,
+    archived: showArchived,
+    profileId: activeProfileId,
   });
 
   const createThread = useCreateThread();
@@ -99,7 +95,7 @@ export default function VaultScreen() {
           onPress: async () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             try {
-              await deleteThread.mutateAsync({ params: { path: { threadId: thread.id } } });
+              await deleteThread.mutateAsync({ threadId: thread.id });
               await refetch();
             } catch {
               Alert.alert("Error", "Could not delete thread.");
@@ -115,7 +111,7 @@ export default function VaultScreen() {
     async (thread: Thread) => {
       Haptics.selectionAsync();
       await updateThread.mutateAsync({
-        params: { path: { threadId: thread.id } },
+        threadId: thread.id,
         data: { pinned: !thread.pinned },
       });
       await refetch();
@@ -282,10 +278,7 @@ function ThreadRow({ thread, colors, onPress, onDelete, onPin }: ThreadRowProps)
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
           <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={1}>
-            {thread.pinned && (
-              <Text style={{ color: colors.primary }}>📌 </Text>
-            )}
-            {thread.title}
+            {thread.pinned ? "📌 " : ""}{thread.title}
           </Text>
           <Text style={[styles.rowTime, { color: colors.mutedForeground }]}>{timeLabel}</Text>
         </View>

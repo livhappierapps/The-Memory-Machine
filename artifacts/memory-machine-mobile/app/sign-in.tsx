@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 
 export default function SignInScreen() {
-  const { signIn, setActive, isLoaded } = useSignIn();
+  const { signIn } = useSignIn();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -31,13 +31,24 @@ export default function SignInScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const handleSignIn = async () => {
-    if (!isLoaded || loading) return;
+    if (!signIn || loading) return;
     setError(null);
     setLoading(true);
     try {
-      const result = await signIn.create({ identifier: email.trim(), password });
-      if (result.status === "complete") {
-        await setActive({ session: result.createdSessionId });
+      const { error: createError } = await signIn.create({
+        identifier: email.trim(),
+        password,
+      });
+      if (createError) {
+        setError(createError.longMessage ?? createError.message ?? "Sign-in failed.");
+        return;
+      }
+      if (signIn.status === "complete") {
+        const { error: finalizeError } = await signIn.finalize();
+        if (finalizeError) {
+          setError(finalizeError.longMessage ?? finalizeError.message ?? "Session error.");
+          return;
+        }
         router.replace("/(tabs)/vault");
       } else {
         setError("Sign-in incomplete. Please try again.");

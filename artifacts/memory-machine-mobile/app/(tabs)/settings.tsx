@@ -21,7 +21,6 @@ import {
   useGetSettings,
   useListProfiles,
   useUpdateProfile,
-  useUpdateSettings,
 } from "@workspace/api-client-react";
 import type { Profile } from "@workspace/api-client-react";
 
@@ -47,7 +46,6 @@ export default function SettingsScreen() {
   const profileId = profile?.id;
 
   const updateProfile = useUpdateProfile();
-  const updateSettings = useUpdateSettings();
 
   const [apiKey, setApiKey] = useState("");
   const [openAiKey, setOpenAiKey] = useState("");
@@ -87,7 +85,7 @@ export default function SettingsScreen() {
         ...(googleKey ? { googleApiKey: googleKey } : {}),
       };
       const updated = await updateProfile.mutateAsync({
-        params: { path: { profileId } },
+        profileId,
         data: body,
       });
       setActiveProfile(updated as Profile);
@@ -156,7 +154,7 @@ export default function SettingsScreen() {
           {profile.chatProvider === "openai" && (
             <SectionCard colors={colors} title="OpenAI API Key">
               <ApiKeyInput
-                label={profile.hasApiKey ? "Replace OpenAI key" : "OpenAI API key"}
+                label={profile.hasOpenAiApiKey ? "Replace OpenAI key" : "OpenAI API key"}
                 value={openAiKey}
                 onChange={setOpenAiKey}
                 placeholder="sk-…"
@@ -230,7 +228,7 @@ export default function SettingsScreen() {
               />
             </View>
             <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-              0 = full history. Set to 1–1000 to limit context.
+              0 = full history. Set 1–1000 to limit context.
             </Text>
           </SectionCard>
 

@@ -19,7 +19,7 @@ import { useColors } from "@/hooks/useColors";
 type Step = "details" | "verify";
 
 export default function SignUpScreen() {
-  const { signUp, setActive, isLoaded } = useSignUp();
+  const { signUp } = useSignUp();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -39,12 +39,23 @@ export default function SignUpScreen() {
     "Something went wrong. Please try again.";
 
   const handleSignUp = async () => {
-    if (!isLoaded || loading) return;
+    if (!signUp || loading) return;
     setError(null);
     setLoading(true);
     try {
-      await signUp.create({ emailAddress: email.trim(), password });
-      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+      const { error: createError } = await signUp.create({
+        emailAddress: email.trim(),
+        password,
+      });
+      if (createError) {
+        setError(createError.longMessage ?? createError.message ?? "Sign-up failed.");
+        return;
+      }
+      const { error: sendError } = await signUp.verifications.sendEmailCode();
+      if (sendError) {
+        setError(sendError.longMessage ?? sendError.message ?? "Could not send verification code.");
+        return;
+      }
       setStep("verify");
     } catch (err) {
       setError(extractError(err));
@@ -54,13 +65,21 @@ export default function SignUpScreen() {
   };
 
   const handleVerify = async () => {
-    if (!isLoaded || loading) return;
+    if (!signUp || loading) return;
     setError(null);
     setLoading(true);
     try {
-      const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === "complete") {
-        await setActive({ session: result.createdSessionId });
+      const { error: verifyError } = await signUp.verifications.verifyEmailCode({ code });
+      if (verifyError) {
+        setError(verifyError.longMessage ?? verifyError.message ?? "Invalid code.");
+        return;
+      }
+      if (signUp.status === "complete") {
+        const { error: finalizeError } = await signUp.finalize();
+        if (finalizeError) {
+          setError(finalizeError.longMessage ?? finalizeError.message ?? "Session error.");
+          return;
+        }
         router.replace("/(tabs)/vault");
       } else {
         setError("Verification incomplete. Please try again.");

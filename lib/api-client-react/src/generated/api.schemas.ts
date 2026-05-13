@@ -19,6 +19,7 @@ export interface Thread {
   pinned: boolean;
   model: string;
   messageCount: number;
+  memoryWeight: number;
   /** @nullable */
   lastMessageAt?: string | null;
   createdAt: string;
@@ -89,6 +90,30 @@ export interface ExportResult {
   exportedAt: string;
 }
 
+export type MemorySourceReason =
+  (typeof MemorySourceReason)[keyof typeof MemorySourceReason];
+
+export const MemorySourceReason = {
+  pinned: "pinned",
+  semantic: "semantic",
+  recent: "recent",
+} as const;
+
+export interface MemorySource {
+  threadId: number;
+  title: string;
+  reason: MemorySourceReason;
+  /** @nullable */
+  relevanceScore?: number | null;
+  messageCount: number;
+}
+
+export interface MemoryPreview {
+  sources: MemorySource[];
+  totalContextMessages: number;
+  smartRetrievalEnabled: boolean;
+}
+
 export interface Settings {
   userId: string;
   hasApiKey: boolean;
@@ -130,6 +155,13 @@ export interface Profile {
   hasApiKey: boolean;
   defaultModel: string;
   maxContextMessages: number;
+  smartRetrieval: boolean;
+  topNMemories: number;
+  alwaysIncludeLastN: number;
+  /** @nullable */
+  memoryDateFrom?: string | null;
+  /** @nullable */
+  memoryDateTo?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -142,6 +174,11 @@ export interface CreateProfileBody {
   apiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
+  smartRetrieval?: boolean;
+  topNMemories?: number;
+  alwaysIncludeLastN?: number;
+  memoryDateFrom?: string;
+  memoryDateTo?: string;
 }
 
 export interface UpdateProfileBody {
@@ -152,6 +189,11 @@ export interface UpdateProfileBody {
   apiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
+  smartRetrieval?: boolean;
+  topNMemories?: number;
+  alwaysIncludeLastN?: number;
+  memoryDateFrom?: string;
+  memoryDateTo?: string;
 }
 
 export type ListThreadsParams = {
@@ -182,3 +224,10 @@ export const ExportThreadFormat = {
   json: "json",
   markdown: "markdown",
 } as const;
+
+export type GetMemoryPreviewParams = {
+  /**
+   * Query text to use for semantic search
+   */
+  q?: string;
+};

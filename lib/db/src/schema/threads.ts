@@ -12,6 +12,7 @@ export const threadsTable = pgTable("threads", {
   pinned: boolean("pinned").notNull().default(false),
   model: text("model").notNull().default("grok-3"),
   messageCount: integer("message_count").notNull().default(0),
+  memoryWeight: integer("memory_weight").notNull().default(0),
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

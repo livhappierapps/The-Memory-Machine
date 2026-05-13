@@ -1,13 +1,14 @@
 import {
   useListThreads,
   useCreateThread,
+  useUpdateThread,
   getListThreadsQueryKey,
   getGetStatsQueryKey,
 } from "@workspace/api-client-react";
 import { format, isValid } from "date-fns";
 import {
-  Plus, Search, MessageSquare, Loader2, BarChart2,
-  FolderArchive, SlidersHorizontal, X, Pin,
+  Plus, Search, MessageSquare, Loader2,
+  FolderArchive, SlidersHorizontal, X, Pin, PinOff, Flame,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
   );
 
   const createThread = useCreateThread();
+  const updateThread = useUpdateThread();
   const queryClient = useQueryClient();
 
   const handleCreateThread = () => {
@@ -83,6 +85,18 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
   const clearFilters = () => {
     setFilterFrom("");
     setFilterTo("");
+  };
+
+  const handleTogglePin = (e: React.MouseEvent, threadId: number, currentlyPinned: boolean) => {
+    e.stopPropagation();
+    updateThread.mutate(
+      { threadId, data: { pinned: !currentlyPinned } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey(), exact: false, refetchType: "all" });
+        },
+      },
+    );
   };
 
   return (
@@ -228,20 +242,43 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
             </div>
           ) : (
             threads?.map((thread) => (
-              <button
+              <div
                 key={thread.id}
-                onClick={() => onSelectThread(thread.id)}
-                className={`w-full text-left p-3 rounded-lg transition-colors flex flex-col gap-1 ${
+                className={`group relative w-full text-left p-3 rounded-lg transition-colors flex flex-col gap-1 cursor-pointer ${
                   activeThreadId === thread.id
                     ? "bg-primary/10 border border-primary/20 text-foreground"
                     : "hover:bg-muted text-muted-foreground hover:text-foreground border border-transparent"
                 }`}
+                onClick={() => onSelectThread(thread.id)}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <span className="font-medium truncate text-sm">{thread.title}</span>
-                  {thread.pinned && (
-                    <Pin className="w-3 h-3 shrink-0 text-primary mt-0.5 fill-primary" />
-                  )}
+                  <span className="font-medium truncate text-sm flex-1">{thread.title}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {/* Memory weight badge */}
+                    {(thread.memoryWeight ?? 0) > 0 && (
+                      <span
+                        title={`Retrieved ${thread.memoryWeight} time${thread.memoryWeight === 1 ? "" : "s"}`}
+                        className="flex items-center gap-0.5 text-xs text-amber-400/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Flame className="w-3 h-3" />
+                        {thread.memoryWeight}
+                      </span>
+                    )}
+                    {/* Pin toggle */}
+                    <button
+                      onClick={(e) => handleTogglePin(e, thread.id, thread.pinned)}
+                      title={thread.pinned ? "Unpin" : "Pin to always include in memory"}
+                      className={`p-0.5 rounded transition-all ${
+                        thread.pinned
+                          ? "text-primary opacity-100"
+                          : "text-muted-foreground opacity-0 group-hover:opacity-100"
+                      }`}
+                    >
+                      {thread.pinned
+                        ? <Pin className="w-3 h-3 fill-primary" />
+                        : <PinOff className="w-3 h-3" />}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 text-xs opacity-70">
                   <span className="flex items-center gap-1">
@@ -252,7 +289,7 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
                     <span>{format(new Date(thread.updatedAt), "MMM d, yyyy")}</span>
                   )}
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>

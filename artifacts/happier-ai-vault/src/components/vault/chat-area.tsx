@@ -3,13 +3,56 @@ import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, isValid } from "date-fns";
-import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft } from "lucide-react";
+import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft, Brain, ChevronDown, ChevronUp, Pin, Zap, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
+
+import { MemorySource } from "@/hooks/use-chat-stream";
+
+function MemoryReasonIcon({ reason }: { reason: string }) {
+  if (reason === "pinned") return <Pin className="w-3 h-3 text-primary" />;
+  if (reason === "semantic") return <Zap className="w-3 h-3 text-amber-400" />;
+  return <Clock className="w-3 h-3 text-muted-foreground" />;
+}
+
+function WhatLeoKnows({ sources }: { sources: MemorySource[] }) {
+  const [open, setOpen] = useState(false);
+  if (sources.length === 0) return null;
+
+  return (
+    <div className="border-b border-border/30 bg-primary/5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <Brain className="w-3.5 h-3.5 text-primary" />
+          <span className="text-primary font-medium">{sources.length} memor{sources.length === 1 ? "y" : "ies"} retrieved</span>
+          <span className="opacity-60">· click to see what Leo knows this session</span>
+        </span>
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-1.5">
+          {sources.map((src) => (
+            <div key={src.threadId} className="flex items-center gap-2 text-xs">
+              <MemoryReasonIcon reason={src.reason} />
+              <span className="flex-1 truncate text-foreground/80">{src.title}</span>
+              <span className="shrink-0 text-muted-foreground capitalize">{src.reason}</span>
+              {src.relevanceScore != null && (
+                <span className="shrink-0 text-amber-400/70">{Math.round(src.relevanceScore * 100)}%</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; onBack?: () => void; onDeleted?: () => void }) {
   const { data: thread, isLoading: threadLoading } = useGetThread(threadId, {
@@ -21,7 +64,7 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
   });
 
   const [input, setInput] = useState("");
-  const { streamMessage, stopStream, isStreaming, streamingContent, error } = useChatStream();
+  const { streamMessage, stopStream, isStreaming, streamingContent, error, memorySources } = useChatStream();
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const updateThread = useUpdateThread();
@@ -141,6 +184,9 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
           </DropdownMenu>
         </div>
       </header>
+
+      {/* What Leo knows — memory sources panel */}
+      <WhatLeoKnows sources={memorySources} />
 
       {/* Messages */}
       <div 

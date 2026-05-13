@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { streamGrokCompletion } from "../lib/grok";
+import { embedMessageAsync } from "../lib/embeddings";
+import { retrieveMemories } from "../lib/memory";
 
 const router: IRouter = Router();
 
@@ -155,24 +157,74 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       })
       .returning();
 
-    // Load full history
+    // Load current thread history
     const history = await db
       .select()
       .from(messagesTable)
       .where(eq(messagesTable.threadId, params.data.threadId))
       .orderBy(asc(messagesTable.createdAt));
 
-    // Build messages for Grok API — respect maxContextMessages (0 = unlimited)
     const model = thread.model || profile?.defaultModel || settings?.defaultModel || "grok-3";
     const maxCtx = profile?.maxContextMessages ?? settings?.maxContextMessages ?? 0;
-    const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
+
+    // ── Smart memory retrieval ─────────────────────────────────────────────
+    const smartRetrieval = profile?.smartRetrieval ?? true;
+    const topN = profile?.topNMemories ?? 10;
+    const alwaysIncludeLastN = profile?.alwaysIncludeLastN ?? 3;
+
+    let memorySources: Array<{
+      threadId: number;
+      title: string;
+      reason: string;
+      relevanceScore: number | null;
+      messageCount: number;
+    }> = [];
+    let memoryMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
+
+    if (profile && (smartRetrieval || alwaysIncludeLastN > 0)) {
+      try {
+        const memoryResult = await retrieveMemories({
+          profileId: profile.id,
+          userId,
+          currentThreadId: params.data.threadId,
+          query: parsed.data.content,
+          smartRetrieval,
+          topN,
+          alwaysIncludeLastN,
+          dateFrom: profile.memoryDateFrom,
+          dateTo: profile.memoryDateTo,
+          apiKey,
+        });
+        memorySources = memoryResult.sources;
+        memoryMessages = memoryResult.messages;
+      } catch (err) {
+        req.log.warn({ err }, "Memory retrieval failed — continuing without cross-thread context");
+      }
+    }
+
+    // ── Assemble Grok messages: system + memory + current thread ──────────
     const grokMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
 
-    // Prepend personality notes as system message if the profile has them
+    // 1. Personality system prompt
     if (profile?.personalityNotes) {
       grokMessages.push({ role: "system", content: profile.personalityNotes });
     }
 
+    // 2. Cross-thread memory context (pinned + semantic + recent)
+    if (memoryMessages.length > 0) {
+      grokMessages.push({
+        role: "system",
+        content: "The following are relevant memories from past conversations:",
+      });
+      grokMessages.push(...memoryMessages);
+      grokMessages.push({
+        role: "system",
+        content: "--- End of memories — current conversation follows ---",
+      });
+    }
+
+    // 3. Current thread history (respects maxContextMessages)
+    const historyToSend = maxCtx > 0 ? history.slice(-maxCtx) : history;
     grokMessages.push(
       ...historyToSend.map((m) => ({
         role: m.role as "user" | "assistant" | "system",
@@ -180,7 +232,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       })),
     );
 
-    // Set up SSE
+    // ── Set up SSE ────────────────────────────────────────────────────────
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -192,6 +244,11 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     };
 
     sendEvent({ type: "user_message", message: userMsg });
+
+    // Emit memory sources so the frontend can show "What Leo knows"
+    if (memorySources.length > 0) {
+      sendEvent({ type: "memory_sources", sources: memorySources });
+    }
 
     let fullContent = "";
     await streamGrokCompletion(apiKey, model, grokMessages, {
@@ -225,8 +282,14 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .set({ messageCount: thread.messageCount + 2, lastMessageAt: new Date() })
       .where(eq(threadsTable.id, params.data.threadId));
 
-    sendEvent({ type: "done", message: assistantMsg });
+    sendEvent({ type: "done", message: assistantMsg, memorySources });
     res.end();
+
+    // ── Async: generate embeddings for user + assistant messages ──────────
+    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, apiKey);
+    if (fullContent) {
+      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, apiKey);
+    }
   } catch (err) {
     req.log.error({ err }, "Stream error");
     if (!res.headersSent) {

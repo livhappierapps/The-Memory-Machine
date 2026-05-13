@@ -3,16 +3,26 @@ import { Message } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetThreadMessagesQueryKey } from "@workspace/api-client-react";
 
+export interface MemorySource {
+  threadId: number;
+  title: string;
+  reason: "pinned" | "semantic" | "recent";
+  relevanceScore: number | null;
+  messageCount: number;
+}
+
 type StreamEvent =
   | { type: "user_message"; message: Message }
   | { type: "token"; content: string }
-  | { type: "done"; message: Message }
-  | { type: "error"; error: string };
+  | { type: "done"; message: Message; memorySources?: MemorySource[] }
+  | { type: "error"; error: string }
+  | { type: "memory_sources"; sources: MemorySource[] };
 
 export function useChatStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [memorySources, setMemorySources] = useState<MemorySource[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
 
@@ -21,6 +31,7 @@ export function useChatStream() {
       setIsStreaming(true);
       setStreamingContent("");
       setError(null);
+      setMemorySources([]);
 
       const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
       const abortController = new AbortController();
@@ -70,6 +81,8 @@ export function useChatStream() {
                       : [...msgs, event.message];
                   },
                 );
+              } else if (event.type === "memory_sources") {
+                setMemorySources(event.sources);
               } else if (event.type === "token") {
                 setStreamingContent((prev) => prev + event.content);
               } else if (event.type === "done") {
@@ -83,6 +96,7 @@ export function useChatStream() {
                   },
                 );
                 setStreamingContent("");
+                if (event.memorySources) setMemorySources(event.memorySources);
               } else if (event.type === "error") {
                 setError(event.error);
               }
@@ -107,5 +121,5 @@ export function useChatStream() {
     abortControllerRef.current?.abort();
   }, []);
 
-  return { streamMessage, stopStream, isStreaming, streamingContent, error };
+  return { streamMessage, stopStream, isStreaming, streamingContent, error, memorySources };
 }

@@ -20,6 +20,8 @@ tags:
     description: Stats and analytics
   - name: profiles
     description: Persona profile operations
+  - name: memory
+    description: Smart memory retrieval
 
 paths:
   /healthz:
@@ -263,6 +265,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExportResult"
 
+  /threads/{threadId}/memory-preview:
+    get:
+      operationId: getMemoryPreview
+      tags: [memory]
+      summary: Preview which memories would be retrieved for a given query
+      parameters:
+        - name: threadId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: q
+          in: query
+          description: Query text to use for semantic search
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Memory preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryPreview"
+
   /settings:
     get:
       operationId: getSettings
@@ -437,6 +463,8 @@ components:
           type: string
         messageCount:
           type: integer
+        memoryWeight:
+          type: integer
         lastMessageAt:
           type: ["string", "null"]
         createdAt:
@@ -451,6 +479,7 @@ components:
         - pinned
         - model
         - messageCount
+        - memoryWeight
         - createdAt
         - updatedAt
 
@@ -558,6 +587,42 @@ components:
         - content
         - exportedAt
 
+    MemorySource:
+      type: object
+      properties:
+        threadId:
+          type: integer
+        title:
+          type: string
+        reason:
+          type: string
+          enum: [pinned, semantic, recent]
+        relevanceScore:
+          type: ["number", "null"]
+        messageCount:
+          type: integer
+      required:
+        - threadId
+        - title
+        - reason
+        - messageCount
+
+    MemoryPreview:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemorySource"
+        totalContextMessages:
+          type: integer
+        smartRetrievalEnabled:
+          type: boolean
+      required:
+        - sources
+        - totalContextMessages
+        - smartRetrievalEnabled
+
     Settings:
       type: object
       properties:
@@ -642,6 +707,16 @@ components:
           type: string
         maxContextMessages:
           type: integer
+        smartRetrieval:
+          type: boolean
+        topNMemories:
+          type: integer
+        alwaysIncludeLastN:
+          type: integer
+        memoryDateFrom:
+          type: ["string", "null"]
+        memoryDateTo:
+          type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
@@ -655,6 +730,9 @@ components:
         - hasApiKey
         - defaultModel
         - maxContextMessages
+        - smartRetrieval
+        - topNMemories
+        - alwaysIncludeLastN
         - createdAt
         - updatedAt
 
@@ -675,6 +753,16 @@ components:
           type: string
         maxContextMessages:
           type: integer
+        smartRetrieval:
+          type: boolean
+        topNMemories:
+          type: integer
+        alwaysIncludeLastN:
+          type: integer
+        memoryDateFrom:
+          type: string
+        memoryDateTo:
+          type: string
       required:
         - name
 
@@ -695,3 +783,13 @@ components:
           type: string
         maxContextMessages:
           type: integer
+        smartRetrieval:
+          type: boolean
+        topNMemories:
+          type: integer
+        alwaysIncludeLastN:
+          type: integer
+        memoryDateFrom:
+          type: string
+        memoryDateTo:
+          type: string

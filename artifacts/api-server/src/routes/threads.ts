@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, profilesTable } from "@workspace/db";
 import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
+import { retrieveMemories } from "../lib/memory";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -269,6 +270,74 @@ router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: R
     });
   } catch (err) {
     req.log.error({ err }, "Failed to export thread");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Memory preview — show which memories would be retrieved for a given query
+router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const threadId = parseInt(req.params.threadId as string, 10);
+    if (isNaN(threadId)) {
+      res.status(400).json({ error: "Invalid thread ID" });
+      return;
+    }
+
+    const rawQ = req.query.q;
+    const query = typeof rawQ === "string" ? rawQ : Array.isArray(rawQ) ? String(rawQ[0]) : "";
+
+    const [thread] = await db
+      .select()
+      .from(threadsTable)
+      .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId)));
+
+    if (!thread) {
+      res.status(404).json({ error: "Thread not found" });
+      return;
+    }
+
+    if (!thread.profileId) {
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false });
+      return;
+    }
+
+    const [profile] = await db
+      .select()
+      .from(profilesTable)
+      .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
+
+    if (!profile) {
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false });
+      return;
+    }
+
+    const apiKey = profile.apiKey;
+    if (!apiKey) {
+      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval });
+      return;
+    }
+
+    const memoryResult = await retrieveMemories({
+      profileId: profile.id,
+      userId,
+      currentThreadId: threadId,
+      query: query || "What do I remember?",
+      smartRetrieval: profile.smartRetrieval,
+      topN: profile.topNMemories,
+      alwaysIncludeLastN: profile.alwaysIncludeLastN,
+      dateFrom: profile.memoryDateFrom,
+      dateTo: profile.memoryDateTo,
+      apiKey,
+    });
+
+    res.json({
+      sources: memoryResult.sources,
+      totalContextMessages: memoryResult.messages.length,
+      smartRetrievalEnabled: profile.smartRetrieval,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get memory preview");
     res.status(500).json({ error: "Internal server error" });
   }
 });

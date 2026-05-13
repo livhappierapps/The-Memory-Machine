@@ -19,13 +19,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe } from "lucide-react";
+import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const profileSettingsSchema = z.object({
   apiKey: z.string().optional(),
   defaultModel: z.string(),
   maxContextMessages: z.number().min(0).max(1000),
+  smartRetrieval: z.boolean(),
+  topNMemories: z.number().min(1).max(50),
+  alwaysIncludeLastN: z.number().min(0).max(20),
+  memoryDateFrom: z.string().optional(),
+  memoryDateTo: z.string().optional(),
 });
 
 export default function Settings() {
@@ -214,6 +219,11 @@ function ProfileSettingsForm() {
       apiKey: "",
       defaultModel: "grok-3",
       maxContextMessages: 100,
+      smartRetrieval: true,
+      topNMemories: 10,
+      alwaysIncludeLastN: 3,
+      memoryDateFrom: "",
+      memoryDateTo: "",
     },
   });
 
@@ -224,6 +234,11 @@ function ProfileSettingsForm() {
         apiKey: "",
         defaultModel: activeProfile.defaultModel ?? "grok-3",
         maxContextMessages: activeProfile.maxContextMessages ?? 100,
+        smartRetrieval: activeProfile.smartRetrieval ?? true,
+        topNMemories: activeProfile.topNMemories ?? 10,
+        alwaysIncludeLastN: activeProfile.alwaysIncludeLastN ?? 3,
+        memoryDateFrom: activeProfile.memoryDateFrom ?? "",
+        memoryDateTo: activeProfile.memoryDateTo ?? "",
       });
       formInitialized.current = activeProfile.id;
     }
@@ -235,6 +250,11 @@ function ProfileSettingsForm() {
     const updateData: Record<string, unknown> = {
       defaultModel: values.defaultModel,
       maxContextMessages: values.maxContextMessages,
+      smartRetrieval: values.smartRetrieval,
+      topNMemories: values.topNMemories,
+      alwaysIncludeLastN: values.alwaysIncludeLastN,
+      memoryDateFrom: values.memoryDateFrom || null,
+      memoryDateTo: values.memoryDateTo || null,
     };
     if (values.apiKey) updateData.apiKey = values.apiKey;
 
@@ -365,6 +385,141 @@ function ProfileSettingsForm() {
                 </FormItem>
               )}
             />
+          </div>
+        </div>
+
+        {/* Memory Engine section */}
+        <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-6 border-b border-border/50 pb-4">
+            <Brain className="w-5 h-5 text-primary" />
+            <div>
+              <h2 className="text-xl font-semibold">Smart Memory</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Control how {activeProfile.name} retrieves memories from past conversations
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <FormField
+              control={form.control}
+              name="smartRetrieval"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <FormLabel>Smart Retrieval</FormLabel>
+                      <FormDescription>
+                        Automatically find the most relevant past conversations using semantic search.
+                      </FormDescription>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => field.onChange(!field.value)}
+                      className={`ml-4 shrink-0 transition-colors ${field.value ? "text-primary" : "text-muted-foreground"}`}
+                    >
+                      {field.value
+                        ? <ToggleRight className="w-8 h-8" />
+                        : <ToggleLeft className="w-8 h-8" />}
+                    </button>
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="topNMemories"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Top N Memories —{" "}
+                    <span className="neon-text font-semibold">{field.value}</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Slider
+                      min={1}
+                      max={50}
+                      step={1}
+                      value={[field.value]}
+                      onValueChange={(vals) => field.onChange(vals[0])}
+                      disabled={!form.watch("smartRetrieval")}
+                      className="py-4"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Maximum number of semantically relevant past conversations to retrieve.
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="alwaysIncludeLastN"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Always Include Last N Sessions —{" "}
+                    <span className="neon-text font-semibold">
+                      {field.value === 0 ? "None" : field.value}
+                    </span>
+                  </FormLabel>
+                  <FormControl>
+                    <Slider
+                      min={0}
+                      max={20}
+                      step={1}
+                      value={[field.value]}
+                      onValueChange={(vals) => field.onChange(vals[0])}
+                      className="py-4"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Always inject the last N conversations regardless of relevance. 0 = none.
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="memoryDateFrom"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Memory From Date</FormLabel>
+                    <FormControl>
+                      <input
+                        type="date"
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm [color-scheme:dark]"
+                      />
+                    </FormControl>
+                    <FormDescription>Only retrieve memories after this date.</FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="memoryDateTo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Memory To Date</FormLabel>
+                    <FormControl>
+                      <input
+                        type="date"
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm [color-scheme:dark]"
+                      />
+                    </FormControl>
+                    <FormDescription>Only retrieve memories before this date.</FormDescription>
+                  </FormItem>
+                )}
+              />
+            </div>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +12,12 @@ export const profilesTable = pgTable("profiles", {
   apiKey: text("api_key"),
   defaultModel: text("default_model").notNull().default("grok-3"),
   maxContextMessages: integer("max_context_messages").notNull().default(100),
+  // Memory engine settings
+  smartRetrieval: boolean("smart_retrieval").notNull().default(true),
+  topNMemories: integer("top_n_memories").notNull().default(10),
+  alwaysIncludeLastN: integer("always_include_last_n").notNull().default(3),
+  memoryDateFrom: text("memory_date_from"),
+  memoryDateTo: text("memory_date_to"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

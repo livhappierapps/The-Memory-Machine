@@ -21,10 +21,12 @@ import type {
   CreateThreadBody,
   ExportResult,
   ExportThreadParams,
+  GetMemoryPreviewParams,
   HealthStatus,
   ImportMessagesBody,
   ImportResult,
   ListThreadsParams,
+  MemoryPreview,
   Message,
   Profile,
   SendMessageBody,
@@ -1010,6 +1012,123 @@ export function useExportThread<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getExportThreadQueryOptions(threadId, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Preview which memories would be retrieved for a given query
+ */
+export const getGetMemoryPreviewUrl = (
+  threadId: number,
+  params?: GetMemoryPreviewParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/threads/${threadId}/memory-preview?${stringifiedParams}`
+    : `/api/threads/${threadId}/memory-preview`;
+};
+
+export const getMemoryPreview = async (
+  threadId: number,
+  params?: GetMemoryPreviewParams,
+  options?: RequestInit,
+): Promise<MemoryPreview> => {
+  return customFetch<MemoryPreview>(getGetMemoryPreviewUrl(threadId, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMemoryPreviewQueryKey = (
+  threadId: number,
+  params?: GetMemoryPreviewParams,
+) => {
+  return [
+    `/api/threads/${threadId}/memory-preview`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetMemoryPreviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMemoryPreview>>,
+  TError = ErrorType<unknown>,
+>(
+  threadId: number,
+  params?: GetMemoryPreviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMemoryPreview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetMemoryPreviewQueryKey(threadId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMemoryPreview>>
+  > = ({ signal }) =>
+    getMemoryPreview(threadId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!threadId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMemoryPreview>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMemoryPreviewQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMemoryPreview>>
+>;
+export type GetMemoryPreviewQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Preview which memories would be retrieved for a given query
+ */
+
+export function useGetMemoryPreview<
+  TData = Awaited<ReturnType<typeof getMemoryPreview>>,
+  TError = ErrorType<unknown>,
+>(
+  threadId: number,
+  params?: GetMemoryPreviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMemoryPreview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMemoryPreviewQueryOptions(
+    threadId,
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

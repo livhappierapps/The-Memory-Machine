@@ -43,6 +43,7 @@ export const ListThreadsResponseItem = zod.object({
   pinned: zod.boolean(),
   model: zod.string(),
   messageCount: zod.number(),
+  memoryWeight: zod.number(),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -74,6 +75,7 @@ export const GetThreadResponse = zod.object({
   pinned: zod.boolean(),
   model: zod.string(),
   messageCount: zod.number(),
+  memoryWeight: zod.number(),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -102,6 +104,7 @@ export const UpdateThreadResponse = zod.object({
   pinned: zod.boolean(),
   model: zod.string(),
   messageCount: zod.number(),
+  memoryWeight: zod.number(),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -221,6 +224,34 @@ export const ExportThreadResponse = zod.object({
 });
 
 /**
+ * @summary Preview which memories would be retrieved for a given query
+ */
+export const GetMemoryPreviewParams = zod.object({
+  threadId: zod.coerce.number(),
+});
+
+export const GetMemoryPreviewQueryParams = zod.object({
+  q: zod.coerce
+    .string()
+    .optional()
+    .describe("Query text to use for semantic search"),
+});
+
+export const GetMemoryPreviewResponse = zod.object({
+  sources: zod.array(
+    zod.object({
+      threadId: zod.number(),
+      title: zod.string(),
+      reason: zod.enum(["pinned", "semantic", "recent"]),
+      relevanceScore: zod.number().nullish(),
+      messageCount: zod.number(),
+    }),
+  ),
+  totalContextMessages: zod.number(),
+  smartRetrievalEnabled: zod.boolean(),
+});
+
+/**
  * @summary Get user settings
  */
 export const GetSettingsResponse = zod.object({
@@ -292,6 +323,11 @@ export const ListProfilesResponseItem = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  smartRetrieval: zod.boolean(),
+  topNMemories: zod.number(),
+  alwaysIncludeLastN: zod.number(),
+  memoryDateFrom: zod.string().nullish(),
+  memoryDateTo: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -308,6 +344,11 @@ export const CreateProfileBody = zod.object({
   apiKey: zod.string().optional(),
   defaultModel: zod.string().optional(),
   maxContextMessages: zod.number().optional(),
+  smartRetrieval: zod.boolean().optional(),
+  topNMemories: zod.number().optional(),
+  alwaysIncludeLastN: zod.number().optional(),
+  memoryDateFrom: zod.string().optional(),
+  memoryDateTo: zod.string().optional(),
 });
 
 /**
@@ -327,6 +368,11 @@ export const GetProfileResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  smartRetrieval: zod.boolean(),
+  topNMemories: zod.number(),
+  alwaysIncludeLastN: zod.number(),
+  memoryDateFrom: zod.string().nullish(),
+  memoryDateTo: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -346,6 +392,11 @@ export const UpdateProfileBody = zod.object({
   apiKey: zod.string().optional(),
   defaultModel: zod.string().optional(),
   maxContextMessages: zod.number().optional(),
+  smartRetrieval: zod.boolean().optional(),
+  topNMemories: zod.number().optional(),
+  alwaysIncludeLastN: zod.number().optional(),
+  memoryDateFrom: zod.string().optional(),
+  memoryDateTo: zod.string().optional(),
 });
 
 export const UpdateProfileResponse = zod.object({
@@ -358,6 +409,11 @@ export const UpdateProfileResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  smartRetrieval: zod.boolean(),
+  topNMemories: zod.number(),
+  alwaysIncludeLastN: zod.number(),
+  memoryDateFrom: zod.string().nullish(),
+  memoryDateTo: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

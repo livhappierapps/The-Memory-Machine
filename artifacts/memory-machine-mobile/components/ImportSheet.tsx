@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { fetch as expoFetch } from "expo/fetch";
 import React, { useCallback, useState } from "react";
 import {
@@ -29,6 +30,8 @@ interface ImportResult {
   errors: number;
 }
 
+const CHUNK_SIZE = 5 * 1024 * 1024;
+
 export function ImportSheet({ visible, onClose, onImported }: Props) {
   const { getToken } = useAuth();
   const colors = useColors();
@@ -41,7 +44,6 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const baseUrl = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}`;
-  const CHUNK_SIZE = 5 * 1024 * 1024;
 
   const reset = () => {
     setPhase("idle");
@@ -55,6 +57,51 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
     reset();
     onClose();
   };
+
+  const uploadChunk = useCallback(
+    async (
+      fileUri: string,
+      uploadId: string,
+      chunkIndex: number,
+      chunks: number,
+      position: number,
+      length: number,
+      mimeType: string,
+      fileName: string,
+    ) => {
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: "base64",
+        position,
+        length,
+      });
+
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType });
+
+      const token = await getToken();
+      const form = new FormData();
+      form.append("uploadId", uploadId);
+      form.append("chunkIndex", String(chunkIndex));
+      form.append("totalChunks", String(chunks));
+      form.append("file", blob, fileName);
+
+      const res = await fetch(`${baseUrl}/api/import/chunk`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Chunk ${chunkIndex + 1}/${chunks} failed (${res.status}): ${text.slice(0, 100)}`);
+      }
+    },
+    [baseUrl, getToken],
+  );
 
   const handleImport = useCallback(async () => {
     setPhase("picking");
@@ -70,37 +117,27 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
       }
 
       const asset = picked.assets[0]!;
+      const fileUri = asset.uri;
+      const mimeType = asset.mimeType ?? "application/octet-stream";
+      const fileName = asset.name ?? "import.zip";
       const uploadId = `mob-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+      const info = await FileSystem.getInfoAsync(fileUri);
+      if (!info.exists) throw new Error("Selected file could not be read.");
+
+      const fileSize = (info as { exists: true; size?: number }).size ?? 0;
+      const chunks = Math.max(1, Math.ceil(fileSize / CHUNK_SIZE));
+
       setPhase("uploading");
+      setTotalChunks(chunks);
+      setChunksDone(0);
 
-      const token = await getToken();
-
-      const form = new FormData();
-      form.append("uploadId", uploadId);
-      form.append("chunkIndex", "0");
-      form.append("totalChunks", "1");
-      form.append(
-        "file",
-        {
-          uri: asset.uri,
-          type: asset.mimeType ?? "application/octet-stream",
-          name: asset.name ?? "import.zip",
-        } as unknown as Blob,
-      );
-
-      setTotalChunks(1);
-      const chunkRes = await fetch(`${baseUrl}/api/import/chunk`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      });
-
-      if (!chunkRes.ok) {
-        const text = await chunkRes.text().catch(() => "");
-        throw new Error(`Upload failed (${chunkRes.status}): ${text.slice(0, 120)}`);
+      for (let i = 0; i < chunks; i++) {
+        const position = i * CHUNK_SIZE;
+        const length = Math.min(CHUNK_SIZE, fileSize - position);
+        await uploadChunk(fileUri, uploadId, i, chunks, position, length, mimeType, fileName);
+        setChunksDone(i + 1);
       }
-      setChunksDone(1);
 
       setPhase("processing");
 
@@ -138,16 +175,13 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (!raw) continue;
-
           try {
             const event = JSON.parse(raw) as {
               type: string;
               imported?: number;
               skipped?: number;
               errors?: number;
-              processed?: number;
             };
-
             if (event.type === "done") {
               finalResult = {
                 imported: event.imported ?? 0,
@@ -169,19 +203,29 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
       setErrorMsg(msg);
       setPhase("error");
     }
-  }, [baseUrl, getToken, onImported]);
+  }, [baseUrl, getToken, onImported, uploadChunk]);
 
   const isWorking = phase === "uploading" || phase === "processing" || phase === "picking";
 
   return (
-    <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      presentationStyle="overFullScreen"
+      onRequestClose={handleClose}
+    >
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 24 }]}>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
 
           <View style={styles.sheetHeader}>
             <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Import Conversations</Text>
-            <TouchableOpacity onPress={handleClose} disabled={isWorking} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity
+              onPress={handleClose}
+              disabled={isWorking}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <Feather name="x" size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
@@ -204,16 +248,29 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
           {phase === "picking" && (
             <View style={styles.statusRow}>
               <ActivityIndicator color={colors.primary} />
-              <Text style={[styles.statusText, { color: colors.mutedForeground }]}>Opening file picker…</Text>
+              <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
+                Opening file picker…
+              </Text>
             </View>
           )}
 
           {phase === "uploading" && (
-            <View style={styles.statusRow}>
+            <View style={styles.statusBlock}>
               <ActivityIndicator color={colors.primary} />
               <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-                Uploading… {chunksDone}/{totalChunks}
+                Uploading chunk {chunksDone} of {totalChunks}…
               </Text>
+              <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      backgroundColor: colors.primary,
+                      width: `${Math.round((chunksDone / Math.max(totalChunks, 1)) * 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
             </View>
           )}
 
@@ -231,15 +288,20 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
 
           {phase === "done" && result && (
             <View style={styles.resultBlock}>
-              <View style={[styles.resultBadge, { backgroundColor: `${colors.primary}22`, borderColor: colors.primary }]}>
+              <View
+                style={[
+                  styles.resultBadge,
+                  { backgroundColor: `${colors.primary}22`, borderColor: colors.primary },
+                ]}
+              >
                 <Feather name="check-circle" size={28} color={colors.primary} />
                 <Text style={[styles.resultTitle, { color: colors.foreground }]}>Import complete</Text>
               </View>
               <View style={styles.resultStats}>
-                <StatRow label="Imported" value={result.imported} color={colors.primary} foreground={colors.foreground} muted={colors.mutedForeground} />
-                <StatRow label="Skipped" value={result.skipped} color={colors.mutedForeground} foreground={colors.foreground} muted={colors.mutedForeground} />
+                <StatRow label="Imported" value={result.imported} valueColor={colors.primary} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
+                <StatRow label="Skipped" value={result.skipped} valueColor={colors.mutedForeground} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
                 {result.errors > 0 && (
-                  <StatRow label="Errors" value={result.errors} color={colors.destructive} foreground={colors.foreground} muted={colors.mutedForeground} />
+                  <StatRow label="Errors" value={result.errors} valueColor={colors.destructive} textColor={colors.foreground} mutedColor={colors.mutedForeground} />
                 )}
               </View>
               <TouchableOpacity
@@ -254,7 +316,15 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
 
           {phase === "error" && (
             <View style={styles.resultBlock}>
-              <View style={[styles.resultBadge, { backgroundColor: `${colors.destructive}22`, borderColor: colors.destructive }]}>
+              <View
+                style={[
+                  styles.resultBadge,
+                  {
+                    backgroundColor: `${colors.destructive}22`,
+                    borderColor: colors.destructive,
+                  },
+                ]}
+              >
                 <Feather name="alert-circle" size={28} color={colors.destructive} />
                 <Text style={[styles.resultTitle, { color: colors.foreground }]}>Import failed</Text>
               </View>
@@ -263,7 +333,7 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
               </Text>
               <View style={styles.errorActions}>
                 <TouchableOpacity
-                  style={[styles.btn, styles.btnOutline, { borderColor: colors.border }]}
+                  style={[styles.btn, styles.btnOutline, { borderColor: colors.border, flex: 1 }]}
                   onPress={handleClose}
                   activeOpacity={0.8}
                 >
@@ -271,7 +341,10 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.btn, { backgroundColor: colors.primary, flex: 1 }]}
-                  onPress={() => { reset(); handleImport(); }}
+                  onPress={() => {
+                    reset();
+                    void handleImport();
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text style={[styles.btnText, { color: colors.primaryForeground }]}>Try Again</Text>
@@ -288,20 +361,21 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
 function StatRow({
   label,
   value,
-  color,
-  foreground,
-  muted,
+  valueColor,
+  textColor,
+  mutedColor,
 }: {
   label: string;
   value: number;
-  color: string;
-  foreground: string;
-  muted: string;
+  valueColor: string;
+  textColor: string;
+  mutedColor: string;
 }) {
+  void textColor;
   return (
     <View style={styles.statRow}>
-      <Text style={[styles.statLabel, { color: muted }]}>{label}</Text>
-      <Text style={[styles.statValue, { color: color || foreground }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: mutedColor }]}>{label}</Text>
+      <Text style={[styles.statValue, { color: valueColor }]}>{value}</Text>
     </View>
   );
 }
@@ -347,6 +421,8 @@ const styles = StyleSheet.create({
   statusBlock: { alignItems: "center", gap: 12, paddingVertical: 16 },
   statusText: { fontSize: 15, fontFamily: "Inter_400Regular" },
   statusHint: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
+  progressTrack: { height: 4, borderRadius: 2, width: "100%", overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 2 },
   resultBlock: { gap: 16 },
   resultBadge: {
     borderRadius: 12,

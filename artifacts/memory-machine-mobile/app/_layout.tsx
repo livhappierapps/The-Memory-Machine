@@ -18,6 +18,7 @@ import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProfileProvider } from "@/contexts/ProfileContext";
+import { useNotifications } from "@/hooks/useNotifications";
 
 // Point all generated hooks at the remote API server.
 setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"]}`);
@@ -48,6 +49,7 @@ function AuthSetup() {
 }
 
 function RootLayoutNav() {
+  useNotifications();
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />

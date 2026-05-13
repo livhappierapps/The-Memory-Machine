@@ -9,29 +9,31 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_..."
       }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_..."
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_..."
+      }
     }
   },
   "submit": {
-    "production": {
-      "ios": {
-        "appleId": "APPLE_ID_HERE",
-        "ascAppId": "APP_STORE_CONNECT_APP_ID_HERE",
-        "appleTeamId": "APPLE_TEAM_ID_HERE"
-      },
-      "android": {
-        "serviceAccountKeyPath": "./google-services-key.json",
-        "track": "production"
-      }
-    }
+    "production": {}
   }
 }

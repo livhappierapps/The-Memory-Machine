@@ -144,6 +144,14 @@ export interface VaultStats {
   newestThreadAt?: string | null;
 }
 
+export type ProfileEmbeddingProvider =
+  (typeof ProfileEmbeddingProvider)[keyof typeof ProfileEmbeddingProvider];
+
+export const ProfileEmbeddingProvider = {
+  xai: "xai",
+  openai: "openai",
+} as const;
+
 export interface Profile {
   id: number;
   userId: string;
@@ -155,6 +163,7 @@ export interface Profile {
   hasApiKey: boolean;
   defaultModel: string;
   maxContextMessages: number;
+  embeddingProvider: ProfileEmbeddingProvider;
   smartRetrieval: boolean;
   topNMemories: number;
   alwaysIncludeLastN: number;
@@ -166,6 +175,14 @@ export interface Profile {
   updatedAt: string;
 }
 
+export type CreateProfileBodyEmbeddingProvider =
+  (typeof CreateProfileBodyEmbeddingProvider)[keyof typeof CreateProfileBodyEmbeddingProvider];
+
+export const CreateProfileBodyEmbeddingProvider = {
+  xai: "xai",
+  openai: "openai",
+} as const;
+
 export interface CreateProfileBody {
   name: string;
   emoji?: string;
@@ -174,12 +191,23 @@ export interface CreateProfileBody {
   apiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
+  embeddingProvider?: CreateProfileBodyEmbeddingProvider;
   smartRetrieval?: boolean;
   topNMemories?: number;
   alwaysIncludeLastN?: number;
-  memoryDateFrom?: string;
-  memoryDateTo?: string;
+  /** @nullable */
+  memoryDateFrom?: string | null;
+  /** @nullable */
+  memoryDateTo?: string | null;
 }
+
+export type UpdateProfileBodyEmbeddingProvider =
+  (typeof UpdateProfileBodyEmbeddingProvider)[keyof typeof UpdateProfileBodyEmbeddingProvider];
+
+export const UpdateProfileBodyEmbeddingProvider = {
+  xai: "xai",
+  openai: "openai",
+} as const;
 
 export interface UpdateProfileBody {
   name?: string;
@@ -189,11 +217,14 @@ export interface UpdateProfileBody {
   apiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
+  embeddingProvider?: UpdateProfileBodyEmbeddingProvider;
   smartRetrieval?: boolean;
   topNMemories?: number;
   alwaysIncludeLastN?: number;
-  memoryDateFrom?: string;
-  memoryDateTo?: string;
+  /** @nullable */
+  memoryDateFrom?: string | null;
+  /** @nullable */
+  memoryDateTo?: string | null;
 }
 
 export type ListThreadsParams = {

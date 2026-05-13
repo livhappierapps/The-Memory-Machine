@@ -13,6 +13,7 @@ export const profilesTable = pgTable("profiles", {
   defaultModel: text("default_model").notNull().default("grok-3"),
   maxContextMessages: integer("max_context_messages").notNull().default(100),
   // Memory engine settings
+  embeddingProvider: text("embedding_provider").notNull().default("xai"),
   smartRetrieval: boolean("smart_retrieval").notNull().default(true),
   topNMemories: integer("top_n_memories").notNull().default(10),
   alwaysIncludeLastN: integer("always_include_last_n").notNull().default(3),

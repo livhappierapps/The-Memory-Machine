@@ -323,6 +323,7 @@ export const ListProfilesResponseItem = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  embeddingProvider: zod.enum(["xai", "openai"]),
   smartRetrieval: zod.boolean(),
   topNMemories: zod.number(),
   alwaysIncludeLastN: zod.number(),
@@ -344,11 +345,12 @@ export const CreateProfileBody = zod.object({
   apiKey: zod.string().optional(),
   defaultModel: zod.string().optional(),
   maxContextMessages: zod.number().optional(),
+  embeddingProvider: zod.enum(["xai", "openai"]).optional(),
   smartRetrieval: zod.boolean().optional(),
   topNMemories: zod.number().optional(),
   alwaysIncludeLastN: zod.number().optional(),
-  memoryDateFrom: zod.string().optional(),
-  memoryDateTo: zod.string().optional(),
+  memoryDateFrom: zod.string().nullish(),
+  memoryDateTo: zod.string().nullish(),
 });
 
 /**
@@ -368,6 +370,7 @@ export const GetProfileResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  embeddingProvider: zod.enum(["xai", "openai"]),
   smartRetrieval: zod.boolean(),
   topNMemories: zod.number(),
   alwaysIncludeLastN: zod.number(),
@@ -392,11 +395,12 @@ export const UpdateProfileBody = zod.object({
   apiKey: zod.string().optional(),
   defaultModel: zod.string().optional(),
   maxContextMessages: zod.number().optional(),
+  embeddingProvider: zod.enum(["xai", "openai"]).optional(),
   smartRetrieval: zod.boolean().optional(),
   topNMemories: zod.number().optional(),
   alwaysIncludeLastN: zod.number().optional(),
-  memoryDateFrom: zod.string().optional(),
-  memoryDateTo: zod.string().optional(),
+  memoryDateFrom: zod.string().nullish(),
+  memoryDateTo: zod.string().nullish(),
 });
 
 export const UpdateProfileResponse = zod.object({
@@ -409,6 +413,7 @@ export const UpdateProfileResponse = zod.object({
   hasApiKey: zod.boolean(),
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
+  embeddingProvider: zod.enum(["xai", "openai"]),
   smartRetrieval: zod.boolean(),
   topNMemories: zod.number(),
   alwaysIncludeLastN: zod.number(),

@@ -146,14 +146,15 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     const userId = req.userId!;
     const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
     const [firstProfile] = await db
-      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey })
+      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
       .from(profilesTable)
       .where(eq(profilesTable.userId, userId))
       .limit(1);
     const apiKey = firstProfile?.apiKey || settings?.apiKey || undefined;
     const profileId = firstProfile?.id ?? null;
+    const embeddingProvider = firstProfile?.embeddingProvider ?? "xai";
 
-    await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey });
+    await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey, embeddingProvider });
   } catch (err) {
     req.log.error({ err }, "Import finalize failed");
     sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });

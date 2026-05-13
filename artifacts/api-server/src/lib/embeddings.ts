@@ -13,7 +13,10 @@ import { logger } from "./logger";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIM = 1536;
-const XAI_EMBEDDINGS_URL = "https://api.x.ai/v1/embeddings";
+const PROVIDER_ENDPOINTS: Record<string, string> = {
+  xai: "https://api.x.ai/v1/embeddings",
+  openai: "https://api.openai.com/v1/embeddings",
+};
 
 /** Maximum simultaneous embedding API calls. */
 const MAX_CONCURRENCY = 4;
@@ -56,12 +59,18 @@ interface EmbedResult {
   rateLimited: boolean;
 }
 
-async function _callEmbeddingApi(text: string, apiKey: string): Promise<EmbedResult> {
+async function _callEmbeddingApi(
+  text: string,
+  apiKey: string,
+  provider: string,
+): Promise<EmbedResult> {
   const input = text.slice(0, 8_000).trim();
   if (!input) return { vector: null, rateLimited: false };
 
+  const endpointUrl = PROVIDER_ENDPOINTS[provider] ?? PROVIDER_ENDPOINTS["xai"]!;
+
   try {
-    const response = await fetch(XAI_EMBEDDINGS_URL, {
+    const response = await fetch(endpointUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,9 +112,10 @@ async function _callEmbeddingApi(text: string, apiKey: string): Promise<EmbedRes
 export async function generateEmbedding(
   text: string,
   apiKey: string,
+  provider = "xai",
 ): Promise<number[] | null> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const { vector, rateLimited } = await _callEmbeddingApi(text, apiKey);
+    const { vector, rateLimited } = await _callEmbeddingApi(text, apiKey, provider);
     if (vector) return vector;
     if (!rateLimited) return null; // permanent error — don't retry
 
@@ -156,9 +166,10 @@ export function embedMessageAsync(
   profileId: number | null,
   content: string,
   apiKey: string,
+  provider = "xai",
 ): void {
   _enqueue(async () => {
-    const vec = await generateEmbedding(content, apiKey);
+    const vec = await generateEmbedding(content, apiKey, provider);
     if (vec) await storeEmbedding(messageId, threadId, profileId, vec);
   });
 }

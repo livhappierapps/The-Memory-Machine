@@ -25,6 +25,7 @@ function formatProfile(profile: typeof profilesTable.$inferSelect) {
     defaultModel: profile.defaultModel,
     maxContextMessages: profile.maxContextMessages,
     // Memory engine settings
+    embeddingProvider: profile.embeddingProvider ?? "xai",
     smartRetrieval: profile.smartRetrieval,
     topNMemories: profile.topNMemories,
     alwaysIncludeLastN: profile.alwaysIncludeLastN,
@@ -101,6 +102,7 @@ router.post("/profiles", requireAuth, async (req: Request, res: Response) => {
         apiKey: parsed.data.apiKey || null,
         defaultModel: parsed.data.defaultModel ?? "grok-3",
         maxContextMessages: parsed.data.maxContextMessages ?? 100,
+        embeddingProvider: parsed.data.embeddingProvider ?? "xai",
         smartRetrieval: parsed.data.smartRetrieval ?? true,
         topNMemories: parsed.data.topNMemories ?? 10,
         alwaysIncludeLastN: parsed.data.alwaysIncludeLastN ?? 3,
@@ -167,6 +169,7 @@ router.patch("/profiles/:profileId", requireAuth, async (req: Request, res: Resp
     if (parsed.data.maxContextMessages !== undefined)
       updateData.maxContextMessages = parsed.data.maxContextMessages;
     // Memory engine settings
+    if (parsed.data.embeddingProvider !== undefined) updateData.embeddingProvider = parsed.data.embeddingProvider;
     if (parsed.data.smartRetrieval !== undefined) updateData.smartRetrieval = parsed.data.smartRetrieval;
     if (parsed.data.topNMemories !== undefined) updateData.topNMemories = parsed.data.topNMemories;
     if (parsed.data.alwaysIncludeLastN !== undefined) updateData.alwaysIncludeLastN = parsed.data.alwaysIncludeLastN;

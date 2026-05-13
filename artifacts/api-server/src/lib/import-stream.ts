@@ -272,6 +272,7 @@ async function insertBatch(
   batch: ParsedConversation[],
   profileId: number | null = null,
   apiKey?: string,
+  embeddingProvider = "xai",
 ): Promise<void> {
   if (batch.length === 0) return;
 
@@ -314,7 +315,7 @@ async function insertBatch(
     for (const msg of insertedMessages) {
       // Only embed user/assistant turns (skip any system messages)
       if (msg.role === "user" || msg.role === "assistant") {
-        embedMessageAsync(msg.id, msg.threadId, profileId, msg.content, apiKey);
+        embedMessageAsync(msg.id, msg.threadId, profileId, msg.content, apiKey, embeddingProvider);
       }
     }
   }
@@ -327,7 +328,7 @@ export async function streamImportFile(
   isZip: boolean,
   userId: string,
   onEvent: (event: ImportEvent) => void,
-  opts?: { profileId?: number | null; apiKey?: string },
+  opts?: { profileId?: number | null; apiKey?: string; embeddingProvider?: string },
 ): Promise<void> {
   // ── 1. Read & extract ───────────────────────────────────────────────────
   let jsonText: string;
@@ -398,12 +399,12 @@ export async function streamImportFile(
   let errors = 0;
   let batch: ParsedConversation[] = [];
 
-  const { profileId = null, apiKey } = opts ?? {};
+  const { profileId = null, apiKey, embeddingProvider = "xai" } = opts ?? {};
 
   const flush = async () => {
     if (batch.length === 0) return;
     try {
-      await insertBatch(userId, batch, profileId, apiKey);
+      await insertBatch(userId, batch, profileId, apiKey, embeddingProvider);
       imported += batch.length;
     } catch (err) {
       logger.error({ err }, "Batch insert failed during import");

@@ -26,6 +26,7 @@ const profileSettingsSchema = z.object({
   apiKey: z.string().optional(),
   defaultModel: z.string(),
   maxContextMessages: z.number().min(0).max(1000),
+  embeddingProvider: z.enum(["xai", "openai"]),
   smartRetrieval: z.boolean(),
   topNMemories: z.number().min(1).max(50),
   alwaysIncludeLastN: z.number().min(0).max(20),
@@ -219,6 +220,7 @@ function ProfileSettingsForm() {
       apiKey: "",
       defaultModel: "grok-3",
       maxContextMessages: 100,
+      embeddingProvider: "xai" as const,
       smartRetrieval: true,
       topNMemories: 10,
       alwaysIncludeLastN: 3,
@@ -234,6 +236,7 @@ function ProfileSettingsForm() {
         apiKey: "",
         defaultModel: activeProfile.defaultModel ?? "grok-3",
         maxContextMessages: activeProfile.maxContextMessages ?? 100,
+        embeddingProvider: (activeProfile.embeddingProvider ?? "xai") as "xai" | "openai",
         smartRetrieval: activeProfile.smartRetrieval ?? true,
         topNMemories: activeProfile.topNMemories ?? 10,
         alwaysIncludeLastN: activeProfile.alwaysIncludeLastN ?? 3,
@@ -250,6 +253,7 @@ function ProfileSettingsForm() {
     const updateData: Record<string, unknown> = {
       defaultModel: values.defaultModel,
       maxContextMessages: values.maxContextMessages,
+      embeddingProvider: values.embeddingProvider,
       smartRetrieval: values.smartRetrieval,
       topNMemories: values.topNMemories,
       alwaysIncludeLastN: values.alwaysIncludeLastN,
@@ -401,6 +405,31 @@ function ProfileSettingsForm() {
           </div>
 
           <div className="space-y-6">
+            <FormField
+              control={form.control}
+              name="embeddingProvider"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Embedding Provider</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="xai">xAI (default — uses your Grok API key)</SelectItem>
+                      <SelectItem value="openai">OpenAI (uses a separate OpenAI API key)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Which AI provider to use for generating memory embeddings. Both support the same embedding model.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="smartRetrieval"

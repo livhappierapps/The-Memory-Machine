@@ -98,11 +98,11 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
     // ── Async: embed the saved message (best-effort) ───────────────────────
     if (thread.profileId) {
       const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey })
+        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
       if (profile?.apiKey) {
-        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, profile.apiKey);
+        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, profile.apiKey, profile.embeddingProvider ?? "xai");
       }
     }
   } catch (err) {
@@ -328,9 +328,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     res.end();
 
     // ── Async: generate embeddings for user + assistant messages ──────────
-    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, apiKey);
+    const embeddingProvider = profile?.embeddingProvider ?? "xai";
+    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, apiKey, embeddingProvider);
     if (fullContent) {
-      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, apiKey);
+      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, apiKey, embeddingProvider);
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
@@ -458,13 +459,13 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     // ── Async: embed imported messages (best-effort) ───────────────────────
     if (thread.profileId) {
       const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey })
+        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
       if (profile?.apiKey) {
         for (const msg of inserted) {
           if (msg.role === "user" || msg.role === "assistant") {
-            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, profile.apiKey);
+            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, profile.apiKey, profile.embeddingProvider ?? "xai");
           }
         }
       }

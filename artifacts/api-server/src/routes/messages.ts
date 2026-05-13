@@ -104,9 +104,11 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
         .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
-      if (profile?.apiKey) {
-        const provider = profile.embeddingProvider ?? "xai";
-        const embKey = (provider === "openai" ? profile.openAiApiKey : null) ?? profile.apiKey;
+      // Resolve the effective embedding key: prefer openAiApiKey for openai provider,
+      // fall back to profile.apiKey. Only skip embedding if no key of any kind is available.
+      const provider = profile?.embeddingProvider ?? "xai";
+      const embKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey;
+      if (embKey) {
         embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, embKey, provider);
       }
     }
@@ -476,9 +478,10 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
         .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
-      if (profile?.apiKey) {
-        const provider = profile.embeddingProvider ?? "xai";
-        const embKey = (provider === "openai" ? profile.openAiApiKey : null) ?? profile.apiKey;
+      // Resolve effective embedding key (openAiApiKey for openai provider, else profile.apiKey)
+      const provider = profile?.embeddingProvider ?? "xai";
+      const embKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey;
+      if (embKey) {
         for (const msg of inserted) {
           if (msg.role === "user" || msg.role === "assistant") {
             embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, embKey, provider);

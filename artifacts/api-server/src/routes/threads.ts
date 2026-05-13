@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { threadsTable, messagesTable, profilesTable } from "@workspace/db";
+import { threadsTable, messagesTable, profilesTable, settingsTable } from "@workspace/db";
 import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
 import { retrieveMemories } from "../lib/memory";
 import {
@@ -312,11 +312,22 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       return;
     }
 
-    const apiKey = profile.apiKey;
-    if (!apiKey) {
+    // Fall back to global settings API key if profile has no key
+    const [settings] = await db
+      .select({ apiKey: settingsTable.apiKey })
+      .from(settingsTable)
+      .where(eq(settingsTable.userId, userId));
+
+    const chatApiKey = profile.apiKey || settings?.apiKey;
+    if (!chatApiKey) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval });
       return;
     }
+
+    // Resolve embedding key — OpenAI provider uses its own key, otherwise use the chat/Grok key
+    const embeddingProvider = profile.embeddingProvider ?? "xai";
+    const embeddingApiKey =
+      (embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? chatApiKey;
 
     const memoryResult = await retrieveMemories({
       profileId: profile.id,
@@ -328,7 +339,8 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       alwaysIncludeLastN: profile.alwaysIncludeLastN,
       dateFrom: profile.memoryDateFrom,
       dateTo: profile.memoryDateTo,
-      apiKey,
+      apiKey: embeddingApiKey,
+      embeddingProvider,
     });
 
     res.json({

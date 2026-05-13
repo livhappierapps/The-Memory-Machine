@@ -210,10 +210,29 @@ export async function retrieveMemories(
 
   // ── 4. Recent sessions (fill remaining slots) ──────────────────────────────
   if (alwaysIncludeLastN > 0) {
+    // Apply the same date filter as semantic search so the date range setting
+    // consistently scopes all retrieval modes (not just pgvector search).
+    const recentFilters: ReturnType<typeof sql>[] = [];
+    if (dateFrom) {
+      const d = new Date(dateFrom);
+      if (!isNaN(d.getTime())) {
+        recentFilters.push(sql`${threadsTable.createdAt} >= ${d.toISOString()}::timestamptz`);
+      }
+    }
+    if (dateTo) {
+      const d = new Date(dateTo + "T23:59:59Z");
+      if (!isNaN(d.getTime())) {
+        recentFilters.push(sql`${threadsTable.createdAt} <= ${d.toISOString()}::timestamptz`);
+      }
+    }
+    const recentBase = recentFilters.length > 0
+      ? and(otherThreadsBase!, ...recentFilters)
+      : otherThreadsBase!;
+
     const recentThreads = await db
       .select()
       .from(threadsTable)
-      .where(otherThreadsBase!)
+      .where(recentBase)
       .orderBy(desc(threadsTable.lastMessageAt), desc(threadsTable.createdAt))
       .limit(alwaysIncludeLastN + 5); // fetch extra to account for already-included ones
 

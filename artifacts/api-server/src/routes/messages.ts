@@ -158,6 +158,23 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
+    // Save user message first — before any API key check so the message is
+    // always persisted and visible in the UI even when streaming cannot start.
+    const [userMsg] = await db
+      .insert(messagesTable)
+      .values({
+        threadId: params.data.threadId,
+        role: "user",
+        content: parsed.data.content,
+        isSummary: false,
+      })
+      .returning();
+
+    await db
+      .update(threadsTable)
+      .set({ messageCount: thread.messageCount + 1, lastMessageAt: new Date() })
+      .where(eq(threadsTable.id, params.data.threadId));
+
     // Determine which AI provider and key to use for this chat request
     const chatProvider = (profile?.chatProvider ?? "xai") as ChatProvider;
     const apiKey = resolveChatKey(
@@ -174,22 +191,18 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
         anthropic: "Anthropic API key (sk-ant-…)",
         google: "Google Gemini API key (AIza…)",
       };
-      res.status(400).json({
-        error: `No API key configured for ${providerLabels[chatProvider]}. Add it in Settings → AI Provider.`,
-      });
+      // Switch to SSE mode so the frontend receives the user_message event
+      // and can show the chat bubble before displaying the error.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+      res.write(`data: ${JSON.stringify({ type: "user_message", message: userMsg })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "error", error: `No API key configured for ${providerLabels[chatProvider]}. Add it in Settings → AI Provider.` })}\n\n`);
+      res.end();
       return;
     }
-
-    // Save user message first
-    const [userMsg] = await db
-      .insert(messagesTable)
-      .values({
-        threadId: params.data.threadId,
-        role: "user",
-        content: parsed.data.content,
-        isSummary: false,
-      })
-      .returning();
 
     // Load current thread history — exclude summary messages (they are internal
     // memory artifacts and must not be sent back as conversation turns to Grok)
@@ -365,6 +378,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       .update(threadsTable)
       .set({ messageCount: thread.messageCount + 2, lastMessageAt: new Date() })
       .where(eq(threadsTable.id, params.data.threadId));
+    // Note: thread.messageCount was snapshotted before the user message was inserted
+    // (the +1 update for the user message runs before the API key check). The +2 here
+    // still refers to the original snapshot value, so the final count is correct:
+    // snapshot + 2 overwrites snapshot + 1, giving the right absolute count.
 
     sendEvent({ type: "done", message: assistantMsg, memorySources });
     res.end();

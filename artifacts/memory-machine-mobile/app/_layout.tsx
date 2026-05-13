@@ -8,6 +8,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { View } from "react-native";
@@ -20,6 +21,32 @@ import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { useNotifications } from "@/hooks/useNotifications";
+
+// Persist Clerk sessions to secure storage so users stay logged in across
+// app restarts and cold launches on real devices.
+const tokenCache = {
+  async getToken(key: string) {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch {
+      return null;
+    }
+  },
+  async saveToken(key: string, value: string) {
+    try {
+      await SecureStore.setItemAsync(key, value);
+    } catch {
+      // ignore — don't crash if secure store is unavailable
+    }
+  },
+  async clearToken(key: string) {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch {
+      // ignore
+    }
+  },
+};
 
 // Point all generated hooks at the remote API server.
 setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"]}`);
@@ -84,7 +111,7 @@ export default function RootLayout() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#2f2f37" }}>
-      <ClerkProvider publishableKey={publishableKey}>
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
         <AuthSetup />
         <SafeAreaProvider>
           <ErrorBoundary>

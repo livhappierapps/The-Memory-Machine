@@ -15,6 +15,13 @@ interface StreamState {
   error: string | null;
 }
 
+type StreamEvent =
+  | { type: "user_message"; message: Message }
+  | { type: "token"; content: string }
+  | { type: "done"; message: Message }
+  | { type: "error"; error: string }
+  | { type: "memory_sources"; sources: unknown[] };
+
 export function useChatStream({ threadId, onMessageSaved }: UseChatStreamOptions) {
   const { getToken } = useAuth();
   const [state, setState] = useState<StreamState>({
@@ -49,6 +56,8 @@ export function useChatStream({ threadId, onMessageSaved }: UseChatStreamOptions
           signal: controller.signal,
         });
 
+        // The server now always returns SSE (even for API-key errors), so a
+        // non-200 here means a genuine network/auth failure before the stream starts.
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -59,8 +68,9 @@ export function useChatStream({ threadId, onMessageSaved }: UseChatStreamOptions
         const decoder = new TextDecoder();
         let accumulated = "";
         let buffer = "";
+        let streamError: string | null = null;
 
-        while (true) {
+        outer: while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -73,30 +83,45 @@ export function useChatStream({ threadId, onMessageSaved }: UseChatStreamOptions
             const raw = line.slice(6).trim();
             if (!raw || raw === "[DONE]") continue;
 
+            let event: StreamEvent;
             try {
-              const event = JSON.parse(raw) as {
-                type: string;
-                content?: string;
-                message?: Message;
-              };
+              event = JSON.parse(raw) as StreamEvent;
+            } catch {
+              // Skip malformed SSE frames — they are not application-level errors.
+              continue;
+            }
 
-              if (event.type === "token" && event.content) {
+            // Handle each event type OUTSIDE the JSON-parse try/catch so that
+            // errors thrown here propagate correctly to the outer catch block.
+            if (event.type === "user_message") {
+              // User message persisted on server — no local UI change needed
+              // because the chat screen already added it optimistically.
+            } else if (event.type === "token") {
+              if (event.content) {
                 accumulated += event.content;
                 setState((s) => ({ ...s, streamingContent: accumulated }));
-              } else if (event.type === "done" && event.message) {
-                setState({ streaming: false, streamingContent: "", error: null });
-                onMessageSaved?.(event.message);
-                return;
-              } else if (event.type === "error") {
-                throw new Error(event.content ?? "Stream error");
               }
-            } catch {
-              // ignore parse errors on individual lines
+            } else if (event.type === "done") {
+              setState({ streaming: false, streamingContent: "", error: null });
+              onMessageSaved?.(event.message);
+              return;
+            } else if (event.type === "error") {
+              // Server sent an application-level error (e.g. missing API key).
+              // Store it and break out of the read loop — don't throw inside the
+              // loop because we still want to drain any remaining bytes cleanly.
+              streamError = (event as { type: "error"; error?: string; content?: string }).error
+                ?? (event as { type: "error"; error?: string; content?: string }).content
+                ?? "Stream error";
+              break outer;
             }
           }
         }
 
-        setState({ streaming: false, streamingContent: "", error: null });
+        if (streamError) {
+          setState({ streaming: false, streamingContent: "", error: streamError });
+        } else {
+          setState({ streaming: false, streamingContent: "", error: null });
+        }
       } catch (err: unknown) {
         if ((err as Error)?.name === "AbortError") {
           setState({ streaming: false, streamingContent: "", error: null });

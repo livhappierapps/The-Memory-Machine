@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, settingsTable, profilesTable } from "@workspace/db";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import {
   GetThreadMessagesParams,
   SendMessageParams,
@@ -15,6 +15,7 @@ import { requireAuth } from "../middlewares/auth";
 import { streamGrokCompletion } from "../lib/grok";
 import { embedMessageAsync } from "../lib/embeddings";
 import { retrieveMemories } from "../lib/memory";
+import { maybeSummarizeAsync } from "../lib/summarizer";
 
 const router: IRouter = Router();
 
@@ -93,6 +94,17 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
       .where(eq(threadsTable.id, params.data.threadId));
 
     res.json(message);
+
+    // ── Async: embed the saved message (best-effort) ───────────────────────
+    if (thread.profileId) {
+      const [profile] = await db
+        .select({ apiKey: profilesTable.apiKey })
+        .from(profilesTable)
+        .where(eq(profilesTable.id, thread.profileId));
+      if (profile?.apiKey) {
+        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, profile.apiKey);
+      }
+    }
   } catch (err) {
     req.log.error({ err }, "Failed to save message");
     res.status(500).json({ error: "Internal server error" });
@@ -290,6 +302,9 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     if (fullContent) {
       embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, apiKey);
     }
+
+    // ── Async: summarize thread if it has grown long enough ───────────────
+    maybeSummarizeAsync(params.data.threadId, apiKey);
   } catch (err) {
     req.log.error({ err }, "Stream error");
     if (!res.headersSent) {
@@ -409,6 +424,21 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
       .where(eq(threadsTable.id, params.data.threadId));
 
     res.json({ importedCount: inserted.length, messages: inserted });
+
+    // ── Async: embed imported messages (best-effort) ───────────────────────
+    if (thread.profileId) {
+      const [profile] = await db
+        .select({ apiKey: profilesTable.apiKey })
+        .from(profilesTable)
+        .where(eq(profilesTable.id, thread.profileId));
+      if (profile?.apiKey) {
+        for (const msg of inserted) {
+          if (msg.role === "user" || msg.role === "assistant") {
+            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, profile.apiKey);
+          }
+        }
+      }
+    }
   } catch (err) {
     req.log.error({ err }, "Failed to import messages");
     res.status(500).json({ error: "Internal server error" });

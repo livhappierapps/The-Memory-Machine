@@ -161,21 +161,25 @@ export async function retrieveMemories(
         };
 
         const similarRows = await db.execute<SimilarRow>(sql`
-          SELECT DISTINCT ON (e.thread_id)
-            e.thread_id,
-            t.title,
-            t.message_count,
-            t.memory_weight,
-            1 - (e.embedding <=> ${vecLiteral}::vector) AS score
-          FROM embeddings e
-          JOIN threads t ON t.id = e.thread_id
-          WHERE t.user_id = ${userId}
-            AND t.profile_id = ${profileId}
-            AND t.archived = false
-            AND t.id != ${currentThreadId}
-            ${dateFilter}
-          ORDER BY e.thread_id, e.embedding <=> ${vecLiteral}::vector
-          LIMIT ${topN * 3}
+          SELECT thread_id, title, message_count, memory_weight, score
+          FROM (
+            SELECT DISTINCT ON (e.thread_id)
+              e.thread_id,
+              t.title,
+              t.message_count,
+              t.memory_weight,
+              1 - (e.embedding <=> ${vecLiteral}::vector) AS score
+            FROM embeddings e
+            JOIN threads t ON t.id = e.thread_id
+            WHERE t.user_id = ${userId}
+              AND t.profile_id = ${profileId}
+              AND t.archived = false
+              AND t.id != ${currentThreadId}
+              ${dateFilter}
+            ORDER BY e.thread_id, e.embedding <=> ${vecLiteral}::vector
+          ) best_per_thread
+          ORDER BY score DESC
+          LIMIT ${topN}
         `);
 
         // Sort by similarity score, pick top N that aren't already pinned

@@ -22,6 +22,7 @@ import type {
   ExportResult,
   ExportThreadParams,
   GetMemoryPreviewParams,
+  GetRecentMessagesParams,
   HealthStatus,
   ImportMessagesBody,
   ImportResult,
@@ -1012,6 +1013,105 @@ export function useExportThread<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getExportThreadQueryOptions(threadId, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the most recent non-summary messages across every thread owned by the caller, ordered newest-first. Designed for 2WAI session-start context loading — Leo reads this once before the voice WebSocket opens.
+
+ * @summary Get recent messages across all threads for the authenticated user (flat list, newest first)
+ */
+export const getGetRecentMessagesUrl = (params?: GetRecentMessagesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/messages/recent?${stringifiedParams}`
+    : `/api/messages/recent`;
+};
+
+export const getRecentMessages = async (
+  params?: GetRecentMessagesParams,
+  options?: RequestInit,
+): Promise<Message[]> => {
+  return customFetch<Message[]>(getGetRecentMessagesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRecentMessagesQueryKey = (
+  params?: GetRecentMessagesParams,
+) => {
+  return [`/api/messages/recent`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetRecentMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRecentMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetRecentMessagesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRecentMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRecentMessagesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRecentMessages>>
+  > = ({ signal }) => getRecentMessages(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRecentMessages>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRecentMessagesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRecentMessages>>
+>;
+export type GetRecentMessagesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get recent messages across all threads for the authenticated user (flat list, newest first)
+ */
+
+export function useGetRecentMessages<
+  TData = Awaited<ReturnType<typeof getRecentMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetRecentMessagesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRecentMessages>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRecentMessagesQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -191,8 +191,20 @@ middlewares/
 | GET | /api/settings | Get user settings |
 | PUT | /api/settings | Update user settings |
 | GET | /api/stats | Get vault stats (thread/message counts) |
+| GET | /api/messages/recent | Flat cross-thread recent messages (query: limit 1–200, default 40) |
 | POST | /api/import/chunk | Upload one chunk (multipart, field: "chunk") |
 | POST | /api/import/finalize | Assemble chunks, parse, insert — streams SSE progress |
+
+## 2WAI Integration Seam
+
+`GET /api/messages/recent?limit=40` is the single integration point for 2WAI (the bundle's live-AI interface layer).
+
+- **Auth**: standard Clerk bearer token — `userId` comes from the auth context, never from query params
+- **Returns**: flat array of `Message` objects (newest-first) across **all threads** for the caller, with `isSummary` rows excluded
+- **Limit**: 1–200, default 40 — matches the shape 2WAI needs to build Leo's Grok Voice `session.update` system prompt at call start
+- **No mid-call streaming needed**: 2WAI fetches once at session start; the voice model holds its own state from there
+
+Once 2WAI moves from `USER_ID = "user_default"` to real Clerk auth on the same tenant, this endpoint requires zero further changes — same `userId` = automatic access to the right history.
 
 ## Bulk Import (chunked upload + server-side streaming)
 

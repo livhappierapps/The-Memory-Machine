@@ -299,6 +299,15 @@ export const ExportThreadFormat = {
   markdown: "markdown",
 } as const;
 
+export type GetRecentMessagesParams = {
+  /**
+   * Maximum number of messages to return (1–200, default 40)
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
+};
+
 export type GetMemoryPreviewParams = {
   /**
    * Query text to use for semantic search

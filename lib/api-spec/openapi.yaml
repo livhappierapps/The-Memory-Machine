@@ -265,6 +265,34 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExportResult"
 
+  /messages/recent:
+    get:
+      operationId: getRecentMessages
+      tags: [messages]
+      summary: Get recent messages across all threads for the authenticated user (flat list, newest first)
+      description: >
+        Returns the most recent non-summary messages across every thread owned by
+        the caller, ordered newest-first. Designed for 2WAI session-start context
+        loading — Leo reads this once before the voice WebSocket opens.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of messages to return (1–200, default 40)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 40
+      responses:
+        "200":
+          description: Flat list of recent messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+
   /threads/{threadId}/memory-preview:
     get:
       operationId: getMemoryPreview

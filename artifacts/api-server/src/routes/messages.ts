@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, settingsTable, profilesTable } from "@workspace/db";
-import { eq, and, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc, inArray } from "drizzle-orm";
+import { z } from "zod/v4";
 import {
   GetThreadMessagesParams,
   SendMessageParams,
@@ -19,6 +20,46 @@ import { maybeSummarizeAsync } from "../lib/summarizer";
 
 const router: IRouter = Router();
 
+const RecentMessagesQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(40),
+});
+
+// GET /messages/recent — flat cross-thread history for 2WAI session-start context
+router.get("/messages/recent", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const parsed = RecentMessagesQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid query parameters" });
+      return;
+    }
+    const { limit } = parsed.data;
+
+    const userThreads = await db
+      .select({ id: threadsTable.id })
+      .from(threadsTable)
+      .where(eq(threadsTable.userId, userId));
+
+    if (userThreads.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    const threadIds = userThreads.map((t) => t.id);
+
+    const messages = await db
+      .select()
+      .from(messagesTable)
+      .where(and(inArray(messagesTable.threadId, threadIds), eq(messagesTable.isSummary, false)))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(limit);
+
+    res.json(messages);
+  } catch (err) {
+    req.log.error({ err }, "Failed to get recent messages");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // Get messages for a thread
 router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res: Response) => {

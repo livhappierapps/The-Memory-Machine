@@ -224,6 +224,36 @@ export const ExportThreadResponse = zod.object({
 });
 
 /**
+ * Returns the most recent non-summary messages across every thread owned by the caller, ordered newest-first. Designed for 2WAI session-start context loading — Leo reads this once before the voice WebSocket opens.
+
+ * @summary Get recent messages across all threads for the authenticated user (flat list, newest first)
+ */
+export const getRecentMessagesQueryLimitDefault = 40;
+export const getRecentMessagesQueryLimitMax = 200;
+
+export const GetRecentMessagesQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(getRecentMessagesQueryLimitMax)
+    .default(getRecentMessagesQueryLimitDefault)
+    .describe("Maximum number of messages to return (1–200, default 40)"),
+});
+
+export const GetRecentMessagesResponseItem = zod.object({
+  id: zod.number(),
+  threadId: zod.number(),
+  role: zod.enum(["user", "assistant", "system"]),
+  content: zod.string(),
+  isSummary: zod.boolean(),
+  tokenCount: zod.number().nullish(),
+  createdAt: zod.string(),
+});
+export const GetRecentMessagesResponse = zod.array(
+  GetRecentMessagesResponseItem,
+);
+
+/**
  * @summary Preview which memories would be retrieved for a given query
  */
 export const GetMemoryPreviewParams = zod.object({

@@ -346,7 +346,7 @@ Corrected to match Expo SDK 54 expected ranges:
 - `expo-file-system` → `~19.0.22`
 - `expo-notifications` → `~0.32.17`
 
-## E2E Test Results (last run: May 13 2026)
+## E2E Test Results (last run: May 16 2026)
 
 Three full passes — all flows tested and green:
 

@@ -2,6 +2,7 @@ import {
   useListThreads,
   useCreateThread,
   useUpdateThread,
+  useDeleteThread,
   getListThreadsQueryKey,
   getGetStatsQueryKey,
 } from "@workspace/api-client-react";
@@ -9,10 +10,18 @@ import { format, isValid } from "date-fns";
 import {
   Plus, Search, MessageSquare, Loader2,
   FolderArchive, SlidersHorizontal, X, Pin, PinOff, Flame,
+  MoreHorizontal, Archive, ArchiveRestore, Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BulkImportDialog } from "./bulk-import-dialog";
@@ -97,6 +106,26 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
         },
       },
     );
+  };
+
+  const deleteThread = useDeleteThread();
+
+  const invalidateThreads = () => {
+    queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey(), exact: false, refetchType: "all" });
+    queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey(), refetchType: "all" });
+  };
+
+  const handleToggleArchive = (threadId: number, currentlyArchived: boolean) => {
+    updateThread.mutate(
+      { threadId, data: { archived: !currentlyArchived } },
+      { onSuccess: invalidateThreads },
+    );
+  };
+
+  const handleDelete = (e: React.MouseEvent, threadId: number) => {
+    e.stopPropagation();
+    if (!confirm("Delete this vault? This cannot be undone.")) return;
+    deleteThread.mutate({ threadId }, { onSuccess: invalidateThreads });
   };
 
   return (
@@ -278,6 +307,32 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
                         ? <Pin className="w-3 h-3 fill-primary" />
                         : <PinOff className="w-3 h-3" />}
                     </button>
+                    {/* Thread actions dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-0.5 rounded text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground"
+                          title="Thread actions"
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onClick={() => handleToggleArchive(thread.id, thread.archived ?? false)}>
+                          {thread.archived
+                            ? <><ArchiveRestore className="w-4 h-4 mr-2" />Unarchive</>
+                            : <><Archive className="w-4 h-4 mr-2" />Archive</>}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => handleDelete(e, thread.id)}
+                          className="text-destructive focus:bg-destructive/10"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 text-xs opacity-70">

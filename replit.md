@@ -163,8 +163,8 @@ Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_P
 
 ## Last Verified (May 16 2026)
 - Typecheck: 0 errors across all 5 packages
-- Security scan: 0 critical/high deps, 0 SAST findings in app code, 0 HoundDog findings
-- E2E: all flows green — sign-in, new thread, send message, archive/delete (sidebar dropdown), search, stats, settings persistence, 404
+- Security scan: 0 vulnerabilities (`fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves 2 former HIGH CVEs in the MCP SDK transitive dep chain; all SAST/HoundDog findings are in `.agents/skills/` third-party scripts only)
+- E2E: all flows green — sign-in, new thread, send message, archive/delete (sidebar dropdown), search, stats, settings persistence (number inputs verified), 404
 
 ## Workflows
 

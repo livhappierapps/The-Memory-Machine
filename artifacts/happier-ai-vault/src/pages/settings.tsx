@@ -501,14 +501,29 @@ function ProfileSettingsForm() {
                     </span>
                   </FormLabel>
                   <FormControl>
-                    <Slider
-                      min={0}
-                      max={1000}
-                      step={10}
-                      value={[field.value]}
-                      onValueChange={(vals) => field.onChange(vals[0])}
-                      className="py-4"
-                    />
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        min={0}
+                        max={1000}
+                        step={10}
+                        value={[field.value]}
+                        onValueChange={(vals) => field.onChange(vals[0])}
+                        className="py-4 flex-1"
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        step={10}
+                        value={field.value}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.min(1000, Number(e.target.value) || 0));
+                          field.onChange(v);
+                        }}
+                        className="w-20 text-center"
+                        aria-label="Context memory message count"
+                      />
+                    </div>
                   </FormControl>
                   <FormDescription>
                     How many previous messages {activeProfile.name} receives as context. <strong>0</strong> = full history.
@@ -617,15 +632,31 @@ function ProfileSettingsForm() {
                     <span className="neon-text font-semibold">{field.value}</span>
                   </FormLabel>
                   <FormControl>
-                    <Slider
-                      min={1}
-                      max={50}
-                      step={1}
-                      value={[field.value]}
-                      onValueChange={(vals) => field.onChange(vals[0])}
-                      disabled={!form.watch("smartRetrieval")}
-                      className="py-4"
-                    />
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={[field.value]}
+                        onValueChange={(vals) => field.onChange(vals[0])}
+                        disabled={!form.watch("smartRetrieval")}
+                        className="py-4 flex-1"
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={field.value}
+                        onChange={(e) => {
+                          const v = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                          field.onChange(v);
+                        }}
+                        disabled={!form.watch("smartRetrieval")}
+                        className="w-20 text-center"
+                        aria-label="Top N memories count"
+                      />
+                    </div>
                   </FormControl>
                   <FormDescription>
                     Maximum number of semantically relevant past conversations to retrieve.
@@ -646,14 +677,29 @@ function ProfileSettingsForm() {
                     </span>
                   </FormLabel>
                   <FormControl>
-                    <Slider
-                      min={0}
-                      max={20}
-                      step={1}
-                      value={[field.value]}
-                      onValueChange={(vals) => field.onChange(vals[0])}
-                      className="py-4"
-                    />
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        min={0}
+                        max={20}
+                        step={1}
+                        value={[field.value]}
+                        onValueChange={(vals) => field.onChange(vals[0])}
+                        className="py-4 flex-1"
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        max={20}
+                        step={1}
+                        value={field.value}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.min(20, Number(e.target.value) || 0));
+                          field.onChange(v);
+                        }}
+                        className="w-20 text-center"
+                        aria-label="Always include last N sessions count"
+                      />
+                    </div>
                   </FormControl>
                   <FormDescription>
                     Always inject the last N conversations regardless of relevance. 0 = none.

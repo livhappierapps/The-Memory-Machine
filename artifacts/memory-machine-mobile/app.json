@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Memory Machine (Mobile)",
-    "slug": "memory-machine-mobile",
+    "name": "The Memory Machine (Mobile)",
+    "slug": "thememorymachinemobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "memory-machine-mobile",
+    "scheme": "thememorymachinemobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "backgroundColor": "#2f2f37",
@@ -16,10 +16,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.memorymachine.mobile"
+      "bundleIdentifier": "com.thememorymachinemobile.app"
     },
     "android": {
-      "package": "com.memorymachine.mobile",
+      "package": "com.thememorymachinemobile.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#2f2f37"

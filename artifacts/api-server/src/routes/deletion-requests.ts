@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { deletionRequestsTable, threadsTable, settingsTable, profilesTable } from "@workspace/db";
 import { eq, and, isNull, isNotNull, lt, inArray, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
+import { requireTrustedDevice } from "../middlewares/device-trust";
 import { generateOtp, encryptText, signToken, verifySignedToken } from "../lib/crypto-utils";
 import {
   sendEmail,
@@ -50,7 +51,7 @@ async function hasMfaEnabled(userId: string): Promise<boolean> {
   }
 }
 
-router.post("/deletion-requests", requireAuth, async (req: Request, res: Response) => {
+router.post("/deletion-requests", requireAuth, requireTrustedDevice, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
     const { targetType, targetIds, dateFrom, dateTo } = req.body as {

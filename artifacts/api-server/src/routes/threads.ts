@@ -16,6 +16,7 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { ensureDefaultProfile } from "./profiles";
+import { decryptField } from "../lib/field-crypto";
 
 const router: IRouter = Router();
 
@@ -283,11 +284,16 @@ router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: R
       return;
     }
 
-    const messages = await db
+    const rawMessages = await db
       .select()
       .from(messagesTable)
       .where(eq(messagesTable.threadId, params.data.threadId))
       .orderBy(messagesTable.createdAt);
+
+    const messages = rawMessages.map((m) => ({
+      ...m,
+      content: decryptField(userId, m.content),
+    }));
 
     let content: string;
     if (format === "markdown") {

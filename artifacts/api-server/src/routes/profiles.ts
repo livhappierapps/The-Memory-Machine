@@ -10,6 +10,7 @@ import {
   DeleteProfileParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { encryptField } from "../lib/field-crypto";
 
 const router: IRouter = Router();
 
@@ -104,13 +105,13 @@ router.post("/profiles", requireAuth, async (req: Request, res: Response) => {
         color: parsed.data.color ?? "#2dd4bf",
         personalityNotes: parsed.data.personalityNotes || null,
         chatProvider: parsed.data.chatProvider ?? "xai",
-        apiKey: parsed.data.apiKey || null,
-        anthropicApiKey: parsed.data.anthropicApiKey || null,
-        googleApiKey: parsed.data.googleApiKey || null,
+        apiKey: parsed.data.apiKey ? await encryptField(userId, parsed.data.apiKey) : null,
+        anthropicApiKey: parsed.data.anthropicApiKey ? await encryptField(userId, parsed.data.anthropicApiKey) : null,
+        googleApiKey: parsed.data.googleApiKey ? await encryptField(userId, parsed.data.googleApiKey) : null,
         defaultModel: parsed.data.defaultModel ?? "grok-3",
         maxContextMessages: parsed.data.maxContextMessages ?? 100,
         embeddingProvider: parsed.data.embeddingProvider ?? "xai",
-        openAiApiKey: parsed.data.openAiApiKey || null,
+        openAiApiKey: parsed.data.openAiApiKey ? await encryptField(userId, parsed.data.openAiApiKey) : null,
         smartRetrieval: parsed.data.smartRetrieval ?? true,
         topNMemories: parsed.data.topNMemories ?? 10,
         alwaysIncludeLastN: parsed.data.alwaysIncludeLastN ?? 3,
@@ -173,15 +174,19 @@ router.patch("/profiles/:profileId", requireAuth, async (req: Request, res: Resp
     if (parsed.data.personalityNotes !== undefined)
       updateData.personalityNotes = parsed.data.personalityNotes || null;
     if (parsed.data.chatProvider !== undefined) updateData.chatProvider = parsed.data.chatProvider;
-    if (parsed.data.apiKey !== undefined) updateData.apiKey = parsed.data.apiKey || null;
-    if (parsed.data.anthropicApiKey !== undefined) updateData.anthropicApiKey = parsed.data.anthropicApiKey || null;
-    if (parsed.data.googleApiKey !== undefined) updateData.googleApiKey = parsed.data.googleApiKey || null;
+    if (parsed.data.apiKey !== undefined)
+      updateData.apiKey = parsed.data.apiKey ? await encryptField(userId, parsed.data.apiKey) : null;
+    if (parsed.data.anthropicApiKey !== undefined)
+      updateData.anthropicApiKey = parsed.data.anthropicApiKey ? await encryptField(userId, parsed.data.anthropicApiKey) : null;
+    if (parsed.data.googleApiKey !== undefined)
+      updateData.googleApiKey = parsed.data.googleApiKey ? await encryptField(userId, parsed.data.googleApiKey) : null;
     if (parsed.data.defaultModel !== undefined) updateData.defaultModel = parsed.data.defaultModel;
     if (parsed.data.maxContextMessages !== undefined)
       updateData.maxContextMessages = parsed.data.maxContextMessages;
     // Memory engine settings
     if (parsed.data.embeddingProvider !== undefined) updateData.embeddingProvider = parsed.data.embeddingProvider;
-    if (parsed.data.openAiApiKey !== undefined) updateData.openAiApiKey = parsed.data.openAiApiKey || null;
+    if (parsed.data.openAiApiKey !== undefined)
+      updateData.openAiApiKey = parsed.data.openAiApiKey ? await encryptField(userId, parsed.data.openAiApiKey) : null;
     if (parsed.data.smartRetrieval !== undefined) updateData.smartRetrieval = parsed.data.smartRetrieval;
     if (parsed.data.topNMemories !== undefined) updateData.topNMemories = parsed.data.topNMemories;
     if (parsed.data.alwaysIncludeLastN !== undefined) updateData.alwaysIncludeLastN = parsed.data.alwaysIncludeLastN;

@@ -15,6 +15,7 @@ import { logger } from "./lib/logger";
 import { purgeExpiredSoftDeletes, sendReadyDeletionLinkEmails } from "./routes/deletion-requests";
 import { cleanupRateLimiter } from "./lib/rate-limiter";
 import { purgeExpiredSnapshots, runWeeklySnapshots } from "./lib/snapshot";
+import { deviceTrustMiddleware } from "./middlewares/device-trust";
 
 const app: Express = express();
 
@@ -37,7 +38,38 @@ app.use(
 
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
-app.use(cors({ credentials: true, origin: true }));
+// CORS — explicit allowlist of Replit-hosted origins only
+const replitDomains: string[] = (process.env.REPLIT_DOMAINS ?? "")
+  .split(",")
+  .map((d) => d.trim())
+  .filter(Boolean)
+  .map((d) => `https://${d}`);
+const devDomain = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null;
+const allowedOrigins = new Set<string>([
+  ...replitDomains,
+  ...(devDomain ? [devDomain] : []),
+  "http://localhost",
+  "http://localhost:80",
+  "http://localhost:5173",
+]);
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      // Allow same-origin requests (no Origin header) and all Replit domains
+      if (
+        !origin ||
+        allowedOrigins.has(origin) ||
+        /\.replit\.(dev|app|co)$/.test(origin) ||
+        /\.spock\.replit\.dev$/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin not allowed: ${origin}`));
+      }
+    },
+  }),
+);
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -50,6 +82,9 @@ app.use(
     ),
   })),
 );
+
+// Device trust — resolves mm_device cookie / X-Device-Token header after Clerk sets req.userId
+app.use("/api", deviceTrustMiddleware);
 
 // Disable HTTP caching for all API responses so clients always get fresh data
 app.use("/api", (req, res, next) => {

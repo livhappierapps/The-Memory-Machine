@@ -73,8 +73,6 @@ export function DeletionWarningBanner() {
     return () => clearInterval(interval);
   }, [pending]);
 
-  if (!pending) return null;
-
   const handleCancel = useCallback(async () => {
     if (!pending) return;
     setCancelling(true);
@@ -93,6 +91,8 @@ export function DeletionWarningBanner() {
       setCancelling(false);
     }
   }, [pending, toast]);
+
+  if (!pending) return null;
 
   return (
     <div

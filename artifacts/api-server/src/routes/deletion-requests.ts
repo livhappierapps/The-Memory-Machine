@@ -94,15 +94,28 @@ router.post("/deletion-requests", requireAuth, async (req: Request, res: Respons
         const [thread] = await db
           .select({ createdAt: threadsTable.createdAt })
           .from(threadsTable)
-          .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId)));
+          .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
         if (thread && Date.now() - thread.createdAt.getTime() < THIRTY_DAYS_MS) {
-          res.status(403).json({
+          res.status(423).json({
             error: "recency_lock",
+            unlocksAt: new Date(thread.createdAt.getTime() + THIRTY_DAYS_MS).toISOString(),
             message: "Conversations created within the last 30 days cannot be deleted. This lock protects your recent data.",
           });
           return;
         }
+      }
+    }
+
+    if (targetType === "date-range" && dateTo) {
+      const upperBound = new Date(dateTo + "T23:59:59Z");
+      if (Date.now() - upperBound.getTime() < THIRTY_DAYS_MS) {
+        res.status(423).json({
+          error: "recency_lock",
+          unlocksAt: new Date(upperBound.getTime() + THIRTY_DAYS_MS).toISOString(),
+          message: "The date range includes conversations from the last 30 days. Move the end date earlier to proceed.",
+        });
+        return;
       }
     }
 
@@ -209,6 +222,9 @@ router.post("/deletion-requests/:id/confirm-otp", requireAuth, async (req: Reque
       .set({ status: "awaiting_link", signedToken, otpHash: null })
       .where(eq(deletionRequestsTable.id, id));
 
+    // Send the execution link email immediately. The link is inactive until
+    // executeAfter elapses — the server enforces the wait period on use.
+    // This removes the need for unreliable in-process setTimeout scheduling.
     const userEmail = await getUserEmail(userId);
     if (userEmail) {
       const executeUrl = `${APP_URL}/api/deletion-requests/${request.id}/execute-link?token=${encodeURIComponent(signedToken)}`;
@@ -219,17 +235,7 @@ router.post("/deletion-requests/:id/confirm-otp", requireAuth, async (req: Reque
         executeUrl,
         cancelUrl,
       });
-
-      const waitMs = getWaitMs(request.targetType as TargetType);
-      const delayMs = Math.max(0, request.executeAfter.getTime() - Date.now());
-
-      if (delayMs > 0) {
-        setTimeout(async () => {
-          await sendEmail({ to: userEmail, ...emailContent });
-        }, delayMs);
-      } else {
-        await sendEmail({ to: userEmail, ...emailContent });
-      }
+      await sendEmail({ to: userEmail, ...emailContent });
     }
 
     res.json({ status: "awaiting_link", executeAfter: request.executeAfter });
@@ -302,24 +308,45 @@ router.get("/deletion-requests/pending", requireAuth, async (req: Request, res: 
   }
 });
 
-router.get("/deletion-requests/:id/execute-link", requireAuth, async (req: Request, res: Response) => {
+// This route is accessed via email link — no Clerk session required.
+// Authorization is the signed token embedded in the link.
+router.get("/deletion-requests/:id/execute-link", async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
     const id = parseInt(req.params.id as string, 10);
     const token = req.query.token as string;
+
+    if (!token) {
+      res.status(400).json({ error: "Missing token" });
+      return;
+    }
 
     const [request] = await db
       .select()
       .from(deletionRequestsTable)
-      .where(and(eq(deletionRequestsTable.id, id), eq(deletionRequestsTable.userId, userId)));
+      .where(eq(deletionRequestsTable.id, id));
 
     if (!request || request.status !== "awaiting_link") {
       res.status(404).json({ error: "Request not found or not ready" });
       return;
     }
 
-    if (token !== request.signedToken) {
+    // Verify signed token authenticity
+    if (!request.signedToken) {
       res.status(403).json({ error: "Invalid token" });
+      return;
+    }
+    const [payloadB64, sig] = request.signedToken.split(".");
+    const { verifySignedToken: verify } = await import("../lib/crypto-utils");
+    const payload = Buffer.from(payloadB64, "base64").toString("utf8");
+    if (!verify(payload, sig ?? "") || token !== request.signedToken) {
+      res.status(403).json({ error: "Invalid or tampered token" });
+      return;
+    }
+
+    // Enforce the signed token expiry: executeAfter + 48h
+    const tokenExpiry = new Date(request.executeAfter.getTime() + 48 * 60 * 60 * 1000);
+    if (new Date() > tokenExpiry) {
+      res.status(410).json({ error: "expired_token", message: "This link has expired. Please start a new deletion request." });
       return;
     }
 
@@ -338,7 +365,7 @@ router.get("/deletion-requests/:id/execute-link", requireAuth, async (req: Reque
       .set({ status: "awaiting_final_otp", otpHash: newOtpHash })
       .where(eq(deletionRequestsTable.id, id));
 
-    const userEmail = await getUserEmail(userId);
+    const userEmail = await getUserEmail(request.userId);
     if (userEmail) {
       const emailContent = deletionInitiatedEmail({
         otp: newOtp,

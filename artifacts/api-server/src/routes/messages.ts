@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, settingsTable, profilesTable } from "@workspace/db";
-import { eq, and, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   GetThreadMessagesParams,
@@ -38,7 +38,7 @@ router.get("/messages/recent", requireAuth, async (req: Request, res: Response) 
     const userThreads = await db
       .select({ id: threadsTable.id })
       .from(threadsTable)
-      .where(eq(threadsTable.userId, userId));
+      .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (userThreads.length === 0) {
       res.json([]);
@@ -74,7 +74,7 @@ router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res:
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });
@@ -115,7 +115,7 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });
@@ -177,7 +177,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });
@@ -477,7 +477,7 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });

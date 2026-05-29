@@ -7,6 +7,7 @@ import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { DeletionWarningBanner } from "@/components/DeletionWarningBanner";
 
 import { useColors } from "@/hooks/useColors";
 
@@ -90,12 +91,17 @@ function ClassicTabLayout() {
 
 export default function TabLayout() {
   const { isSignedIn, isLoaded } = useAuth();
+  const baseUrl = `https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? "localhost"}`;
 
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/sign-in" />;
 
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  const tabContent = isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <DeletionWarningBanner baseUrl={baseUrl} />
+      {tabContent}
+    </View>
+  );
 }

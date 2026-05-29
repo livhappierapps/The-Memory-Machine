@@ -468,6 +468,8 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
       await db.delete(profilesTable).where(eq(profilesTable.userId, userId));
       // Delete settings for this user (wipes MCP token, model prefs, etc.)
       await db.delete(settingsTable).where(eq(settingsTable.userId, userId));
+      // Delete the Clerk account — user can no longer authenticate after this point
+      await clerkClient.users.deleteUser(userId);
     }
 
     const userEmail = await getUserEmail(userId);

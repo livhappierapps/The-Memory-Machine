@@ -73,7 +73,9 @@ export default function VaultScreen() {
   const createThread = useCreateThread();
   const updateThread = useUpdateThread();
   const { getToken } = useAuth();
-  const domain = process.env.EXPO_PUBLIC_DOMAIN ?? "";
+  const domain = process.env.EXPO_PUBLIC_DOMAIN
+    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+    : "";
 
   // Deletion flow state
   const [deletionThread, setDeletionThread] = useState<Thread | null>(null);

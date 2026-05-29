@@ -3,7 +3,7 @@ import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, isValid } from "date-fns";
-import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft, Brain, ChevronDown, ChevronUp, Pin, Zap, Clock } from "lucide-react";
+import { Send, Trash2, Archive, ArchiveRestore, Download, MoreVertical, Loader2, StopCircle, Upload, ChevronLeft, Brain, ChevronDown, ChevronUp, Pin, Zap, Clock, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -106,6 +106,13 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
 
   if (!thread) return null;
 
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const threadAge = thread.createdAt ? Date.now() - new Date(thread.createdAt).getTime() : THIRTY_DAYS_MS + 1;
+  const isThreadLocked = threadAge < THIRTY_DAYS_MS;
+  const daysLeft = isThreadLocked
+    ? Math.ceil((THIRTY_DAYS_MS - threadAge) / (24 * 60 * 60 * 1000))
+    : 0;
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || isStreaming) return;
@@ -188,9 +195,17 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
                 {thread.archived ? <ArchiveRestore className="w-4 h-4 mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
                 {thread.archived ? "Unarchive" : "Archive"}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:bg-destructive/10">
-                <Trash2 className="w-4 h-4 mr-2" /> Delete Vault
-              </DropdownMenuItem>
+              {isThreadLocked ? (
+                <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
+                  <Lock className="w-4 h-4 mr-2" />
+                  Delete Vault
+                  <span className="ml-auto text-xs text-muted-foreground">{daysLeft}d</span>
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:bg-destructive/10">
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete Vault
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

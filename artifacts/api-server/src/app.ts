@@ -63,9 +63,19 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   }
 });
 
-// Fail loudly if SESSION_SECRET is the unsafe default
-if (process.env.SESSION_SECRET === "dev-secret-change-me" || !process.env.SESSION_SECRET) {
-  logger.warn("SESSION_SECRET is not set or is using the insecure default. Crypto operations (OTPs, signed tokens) will be predictable. Set SESSION_SECRET in production.");
+// Reject startup if SESSION_SECRET is missing or insecure in non-development environments.
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === "dev-secret-change-me") {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET must be set to a strong random value in production. " +
+      "Deletion OTPs and signed tokens cannot be trusted otherwise.",
+    );
+  } else {
+    logger.warn(
+      "SESSION_SECRET is not set or uses the insecure default. " +
+      "OTPs and signed tokens will be predictable. Set SESSION_SECRET before deploying.",
+    );
+  }
 }
 
 // Purge threads soft-deleted 30+ days ago — runs at startup then every 6 hours

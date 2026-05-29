@@ -74,18 +74,18 @@ router.post("/deletion-requests", requireAuth, async (req: Request, res: Respons
       return;
     }
 
-    const existingPending = await db
+    const existingActive = await db
       .select({ id: deletionRequestsTable.id })
       .from(deletionRequestsTable)
       .where(
         and(
           eq(deletionRequestsTable.userId, userId),
-          eq(deletionRequestsTable.status, "pending_otp"),
+          inArray(deletionRequestsTable.status, ["pending_otp", "awaiting_link", "awaiting_final_otp"]),
         ),
       )
       .limit(1);
 
-    if (existingPending.length > 0) {
+    if (existingActive.length > 0) {
       res.status(409).json({ error: "A deletion request is already in progress. Cancel it first." });
       return;
     }
@@ -412,11 +412,13 @@ router.get("/deletion-requests/:id/execute-link", async (req: Request, res: Resp
   }
 });
 
+const FINAL_OTP_EXPIRY_MS = 60 * 60 * 1000; // 1 hour from link activation
+
 router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
     const id = parseInt(req.params.id as string, 10);
-    const { otp } = req.body as { otp: string };
+    const { otp, keyphrase } = req.body as { otp: string; keyphrase?: string };
 
     const [request] = await db
       .select()
@@ -427,9 +429,44 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
       res.status(404).json({ error: "Request not found or not in final OTP state" });
       return;
     }
+
+    // Enforce final OTP expiry: 1 hour from when execute-link issued it (updatedAt)
+    if (Date.now() - request.updatedAt.getTime() > FINAL_OTP_EXPIRY_MS) {
+      await db
+        .update(deletionRequestsTable)
+        .set({ status: "expired", otpHash: null })
+        .where(eq(deletionRequestsTable.id, id));
+      res.status(410).json({
+        error: "expired_otp",
+        message: "The verification code has expired. Please start a new deletion request.",
+      });
+      return;
+    }
+
     if (!request.otpHash || !(await bcrypt.compare(otp, request.otpHash))) {
       res.status(400).json({ error: "Invalid verification code" });
       return;
+    }
+
+    // Enforce keyphrase at the final destructive step if one is configured
+    const { db: dbImport, userKeyphrasesTable } = await import("@workspace/db");
+    const [kp] = await dbImport
+      .select({ bcryptHash: userKeyphrasesTable.bcryptHash })
+      .from(userKeyphrasesTable)
+      .where(eq(userKeyphrasesTable.userId, userId));
+
+    if (kp) {
+      if (!keyphrase) {
+        res.status(403).json({ error: "keyphrase_required", message: "Your keyphrase is required to execute deletion." });
+        return;
+      }
+      const match = kp.bcryptHash.startsWith("$argon2")
+        ? await argon2Verify(kp.bcryptHash, keyphrase)
+        : await bcrypt.compare(keyphrase, kp.bcryptHash);
+      if (!match) {
+        res.status(400).json({ error: "Invalid keyphrase" });
+        return;
+      }
     }
 
     await db.update(deletionRequestsTable).set({ status: "executed", otpHash: null }).where(eq(deletionRequestsTable.id, id));

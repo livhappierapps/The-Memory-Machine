@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@clerk/react";
-import { Loader2, ShieldAlert, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, ShieldAlert, CheckCircle, XCircle, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Phase = "loading" | "sign_in_required" | "otp_input" | "executing" | "done" | "error";
+type Phase = "loading" | "sign_in_required" | "otp_input" | "keyphrase_input" | "executing" | "done" | "error";
 
 export default function DeletionConfirmPage() {
   const [, setLocation] = useLocation();
@@ -17,6 +17,7 @@ export default function DeletionConfirmPage() {
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [otp, setOtp] = useState("");
+  const [keyphrase, setKeyphrase] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [requestId, setRequestId] = useState<number | null>(null);
 
@@ -59,23 +60,34 @@ export default function DeletionConfirmPage() {
     }
   }
 
-  async function submitOtp() {
+  async function submitOtp(kp?: string) {
     if (!otp.trim() || !requestId) return;
     setPhase("executing");
+    setErrorMsg("");
     try {
       const clerkToken = await getToken();
+      const body: Record<string, string> = { otp };
+      if (kp) body.keyphrase = kp;
       const res = await fetch(`/api/deletion-requests/${requestId}/execute-final`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${clerkToken ?? ""}`,
         },
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify(body),
       });
       const data = await res.json() as Record<string, unknown>;
       if (!res.ok) {
-        setPhase("otp_input");
-        setErrorMsg(typeof data.error === "string" ? data.error : "Verification failed. Check the code and try again.");
+        if (data.error === "keyphrase_required") {
+          setPhase("keyphrase_input");
+          setErrorMsg("");
+        } else if (data.error === "expired_otp") {
+          setPhase("error");
+          setErrorMsg(typeof data.message === "string" ? data.message : "The code has expired. Please start a new deletion request.");
+        } else {
+          setPhase("otp_input");
+          setErrorMsg(typeof data.error === "string" ? data.error : "Verification failed. Check the code and try again.");
+        }
         return;
       }
       setPhase("done");
@@ -134,6 +146,38 @@ export default function DeletionConfirmPage() {
         <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setLocation("/vault")}>
           Go to Vault
         </Button>
+      </PageShell>
+    );
+  }
+
+  if (phase === "keyphrase_input") {
+    return (
+      <PageShell>
+        <Lock className="w-10 h-10 text-primary mx-auto mb-4" />
+        <h2 className="text-lg font-semibold mb-2">Enter your keyphrase</h2>
+        <p className="text-muted-foreground mb-6 text-sm">
+          Your account is protected by a keyphrase. Enter it below to complete the deletion.
+        </p>
+        {errorMsg && <p className="text-destructive text-sm mb-3">{errorMsg}</p>}
+        <Input
+          type="password"
+          value={keyphrase}
+          onChange={(e) => setKeyphrase(e.target.value)}
+          placeholder="Your keyphrase"
+          className="mb-4"
+          onKeyDown={(e) => { if (e.key === "Enter") void submitOtp(keyphrase); }}
+          autoFocus
+        />
+        <div className="flex gap-3 justify-center">
+          <Button variant="outline" onClick={() => setLocation("/vault")}>Cancel</Button>
+          <Button
+            disabled={keyphrase.trim().length === 0}
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => void submitOtp(keyphrase)}
+          >
+            Verify & Delete
+          </Button>
+        </div>
       </PageShell>
     );
   }

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
-import { eq, count, min, max, sql } from "drizzle-orm";
+import { eq, and, count, min, max, sql, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -19,7 +19,7 @@ router.get("/stats", requireAuth, async (req: Request, res: Response) => {
         newest: max(threadsTable.createdAt),
       })
       .from(threadsTable)
-      .where(eq(threadsTable.userId, userId));
+      .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     const total = Number(threadStats?.total ?? 0);
     const archived = Number(threadStats?.archived ?? 0);
@@ -32,7 +32,7 @@ router.get("/stats", requireAuth, async (req: Request, res: Response) => {
       })
       .from(messagesTable)
       .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
-      .where(eq(threadsTable.userId, userId));
+      .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     res.json({
       totalThreads: total,

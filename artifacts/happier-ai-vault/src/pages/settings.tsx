@@ -784,6 +784,7 @@ function SettingsContent() {
   };
 
   const [historyDeletionOpen, setHistoryDeletionOpen] = useState(false);
+  const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
 
   return (
     <div className="space-y-8">
@@ -836,12 +837,33 @@ function SettingsContent() {
               Delete All History...
             </Button>
           </div>
+
+          {/* Account deletion */}
+          <div className="border-t border-red-900/40 pt-6">
+            <h3 className="text-base font-medium mb-1 text-red-500">Delete Account</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently delete your account and all associated data — conversations, profiles, and settings. This action has a 2-week waiting period and requires email and 2FA verification. It cannot be undone.
+            </p>
+            <Button
+              variant="destructive"
+              className="gap-2 bg-red-900 hover:bg-red-800 border border-red-700"
+              onClick={() => setAccountDeletionOpen(true)}
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Account...
+            </Button>
+          </div>
         </div>
 
         <DeletionFlowDialog
           open={historyDeletionOpen}
           onOpenChange={setHistoryDeletionOpen}
           targetType="history"
+        />
+        <DeletionFlowDialog
+          open={accountDeletionOpen}
+          onOpenChange={setAccountDeletionOpen}
+          targetType="account"
         />
       </section>
     </div>

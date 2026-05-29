@@ -22,7 +22,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { settingsTable, threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, ilike, or, gte, lte } from "drizzle-orm";
+import { eq, and, desc, ilike, or, gte, lte, isNull } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -115,6 +115,7 @@ function buildMcpServer(userId: string): McpServer {
           .where(
             and(
               eq(threadsTable.userId, userId),
+              isNull(threadsTable.deletedAt),
               roleFilter,
               or(...contentConditions, ...titleConditions),
             ),
@@ -195,7 +196,10 @@ function buildMcpServer(userId: string): McpServer {
           return { content: [{ type: "text", text: `Invalid 'to' date: "${to}". Use YYYY-MM-DD format.` }], isError: true };
         }
 
-        const conditions: ReturnType<typeof eq>[] = [eq(threadsTable.userId, userId)];
+        const conditions: ReturnType<typeof eq>[] = [
+          eq(threadsTable.userId, userId),
+          isNull(threadsTable.deletedAt),
+        ];
         if (fromDate) conditions.push(gte(threadsTable.createdAt, fromDate));
         if (toDate) conditions.push(lte(threadsTable.createdAt, toDate));
         if (keyword) conditions.push(ilike(threadsTable.title, `%${keyword}%`));
@@ -259,7 +263,7 @@ function buildMcpServer(userId: string): McpServer {
     },
     async ({ limit, include_archived }) => {
       try {
-        const conditions = [eq(threadsTable.userId, userId)];
+        const conditions = [eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)];
         if (!include_archived) conditions.push(eq(threadsTable.archived, false));
 
         const threads = await db

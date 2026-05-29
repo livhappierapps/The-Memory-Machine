@@ -108,13 +108,21 @@ router.post("/deletion-requests", requireAuth, async (req: Request, res: Respons
       }
     }
 
-    if (targetType === "date-range" && dateTo) {
+    if (targetType === "date-range") {
+      // No upper bound means the range extends to now — always contains recent threads.
+      if (!dateTo) {
+        res.status(423).json({
+          error: "recency_lock",
+          message: "Date-range deletion requires an end date (dateTo) that is at least 30 days in the past.",
+        });
+        return;
+      }
       const upperBound = new Date(dateTo + "T23:59:59Z");
       if (Date.now() - upperBound.getTime() < THIRTY_DAYS_MS) {
         res.status(423).json({
           error: "recency_lock",
           unlocksAt: new Date(upperBound.getTime() + THIRTY_DAYS_MS).toISOString(),
-          message: "The date range includes conversations from the last 30 days. Move the end date earlier to proceed.",
+          message: "The date range includes conversations from the last 30 days. Move the end date to at least 30 days in the past.",
         });
         return;
       }

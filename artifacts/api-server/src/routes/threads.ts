@@ -197,47 +197,16 @@ router.patch("/threads/:threadId", requireAuth, async (req: Request, res: Respon
   }
 });
 
-// Soft-delete thread (with 30-day recency lock)
-router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = req.userId!;
-    const params = DeleteThreadParams.safeParse({ threadId: req.params.threadId });
-    if (!params.success) {
-      res.status(400).json({ error: "Invalid thread ID" });
-      return;
-    }
-
-    const [thread] = await db
-      .select()
-      .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
-
-    if (!thread) {
-      res.status(404).json({ error: "Thread not found" });
-      return;
-    }
-
-    const ageMs = Date.now() - thread.createdAt.getTime();
-    if (ageMs < THIRTY_DAYS_MS) {
-      const unlocksAt = new Date(thread.createdAt.getTime() + THIRTY_DAYS_MS).toISOString();
-      res.status(423).json({
-        error: "recency_lock",
-        message: `Conversations created within the last 30 days cannot be deleted. Unlocks on ${new Date(unlocksAt).toLocaleDateString()}.`,
-        unlocksAt,
-      });
-      return;
-    }
-
-    await db
-      .update(threadsTable)
-      .set({ deletedAt: new Date() })
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
-
-    res.status(204).send();
-  } catch (err) {
-    req.log.error({ err }, "Failed to delete thread");
-    res.status(500).json({ error: "Internal server error" });
-  }
+// Direct thread deletion is disabled — all deletion must go through the
+// deletion-requests state machine (OTP + 2FA + safety waiting period).
+// This endpoint returns 405 so API clients get a clear, actionable error.
+router.delete("/threads/:threadId", requireAuth, (_req: Request, res: Response) => {
+  res.status(405).json({
+    error: "direct_delete_disabled",
+    message:
+      "Thread deletion requires the protected deletion-requests flow (2FA + OTP + " +
+      "safety waiting period). Use POST /api/deletion-requests with targetType='thread'.",
+  });
 });
 
 // Restore soft-deleted thread

@@ -1,4 +1,4 @@
-import { useGetThread, useGetThreadMessages, useUpdateThread, useDeleteThread, useGetMemoryPreview, getGetMemoryPreviewQueryKey, getGetThreadQueryKey, getListThreadsQueryKey, getGetThreadMessagesQueryKey, getGetStatsQueryKey, type MemorySource } from "@workspace/api-client-react";
+import { useGetThread, useGetThreadMessages, useUpdateThread, useGetMemoryPreview, getGetMemoryPreviewQueryKey, getGetThreadQueryKey, getListThreadsQueryKey, getGetThreadMessagesQueryKey, getGetStatsQueryKey, type MemorySource } from "@workspace/api-client-react";
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
+import { DeletionFlowDialog } from "./deletion-flow-dialog";
 
 import type { MemorySource as StreamMemorySource } from "@/hooks/use-chat-stream";
 
@@ -85,7 +86,6 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const updateThread = useUpdateThread();
-  const deleteThread = useDeleteThread();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
@@ -135,16 +135,10 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
     });
   };
 
+  const [deletionFlowOpen, setDeletionFlowOpen] = useState(false);
+
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this vault? This cannot be undone.")) {
-      deleteThread.mutate({ threadId }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
-          onDeleted?.();
-        }
-      });
-    }
+    setDeletionFlowOpen(true);
   };
 
   return (
@@ -299,6 +293,12 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
 
       <ImportDialog threadId={threadId} open={isImportOpen} onOpenChange={setIsImportOpen} />
       <ExportDialog threadId={threadId} title={thread.title} open={isExportOpen} onOpenChange={setIsExportOpen} />
+      <DeletionFlowDialog
+        open={deletionFlowOpen}
+        onOpenChange={setDeletionFlowOpen}
+        targetType="thread"
+        targetIds={[threadId]}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { deletionRequestsTable, threadsTable, settingsTable } from "@workspace/db";
+import { deletionRequestsTable, threadsTable, settingsTable, profilesTable } from "@workspace/db";
 import { eq, and, isNull, isNotNull, lt, inArray, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { generateOtp, encryptText, signToken, verifySignedToken } from "../lib/crypto-utils";
@@ -13,6 +13,7 @@ import {
   APP_URL,
 } from "../lib/email";
 import bcrypt from "bcryptjs";
+import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import { clerkClient } from "@clerk/express";
 import { randomUUID } from "crypto";
 
@@ -206,37 +207,24 @@ router.post("/deletion-requests/:id/confirm-otp", requireAuth, async (req: Reque
         res.status(403).json({ error: "keyphrase_required", message: "Your keyphrase is required to confirm deletion." });
         return;
       }
-      const keyphraseMatch = await bcrypt.compare(keyphrase, kp.bcryptHash);
+      // bcryptHash column may contain argon2id hashes (prefixed $argon2id$) or legacy bcrypt
+      const keyphraseMatch = kp.bcryptHash.startsWith("$argon2")
+        ? await argon2Verify(kp.bcryptHash, keyphrase)
+        : await bcrypt.compare(keyphrase, kp.bcryptHash);
       if (!keyphraseMatch) {
         res.status(400).json({ error: "Invalid keyphrase" });
         return;
       }
     }
 
-    const signedPayload = `${request.id}:${request.executeAfter.toISOString()}`;
-    const sig = signToken(signedPayload);
-    const signedToken = `${Buffer.from(signedPayload).toString("base64")}.${sig}`;
+    // Do NOT generate or send the deletion link now.
+    // The cron job (sendReadyDeletionLinkEmails) will generate the signed token and
+    // send the email once executeAfter has elapsed — providing the full safety wait window.
     const cancelToken = request.cancelToken ?? randomUUID();
 
     await db.update(deletionRequestsTable)
-      .set({ status: "awaiting_link", signedToken, otpHash: null })
+      .set({ status: "awaiting_link", signedToken: null, otpHash: null, cancelToken })
       .where(eq(deletionRequestsTable.id, id));
-
-    // Send the execution link email immediately. The link is inactive until
-    // executeAfter elapses — the server enforces the wait period on use.
-    // This removes the need for unreliable in-process setTimeout scheduling.
-    const userEmail = await getUserEmail(userId);
-    if (userEmail) {
-      const executeUrl = `${APP_URL}/api/deletion-requests/${request.id}/execute-link?token=${encodeURIComponent(signedToken)}`;
-      const cancelUrl = `${APP_URL}/api/deletion-requests/${request.id}/cancel-link?token=${cancelToken}`;
-      const emailContent = deletionLinkEmail({
-        targetType: request.targetType,
-        executeAt: request.executeAfter.toISOString(),
-        executeUrl,
-        cancelUrl,
-      });
-      await sendEmail({ to: userEmail, ...emailContent });
-    }
 
     res.json({ status: "awaiting_link", executeAfter: request.executeAfter });
   } catch (err) {
@@ -330,9 +318,14 @@ router.get("/deletion-requests/:id/execute-link", async (req: Request, res: Resp
       return;
     }
 
-    // Verify signed token authenticity
+    // signedToken is NULL while the safety wait window has not yet elapsed.
+    // The cron job sets it once executeAfter passes and sends the email then.
     if (!request.signedToken) {
-      res.status(403).json({ error: "Invalid token" });
+      res.status(425).json({
+        error: "too_early",
+        message: "The deletion link has not been sent yet. The safety wait period has not elapsed.",
+        executeAfter: request.executeAfter,
+      });
       return;
     }
     const [payloadB64, sig] = request.signedToken.split(".");
@@ -432,10 +425,15 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
         .set({ deletedAt: now })
         .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
     } else if (request.targetType === "account") {
+      // Soft-delete all threads
       await db
         .update(threadsTable)
         .set({ deletedAt: now })
         .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
+      // Delete all profiles for this user
+      await db.delete(profilesTable).where(eq(profilesTable.userId, userId));
+      // Delete settings for this user (wipes MCP token, model prefs, etc.)
+      await db.delete(settingsTable).where(eq(settingsTable.userId, userId));
     }
 
     const userEmail = await getUserEmail(userId);
@@ -504,6 +502,65 @@ export async function purgeExpiredSoftDeletes() {
     if (deleted.length > 0) {
       const { logger: log } = await import("../lib/logger");
       log.info({ count: deleted.length }, "Purged soft-deleted threads older than 30 days");
+    }
+  } catch (_err) {
+    /* non-fatal */
+  }
+}
+
+/**
+ * Called every 5 minutes. Finds deletion requests that:
+ *  - have status "awaiting_link"
+ *  - have executeAfter <= now (wait window has elapsed)
+ *  - have signedToken IS NULL (link email not yet sent)
+ * Generates the signed token, updates the DB, then sends the email link.
+ * This keeps the safety wait window server-enforced and reliable across restarts.
+ */
+export async function sendReadyDeletionLinkEmails() {
+  try {
+    const now = new Date();
+    const ready = await db
+      .select()
+      .from(deletionRequestsTable)
+      .where(
+        and(
+          eq(deletionRequestsTable.status, "awaiting_link"),
+          lt(deletionRequestsTable.executeAfter, now),
+          isNull(deletionRequestsTable.signedToken),
+        ),
+      );
+
+    if (ready.length === 0) return;
+
+    const { logger: log } = await import("../lib/logger");
+    for (const request of ready) {
+      try {
+        const signedPayload = `${request.id}:${request.executeAfter.toISOString()}`;
+        const sig = signToken(signedPayload);
+        const signedToken = `${Buffer.from(signedPayload).toString("base64")}.${sig}`;
+
+        await db.update(deletionRequestsTable)
+          .set({ signedToken })
+          .where(eq(deletionRequestsTable.id, request.id));
+
+        const userEmail = await getUserEmail(request.userId);
+        if (userEmail) {
+          // Link goes to frontend page which handles the final OTP step
+          const executeUrl = `${APP_URL}/deletion-confirm?id=${request.id}&token=${encodeURIComponent(signedToken)}`;
+          const cancelUrl = `${APP_URL}/api/deletion-requests/${request.id}/cancel-link?token=${request.cancelToken ?? ""}`;
+          const emailContent = deletionLinkEmail({
+            targetType: request.targetType,
+            executeAt: request.executeAfter.toISOString(),
+            executeUrl,
+            cancelUrl,
+          });
+          await sendEmail({ to: userEmail, ...emailContent });
+        }
+        log.info({ requestId: request.id }, "Sent deletion link email after wait period");
+      } catch (err) {
+        const { logger: log2 } = await import("../lib/logger");
+        log2.error({ err, requestId: request.id }, "Failed to send deletion link email");
+      }
     }
   } catch (_err) {
     /* non-fatal */

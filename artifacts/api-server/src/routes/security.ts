@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { encryptText, decryptText } from "../lib/crypto-utils";
 import { clerkClient } from "@clerk/express";
+import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
@@ -53,7 +54,8 @@ router.post("/security/keyphrase", requireAuth, async (req: Request, res: Respon
       return;
     }
 
-    const bcryptHash = await bcrypt.hash(keyphrase, 12);
+    // Use argon2id for keyphrase storage — stronger than bcrypt against GPU cracking
+    const argonHash = await argon2Hash(keyphrase);
     const encryptedPlaintext = encryptText(keyphrase);
 
     const [existing] = await db
@@ -62,9 +64,9 @@ router.post("/security/keyphrase", requireAuth, async (req: Request, res: Respon
       .where(eq(userKeyphrasesTable.userId, userId));
 
     if (existing) {
-      await db.update(userKeyphrasesTable).set({ bcryptHash, encryptedPlaintext }).where(eq(userKeyphrasesTable.userId, userId));
+      await db.update(userKeyphrasesTable).set({ bcryptHash: argonHash, encryptedPlaintext }).where(eq(userKeyphrasesTable.userId, userId));
     } else {
-      await db.insert(userKeyphrasesTable).values({ userId, bcryptHash, encryptedPlaintext });
+      await db.insert(userKeyphrasesTable).values({ userId, bcryptHash: argonHash, encryptedPlaintext });
     }
 
     res.json({ success: true });
@@ -94,7 +96,11 @@ router.post("/security/keyphrase/verify", requireAuth, async (req: Request, res:
       return;
     }
 
-    const valid = await bcrypt.compare(keyphrase, kp.bcryptHash);
+    // Support both argon2id (new) and bcrypt (legacy) stored hashes
+    const valid = kp.bcryptHash.startsWith("$argon2")
+      ? await argon2Verify(kp.bcryptHash, keyphrase)
+      : await bcrypt.compare(keyphrase, kp.bcryptHash);
+
     res.json({ valid, hasKeyphrase: true });
   } catch (err) {
     req.log.error({ err }, "Failed to verify keyphrase");

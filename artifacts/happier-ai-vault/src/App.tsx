@@ -11,6 +11,7 @@ import { clerkAppearance, stripBase, basePath } from "@/lib/clerk-config";
 import Home from "@/pages/home";
 import Vault from "@/pages/vault";
 import Settings from "@/pages/settings";
+import DeletionConfirm from "@/pages/deletion-confirm";
 import NotFound from "@/pages/not-found";
 import { ProfileProvider } from "@/contexts/profile-context";
 
@@ -78,6 +79,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/vault" component={Vault} />
             <Route path="/settings" component={Settings} />
+            <Route path="/deletion-confirm" component={DeletionConfirm} />
             <Route component={NotFound} />
           </Switch>
         </ProfileProvider>

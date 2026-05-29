@@ -22,6 +22,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Lock } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BulkImportDialog } from "./bulk-import-dialog";
@@ -329,12 +335,34 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
                             : <><Archive className="w-4 h-4 mr-2" />Archive</>}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) => handleDelete(e, thread.id)}
-                          className="text-destructive focus:bg-destructive/10"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />Delete
-                        </DropdownMenuItem>
+                        {(() => {
+                          const ageMs = Date.now() - new Date(thread.createdAt).getTime();
+                          const isRecent = ageMs < 30 * 24 * 60 * 60 * 1000;
+                          const daysLeft = Math.ceil((30 * 24 * 60 * 60 * 1000 - ageMs) / (24 * 60 * 60 * 1000));
+                          return isRecent ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <DropdownMenuItem
+                                  disabled
+                                  className="opacity-40 cursor-not-allowed text-muted-foreground"
+                                >
+                                  <Lock className="w-4 h-4 mr-2" />Delete
+                                  <span className="ml-auto text-xs">30d lock</span>
+                                </DropdownMenuItem>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-[180px] text-center">
+                                Protected for {daysLeft} more day{daysLeft !== 1 ? "s" : ""}. Threads cannot be deleted within 30 days of creation.
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <DropdownMenuItem
+                              onClick={(e) => handleDelete(e, thread.id)}
+                              className="text-destructive focus:bg-destructive/10"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />Delete
+                            </DropdownMenuItem>
+                          );
+                        })()}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

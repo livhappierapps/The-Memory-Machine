@@ -10,7 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { purgeExpiredSoftDeletes } from "./routes/deletion-requests";
+import { purgeExpiredSoftDeletes, sendReadyDeletionLinkEmails } from "./routes/deletion-requests";
 
 const app: Express = express();
 
@@ -71,5 +71,9 @@ if (process.env.SESSION_SECRET === "dev-secret-change-me" || !process.env.SESSIO
 // Purge threads soft-deleted 30+ days ago — runs at startup then every 6 hours
 purgeExpiredSoftDeletes();
 setInterval(purgeExpiredSoftDeletes, 6 * 60 * 60 * 1000);
+
+// Send queued deletion link emails once executeAfter has elapsed — runs every 5 minutes
+sendReadyDeletionLinkEmails();
+setInterval(sendReadyDeletionLinkEmails, 5 * 60 * 1000);
 
 export default app;

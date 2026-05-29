@@ -364,11 +364,13 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    // profile.apiKey is always the xAI key field — independent of chatProvider.
+    // profile.apiKey / openAiApiKey are encrypted at rest — decrypt before use.
     const embeddingProvider = profile.embeddingProvider ?? "xai";
-    const xaiApiKey = profile.apiKey || settings?.apiKey;
+    const xaiApiKey = (profile.apiKey ? decryptField(userId, profile.apiKey) : null) || settings?.apiKey;
     const embeddingApiKey =
-      (embeddingProvider === "openai" ? profile.openAiApiKey : null) ?? xaiApiKey;
+      (embeddingProvider === "openai" && profile.openAiApiKey
+        ? decryptField(userId, profile.openAiApiKey)
+        : null) ?? xaiApiKey;
 
     if (!embeddingApiKey) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval, pgvectorAvailable: isPgvectorAvailable() });

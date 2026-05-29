@@ -4,6 +4,7 @@ import { deletionRequestsTable, threadsTable, settingsTable, profilesTable } fro
 import { eq, and, isNull, isNotNull, lt, inArray, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { requireTrustedDevice } from "../middlewares/device-trust";
+import { createSnapshot } from "../lib/snapshot";
 import { generateOtp, encryptText, signToken, verifySignedToken } from "../lib/crypto-utils";
 import {
   sendEmail,
@@ -468,6 +469,13 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
         res.status(400).json({ error: "Invalid keyphrase" });
         return;
       }
+    }
+
+    // Create a safety snapshot before any data is destroyed so the user can restore if needed
+    try {
+      await createSnapshot(userId, `Pre-deletion (${request.targetType})`);
+    } catch (snapshotErr) {
+      req.log.warn({ err: snapshotErr }, "Pre-deletion snapshot failed — proceeding with deletion");
     }
 
     await db.update(deletionRequestsTable).set({ status: "executed", otpHash: null }).where(eq(deletionRequestsTable.id, id));

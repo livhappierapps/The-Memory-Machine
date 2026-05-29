@@ -56,13 +56,8 @@ app.use(
   cors({
     credentials: true,
     origin(origin, callback) {
-      // Allow same-origin requests (no Origin header) and all Replit domains
-      if (
-        !origin ||
-        allowedOrigins.has(origin) ||
-        /\.replit\.(dev|app|co)$/.test(origin) ||
-        /\.spock\.replit\.dev$/.test(origin)
-      ) {
+      // Allow same-origin / no-origin requests and the explicit allowlist only
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
       } else {
         callback(new Error(`CORS: origin not allowed: ${origin}`));

@@ -128,6 +128,32 @@ router.post("/deletion-requests", requireAuth, async (req: Request, res: Respons
       }
     }
 
+    if (targetType === "history" || targetType === "account") {
+      // Block if any non-deleted thread was created within the last 30 days.
+      const recentCutoff = new Date(Date.now() - THIRTY_DAYS_MS);
+      const [recentThread] = await db
+        .select({ id: threadsTable.id, createdAt: threadsTable.createdAt })
+        .from(threadsTable)
+        .where(
+          and(
+            eq(threadsTable.userId, userId),
+            isNull(threadsTable.deletedAt),
+            gte(threadsTable.createdAt, recentCutoff),
+          ),
+        )
+        .limit(1);
+
+      if (recentThread) {
+        res.status(423).json({
+          error: "recency_lock",
+          unlocksAt: new Date(recentThread.createdAt.getTime() + THIRTY_DAYS_MS).toISOString(),
+          message:
+            "Your account has conversations created within the last 30 days. Full deletion can only be requested once all conversations are older than 30 days.",
+        });
+        return;
+      }
+    }
+
     const otp = generateOtp();
     const otpHash = await bcrypt.hash(otp, 12);
     const cancelToken = randomUUID();

@@ -77,9 +77,10 @@ export default function VaultScreen() {
 
   // Deletion flow state
   const [deletionThread, setDeletionThread] = useState<Thread | null>(null);
-  const [deletionStep, setDeletionStep] = useState<"confirming" | "otp" | "waiting" | null>(null);
+  const [deletionStep, setDeletionStep] = useState<"confirming" | "otp" | "keyphrase" | "waiting" | null>(null);
   const [deletionRequestId, setDeletionRequestId] = useState<number | null>(null);
   const [deletionOtp, setDeletionOtp] = useState("");
+  const [deletionKeyphrase, setDeletionKeyphrase] = useState("");
   const [deletionLoading, setDeletionLoading] = useState(false);
   const [deletionError, setDeletionError] = useState("");
 
@@ -88,6 +89,7 @@ export default function VaultScreen() {
     setDeletionStep(null);
     setDeletionRequestId(null);
     setDeletionOtp("");
+    setDeletionKeyphrase("");
     setDeletionError("");
   }, []);
 
@@ -122,24 +124,29 @@ export default function VaultScreen() {
     }
   }, [deletionThread, domain, getToken]);
 
-  const handleConfirmOtp = useCallback(async () => {
+  const handleConfirmOtp = useCallback(async (keyphrase?: string) => {
     if (!deletionRequestId) return;
     setDeletionLoading(true);
     setDeletionError("");
     try {
       const token = await getToken();
+      const body: Record<string, string> = { otp: deletionOtp };
+      if (keyphrase) body.keyphrase = keyphrase;
       const res = await fetch(`${domain}/api/deletion-requests/${deletionRequestId}/confirm-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ otp: deletionOtp }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setDeletionError(
-          data.error === "invalid_otp"
-            ? "Incorrect code. Check your email and try again."
-            : (data.error ?? "OTP verification failed."),
-        );
+        if (data.error === "keyphrase_required") {
+          setDeletionStep("keyphrase");
+          setDeletionError("");
+        } else if (data.error === "invalid_otp") {
+          setDeletionError("Incorrect code. Check your email and try again.");
+        } else {
+          setDeletionError(data.error ?? "OTP verification failed.");
+        }
         return;
       }
       setDeletionStep("waiting");
@@ -420,6 +427,47 @@ export default function VaultScreen() {
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
                       <Text style={[styles.modalBtnText, { color: "#fff" }]}>Confirm</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {deletionStep === "keyphrase" && (
+              <>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Enter Your Keyphrase</Text>
+                <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+                  Your account is protected by a keyphrase. Enter it below to complete verification.
+                </Text>
+                <TextInput
+                  style={[styles.otpInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background, fontSize: 16, letterSpacing: 1 }]}
+                  value={deletionKeyphrase}
+                  onChangeText={setDeletionKeyphrase}
+                  placeholder="Your keyphrase"
+                  placeholderTextColor={colors.mutedForeground}
+                  secureTextEntry
+                  autoFocus
+                />
+                {deletionError ? (
+                  <Text style={[styles.modalError, { color: colors.destructive }]}>{deletionError}</Text>
+                ) : null}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.muted }]}
+                    onPress={closeDeletion}
+                    disabled={deletionLoading}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.foreground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.destructive, opacity: deletionKeyphrase.length === 0 ? 0.5 : 1 }]}
+                    onPress={() => void handleConfirmOtp(deletionKeyphrase)}
+                    disabled={deletionLoading || deletionKeyphrase.length === 0}
+                  >
+                    {deletionLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={[styles.modalBtnText, { color: "#fff" }]}>Verify</Text>
                     )}
                   </TouchableOpacity>
                 </View>

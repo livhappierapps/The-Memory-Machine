@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -18,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   useCreateThread,
-  useDeleteThread,
   useListProfiles,
   useListThreads,
   useUpdateThread,
@@ -71,8 +71,84 @@ export default function VaultScreen() {
   });
 
   const createThread = useCreateThread();
-  const deleteThread = useDeleteThread();
   const updateThread = useUpdateThread();
+  const { getToken } = useAuth();
+  const domain = process.env.EXPO_PUBLIC_DOMAIN ?? "";
+
+  // Deletion flow state
+  const [deletionThread, setDeletionThread] = useState<Thread | null>(null);
+  const [deletionStep, setDeletionStep] = useState<"confirming" | "otp" | "waiting" | null>(null);
+  const [deletionRequestId, setDeletionRequestId] = useState<number | null>(null);
+  const [deletionOtp, setDeletionOtp] = useState("");
+  const [deletionLoading, setDeletionLoading] = useState(false);
+  const [deletionError, setDeletionError] = useState("");
+
+  const closeDeletion = useCallback(() => {
+    setDeletionThread(null);
+    setDeletionStep(null);
+    setDeletionRequestId(null);
+    setDeletionOtp("");
+    setDeletionError("");
+  }, []);
+
+  const handleStartDeletion = useCallback(async () => {
+    if (!deletionThread) return;
+    setDeletionLoading(true);
+    setDeletionError("");
+    try {
+      const token = await getToken();
+      const res = await fetch(`${domain}/api/deletion-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ targetType: "thread", targetIds: [deletionThread.id] }),
+      });
+      const data = (await res.json()) as { id?: number; error?: string; message?: string };
+      if (!res.ok) {
+        if (data.error === "two_factor_required") {
+          setDeletionError("Enable two-factor authentication on your account first, then try again.");
+        } else if (data.error === "recency_lock") {
+          setDeletionError(data.message ?? "This thread is within the 30-day protection period.");
+        } else {
+          setDeletionError(data.error ?? "Failed to start deletion request.");
+        }
+        return;
+      }
+      setDeletionRequestId(data.id ?? null);
+      setDeletionStep("otp");
+    } catch {
+      setDeletionError("Network error. Please try again.");
+    } finally {
+      setDeletionLoading(false);
+    }
+  }, [deletionThread, domain, getToken]);
+
+  const handleConfirmOtp = useCallback(async () => {
+    if (!deletionRequestId) return;
+    setDeletionLoading(true);
+    setDeletionError("");
+    try {
+      const token = await getToken();
+      const res = await fetch(`${domain}/api/deletion-requests/${deletionRequestId}/confirm-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ otp: deletionOtp }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setDeletionError(
+          data.error === "invalid_otp"
+            ? "Incorrect code. Check your email and try again."
+            : (data.error ?? "OTP verification failed."),
+        );
+        return;
+      }
+      setDeletionStep("waiting");
+    } catch {
+      setDeletionError("Network error. Please try again.");
+    } finally {
+      setDeletionLoading(false);
+    }
+  }, [deletionRequestId, deletionOtp, domain, getToken]);
 
   const handleNewThread = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -92,24 +168,24 @@ export default function VaultScreen() {
 
   const handleDelete = useCallback(
     (thread: Thread) => {
-      Alert.alert("Delete vault?", `"${thread.title}" will be permanently deleted.`, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            try {
-              await deleteThread.mutateAsync({ threadId: thread.id });
-              await refetch();
-            } catch {
-              Alert.alert("Error", "Could not delete thread.");
-            }
-          },
-        },
-      ]);
+      const ageMs = Date.now() - new Date(thread.createdAt).getTime();
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      if (ageMs < THIRTY_DAYS_MS) {
+        const daysLeft = Math.ceil((THIRTY_DAYS_MS - ageMs) / (24 * 60 * 60 * 1000));
+        Alert.alert(
+          "Thread Locked",
+          `This conversation is protected for ${daysLeft} more day${daysLeft !== 1 ? "s" : ""}. Threads cannot be deleted within 30 days of creation.`,
+          [{ text: "OK" }],
+        );
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setDeletionThread(thread);
+      setDeletionOtp("");
+      setDeletionError("");
+      setDeletionStep("confirming");
     },
-    [deleteThread, refetch],
+    [],
   );
 
   const handlePin = useCallback(
@@ -259,6 +335,116 @@ export default function VaultScreen() {
           void refetch();
         }}
       />
+
+      {/* Protected deletion flow modal */}
+      <Modal
+        visible={deletionStep !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDeletion}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={deletionLoading ? undefined : closeDeletion}
+        >
+          <TouchableOpacity
+            style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+            activeOpacity={1}
+          >
+            {deletionStep === "confirming" && (
+              <>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Delete Conversation?</Text>
+                <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+                  "{deletionThread?.title}" will be scheduled for deletion after a 24-hour waiting period. A verification code will be sent to your email, and you can cancel at any time during this window.
+                </Text>
+                {deletionError ? (
+                  <Text style={[styles.modalError, { color: colors.destructive }]}>{deletionError}</Text>
+                ) : null}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.muted }]}
+                    onPress={closeDeletion}
+                    disabled={deletionLoading}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.foreground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.destructive }]}
+                    onPress={() => void handleStartDeletion()}
+                    disabled={deletionLoading}
+                  >
+                    {deletionLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={[styles.modalBtnText, { color: "#fff" }]}>Start Deletion</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {deletionStep === "otp" && (
+              <>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Enter Verification Code</Text>
+                <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+                  A 6-digit code was sent to your email address. Enter it below to confirm the deletion request.
+                </Text>
+                <TextInput
+                  style={[styles.otpInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.background }]}
+                  value={deletionOtp}
+                  onChangeText={setDeletionOtp}
+                  placeholder="123456"
+                  placeholderTextColor={colors.mutedForeground}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  autoFocus
+                />
+                {deletionError ? (
+                  <Text style={[styles.modalError, { color: colors.destructive }]}>{deletionError}</Text>
+                ) : null}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.muted }]}
+                    onPress={closeDeletion}
+                    disabled={deletionLoading}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.foreground }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.destructive, opacity: deletionOtp.length < 6 ? 0.5 : 1 }]}
+                    onPress={() => void handleConfirmOtp()}
+                    disabled={deletionLoading || deletionOtp.length < 6}
+                  >
+                    {deletionLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={[styles.modalBtnText, { color: "#fff" }]}>Confirm</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {deletionStep === "waiting" && (
+              <>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>Deletion Scheduled</Text>
+                <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+                  Your request is confirmed. You'll receive an email within 24 hours with a link to complete the deletion. You can cancel the request in Settings before then.
+                </Text>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => { closeDeletion(); void refetch(); }}
+                  >
+                    <Text style={[styles.modalBtnText, { color: colors.primaryForeground }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -423,4 +609,39 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   menuText: { fontSize: 14, fontFamily: "Inter_500Medium" },
   menuDivider: { height: StyleSheet.hairlineWidth },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
+    gap: 16,
+  },
+  modalTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  modalBody: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  modalError: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  modalActions: { flexDirection: "row", gap: 12, justifyContent: "flex-end" },
+  modalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  modalBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  otpInput: {
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+    letterSpacing: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
 });

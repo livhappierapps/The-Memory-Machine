@@ -785,6 +785,9 @@ function SettingsContent() {
 
   const [historyDeletionOpen, setHistoryDeletionOpen] = useState(false);
   const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
+  const [dateRangeDeletionOpen, setDateRangeDeletionOpen] = useState(false);
+  const [dateRangeFrom, setDateRangeFrom] = useState("");
+  const [dateRangeTo, setDateRangeTo] = useState("");
 
   return (
     <div className="space-y-8">
@@ -820,6 +823,43 @@ function SettingsContent() {
               Conversations deleted in the last 30 days can be restored. After 30 days, they are permanently purged.
             </p>
             <DeletedThreadsPanel />
+          </div>
+
+          {/* Date-range deletion */}
+          <div className="border-t border-red-900/40 pt-6">
+            <h3 className="text-base font-medium mb-1 text-red-400">Delete Conversations by Date Range</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Delete all conversations within a specific date range. This is a protected action with a 24-hour waiting period and email verification.
+            </p>
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">From</label>
+                <input
+                  type="date"
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  value={dateRangeFrom}
+                  onChange={(e) => setDateRangeFrom(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">To</label>
+                <input
+                  type="date"
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  value={dateRangeTo}
+                  onChange={(e) => setDateRangeTo(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="destructive"
+                className="gap-2 bg-red-800 hover:bg-red-700"
+                disabled={!dateRangeFrom && !dateRangeTo}
+                onClick={() => setDateRangeDeletionOpen(true)}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete in Range...
+              </Button>
+            </div>
           </div>
 
           {/* Bulk deletion */}
@@ -864,6 +904,13 @@ function SettingsContent() {
           open={accountDeletionOpen}
           onOpenChange={setAccountDeletionOpen}
           targetType="account"
+        />
+        <DeletionFlowDialog
+          open={dateRangeDeletionOpen}
+          onOpenChange={setDateRangeDeletionOpen}
+          targetType="date-range"
+          dateFrom={dateRangeFrom || undefined}
+          dateTo={dateRangeTo || undefined}
         />
       </section>
     </div>

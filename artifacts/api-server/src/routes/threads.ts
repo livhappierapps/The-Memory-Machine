@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, profilesTable, settingsTable } from "@workspace/db";
-import { eq, and, desc, count, ilike, gte, lte } from "drizzle-orm";
+import { eq, and, desc, count, ilike, gte, lte, isNull } from "drizzle-orm";
 import { retrieveMemories } from "../lib/memory";
 import { isPgvectorAvailable } from "../lib/db-bootstrap";
 import {
@@ -18,6 +18,8 @@ import { requireAuth } from "../middlewares/auth";
 import { ensureDefaultProfile } from "./profiles";
 
 const router: IRouter = Router();
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 // List threads
 router.get("/threads", requireAuth, async (req: Request, res: Response) => {
@@ -36,7 +38,7 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
     const parsed = ListThreadsQueryParams.safeParse(rawQuery);
     const query = parsed.success ? parsed.data : {};
 
-    const conditions = [eq(threadsTable.userId, userId)];
+    const conditions = [eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)];
 
     if (query.archived !== undefined) {
       conditions.push(eq(threadsTable.archived, query.archived));
@@ -148,7 +150,7 @@ router.get("/threads/:threadId", requireAuth, async (req: Request, res: Response
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });
@@ -195,7 +197,7 @@ router.patch("/threads/:threadId", requireAuth, async (req: Request, res: Respon
   }
 });
 
-// Delete thread
+// Soft-delete thread (with 30-day recency lock)
 router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
@@ -206,8 +208,52 @@ router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Respo
     }
 
     const [thread] = await db
-      .delete(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)))
+      .select()
+      .from(threadsTable)
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
+
+    if (!thread) {
+      res.status(404).json({ error: "Thread not found" });
+      return;
+    }
+
+    const ageMs = Date.now() - thread.createdAt.getTime();
+    if (ageMs < THIRTY_DAYS_MS) {
+      const unlocksAt = new Date(thread.createdAt.getTime() + THIRTY_DAYS_MS).toISOString();
+      res.status(423).json({
+        error: "recency_lock",
+        message: `Conversations created within the last 30 days cannot be deleted. Unlocks on ${new Date(unlocksAt).toLocaleDateString()}.`,
+        unlocksAt,
+      });
+      return;
+    }
+
+    await db
+      .update(threadsTable)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+
+    res.status(204).send();
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete thread");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Restore soft-deleted thread
+router.patch("/threads/:threadId/restore", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const threadId = parseInt(req.params.threadId as string, 10);
+    if (isNaN(threadId)) {
+      res.status(400).json({ error: "Invalid thread ID" });
+      return;
+    }
+
+    const [thread] = await db
+      .update(threadsTable)
+      .set({ deletedAt: null })
+      .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId)))
       .returning();
 
     if (!thread) {
@@ -215,9 +261,33 @@ router.delete("/threads/:threadId", requireAuth, async (req: Request, res: Respo
       return;
     }
 
-    res.status(204).send();
+    res.json(thread);
   } catch (err) {
-    req.log.error({ err }, "Failed to delete thread");
+    req.log.error({ err }, "Failed to restore thread");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get recently soft-deleted threads (30-day restore window)
+router.get("/threads/deleted", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const cutoff = new Date(Date.now() - THIRTY_DAYS_MS);
+
+    const rows = await db
+      .select()
+      .from(threadsTable)
+      .where(
+        and(
+          eq(threadsTable.userId, userId),
+          gte(threadsTable.deletedAt, cutoff),
+        ),
+      )
+      .orderBy(desc(threadsTable.deletedAt));
+
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "Failed to list deleted threads");
     res.status(500).json({ error: "Internal server error" });
   }
 });

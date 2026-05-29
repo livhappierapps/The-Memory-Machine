@@ -8,6 +8,7 @@ export const settingsTable = pgTable("settings", {
   defaultModel: text("default_model").notNull().default("grok-3"),
   maxContextMessages: integer("max_context_messages").notNull().default(100),
   mcpToken: text("mcp_token"),
+  paymentStatus: text("payment_status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

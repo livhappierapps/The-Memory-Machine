@@ -19,8 +19,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight } from "lucide-react";
+import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { KeyphraseSection } from "@/components/security/keyphrase-section";
+import { DeletedThreadsPanel } from "@/components/vault/deleted-threads-panel";
+import { DeletionFlowDialog } from "@/components/vault/deletion-flow-dialog";
 
 // Models available for each provider
 const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
@@ -780,6 +783,8 @@ function SettingsContent() {
     });
   };
 
+  const [historyDeletionOpen, setHistoryDeletionOpen] = useState(false);
+
   return (
     <div className="space-y-8">
       <McpSection
@@ -789,6 +794,56 @@ function SettingsContent() {
       />
 
       <ProfileSettingsForm />
+
+      {/* Security Section */}
+      <section className="rounded-xl border border-red-900/40 bg-card overflow-hidden">
+        <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5 text-red-400" />
+          <h2 className="text-lg font-semibold">Security & Deletion</h2>
+        </div>
+
+        <div className="p-6 space-y-8">
+          {/* Keyphrase Vault */}
+          <div>
+            <h3 className="text-base font-medium mb-1">Keyphrase Vault</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Set a keyphrase to add an extra layer of protection to all deletion requests. Requires 2FA to be enabled on your account.
+            </p>
+            <KeyphraseSection />
+          </div>
+
+          {/* Deleted conversations restore */}
+          <div>
+            <h3 className="text-base font-medium mb-1">Recently Deleted Conversations</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Conversations deleted in the last 30 days can be restored. After 30 days, they are permanently purged.
+            </p>
+            <DeletedThreadsPanel />
+          </div>
+
+          {/* Bulk deletion */}
+          <div>
+            <h3 className="text-base font-medium mb-1 text-red-400">Delete All Conversations</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently delete your full conversation history. This is a protected action with a 2-week waiting period and email verification.
+            </p>
+            <Button
+              variant="destructive"
+              className="gap-2 bg-red-800 hover:bg-red-700"
+              onClick={() => setHistoryDeletionOpen(true)}
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete All History...
+            </Button>
+          </div>
+        </div>
+
+        <DeletionFlowDialog
+          open={historyDeletionOpen}
+          onOpenChange={setHistoryDeletionOpen}
+          targetType="history"
+        />
+      </section>
     </div>
   );
 }

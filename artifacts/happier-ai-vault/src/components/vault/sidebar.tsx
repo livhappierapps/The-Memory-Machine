@@ -28,6 +28,7 @@ import { BulkImportDialog } from "./bulk-import-dialog";
 import { StatsDialog } from "./stats-dialog";
 import { ProfileSwitcher } from "./profile-switcher";
 import { useProfile } from "@/contexts/profile-context";
+import { DeletionFlowDialog } from "./deletion-flow-dialog";
 
 interface SidebarProps {
   activeThreadId: number | null;
@@ -122,10 +123,13 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
     );
   };
 
+  const [deletionFlowOpen, setDeletionFlowOpen] = useState(false);
+  const [deletionTargetId, setDeletionTargetId] = useState<number | null>(null);
+
   const handleDelete = (e: React.MouseEvent, threadId: number) => {
     e.stopPropagation();
-    if (!confirm("Delete this vault? This cannot be undone.")) return;
-    deleteThread.mutate({ threadId }, { onSuccess: invalidateThreads });
+    setDeletionTargetId(threadId);
+    setDeletionFlowOpen(true);
   };
 
   return (
@@ -349,6 +353,16 @@ export function Sidebar({ activeThreadId, onSelectThread }: SidebarProps) {
           )}
         </div>
       </ScrollArea>
+
+      {deletionFlowOpen && deletionTargetId !== null && (
+        <DeletionFlowDialog
+          open={deletionFlowOpen}
+          onOpenChange={setDeletionFlowOpen}
+          targetType="thread"
+          targetIds={[deletionTargetId]}
+          onSuccess={invalidateThreads}
+        />
+      )}
     </div>
   );
 }

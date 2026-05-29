@@ -10,6 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { purgeExpiredSoftDeletes } from "./routes/deletion-requests";
 
 const app: Express = express();
 
@@ -61,5 +62,9 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// Purge threads soft-deleted 30+ days ago — runs at startup then every 6 hours
+purgeExpiredSoftDeletes();
+setInterval(purgeExpiredSoftDeletes, 6 * 60 * 60 * 1000);
 
 export default app;

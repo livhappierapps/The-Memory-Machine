@@ -14,6 +14,7 @@ export const threadsTable = pgTable("threads", {
   messageCount: integer("message_count").notNull().default(0),
   memoryWeight: integer("memory_weight").notNull().default(0),
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

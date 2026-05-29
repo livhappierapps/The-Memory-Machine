@@ -4,7 +4,9 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Sidebar } from "@/components/vault/sidebar";
 import { ChatArea } from "@/components/vault/chat-area";
 import { useProfile } from "@/contexts/profile-context";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { DeletionWarningBanner } from "@/components/vault/deletion-warning-banner";
+import { useToast } from "@/hooks/use-toast";
 
 function VaultContent() {
   const { activeProfileId } = useProfile();
@@ -31,9 +33,25 @@ function VaultContent() {
     setMobileChatVisible(false);
   };
 
+  const { toast } = useToast();
+
+  const handleCancelDeletion = useCallback(async (id: number) => {
+    const res = await fetch(`/api/deletion-requests/${id}/cancel`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (res.ok) {
+      toast({ title: "Deletion cancelled", description: "Your data is safe." });
+    } else {
+      toast({ title: "Failed to cancel", variant: "destructive" });
+    }
+  }, [toast]);
+
   return (
     <AppLayout>
-      <div className="flex h-full w-full overflow-hidden">
+      <div className="flex flex-col h-full w-full overflow-hidden">
+      <DeletionWarningBanner onCancel={handleCancelDeletion} />
+      <div className="flex flex-1 w-full overflow-hidden">
 
         {/* Sidebar: full-screen on mobile, fixed w-80 on md+ */}
         <div
@@ -73,6 +91,7 @@ function VaultContent() {
           )}
         </div>
 
+      </div>
       </div>
     </AppLayout>
   );

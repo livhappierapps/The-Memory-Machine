@@ -1,0 +1,3 @@
+- [Soft delete pattern](soft-delete.md) — threads use deletedAt (nullable timestamp); all list/get queries filter with isNull(threadsTable.deletedAt); purge cron runs every 6h
+- [Deletion flow architecture](deletion-flow.md) — 5-step protected deletion: create → OTP (15min) → 24h/2wk wait → signed email link → final OTP; cancel token is a UUID stored in DB
+- [DB push interactive prompts](db-push-interactive.md) — drizzle-kit push asks interactive questions that can't be bypassed with flags; use psql directly for new tables in CI/automation

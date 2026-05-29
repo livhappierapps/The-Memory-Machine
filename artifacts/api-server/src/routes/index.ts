@@ -7,6 +7,8 @@ import statsRouter from "./stats";
 import importRouter from "./import";
 import mcpRouter from "./mcp";
 import profilesRouter from "./profiles";
+import deletionRequestsRouter from "./deletion-requests";
+import securityRouter from "./security";
 
 const router: IRouter = Router();
 
@@ -18,5 +20,7 @@ router.use(settingsRouter);
 router.use(statsRouter);
 router.use(importRouter);
 router.use(mcpRouter);
+router.use(deletionRequestsRouter);
+router.use(securityRouter);
 
 export default router;

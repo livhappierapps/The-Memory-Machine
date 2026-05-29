@@ -52,6 +52,7 @@ function formatSettings(
     defaultModel: profile?.defaultModel ?? settings.defaultModel,
     maxContextMessages: profile?.maxContextMessages ?? settings.maxContextMessages,
     mcpToken: settings.mcpToken ?? null,
+    paymentStatus: settings.paymentStatus ?? "active",
     createdAt: settings.createdAt.toISOString(),
     updatedAt: settings.updatedAt.toISOString(),
   };

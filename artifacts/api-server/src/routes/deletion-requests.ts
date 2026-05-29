@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { deletionRequestsTable, threadsTable, settingsTable } from "@workspace/db";
-import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, lt, inArray, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { generateOtp, encryptText, signToken, verifySignedToken } from "../lib/crypto-utils";
 import {
@@ -380,13 +380,35 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
 
     await db.update(deletionRequestsTable).set({ status: "executed", otpHash: null }).where(eq(deletionRequestsTable.id, id));
 
-    if (request.targetType === "thread" && request.targetIds && (request.targetIds as number[]).length > 0) {
+    const now = new Date();
+
+    if (request.targetType === "thread") {
+      const ids = (request.targetIds ?? []) as number[];
+      if (ids.length > 0) {
+        await db
+          .update(threadsTable)
+          .set({ deletedAt: now })
+          .where(and(eq(threadsTable.userId, userId), inArray(threadsTable.id, ids), isNull(threadsTable.deletedAt)));
+      }
+    } else if (request.targetType === "date-range") {
+      const conditions = [eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)];
+      if (request.dateFrom) {
+        conditions.push(gte(threadsTable.createdAt, new Date(request.dateFrom)));
+      }
+      if (request.dateTo) {
+        conditions.push(lte(threadsTable.createdAt, new Date(request.dateTo + "T23:59:59Z")));
+      }
+      await db.update(threadsTable).set({ deletedAt: now }).where(and(...conditions));
+    } else if (request.targetType === "history") {
       await db
         .update(threadsTable)
-        .set({ deletedAt: new Date() })
-        .where(and(eq(threadsTable.userId, userId)));
-    } else if (request.targetType === "history" || request.targetType === "date-range") {
-      await db.update(threadsTable).set({ deletedAt: new Date() }).where(eq(threadsTable.userId, userId));
+        .set({ deletedAt: now })
+        .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
+    } else if (request.targetType === "account") {
+      await db
+        .update(threadsTable)
+        .set({ deletedAt: now })
+        .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
     }
 
     const userEmail = await getUserEmail(userId);

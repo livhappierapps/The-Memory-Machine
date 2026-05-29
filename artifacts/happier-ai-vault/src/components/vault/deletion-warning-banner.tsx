@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AlertTriangle, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface PendingDeletion {
   id: number;
@@ -34,14 +35,11 @@ function targetLabel(request: PendingDeletion): string {
   return "selected conversations";
 }
 
-interface DeletionWarningBannerProps {
-  onCancel: (id: number) => Promise<void>;
-}
-
-export function DeletionWarningBanner({ onCancel }: DeletionWarningBannerProps) {
+export function DeletionWarningBanner() {
   const [pending, setPending] = useState<PendingDeletion | null>(null);
   const [countdown, setCountdown] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     let mounted = true;
@@ -77,15 +75,24 @@ export function DeletionWarningBanner({ onCancel }: DeletionWarningBannerProps) 
 
   if (!pending) return null;
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
+    if (!pending) return;
     setCancelling(true);
     try {
-      await onCancel(pending.id);
-      setPending(null);
+      const res = await fetch(`/api/deletion-requests/${pending.id}/cancel`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        setPending(null);
+        toast({ title: "Deletion cancelled", description: "Your data is safe." });
+      } else {
+        toast({ title: "Failed to cancel", variant: "destructive" });
+      }
     } finally {
       setCancelling(false);
     }
-  };
+  }, [pending, toast]);
 
   return (
     <div

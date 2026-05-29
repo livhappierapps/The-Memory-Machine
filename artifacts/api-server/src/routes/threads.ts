@@ -182,7 +182,7 @@ router.patch("/threads/:threadId", requireAuth, async (req: Request, res: Respon
     const [thread] = await db
       .update(threadsTable)
       .set(parsed.data)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)))
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
       .returning();
 
     if (!thread) {
@@ -307,7 +307,7 @@ router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: R
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, params.data.threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });
@@ -361,7 +361,7 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
     const [thread] = await db
       .select()
       .from(threadsTable)
-      .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId)));
+      .where(and(eq(threadsTable.id, threadId), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
     if (!thread) {
       res.status(404).json({ error: "Thread not found" });

@@ -1,16 +1,29 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useClerk } from "@clerk/react";
 import { LogOut, Settings, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DeletionWarningBanner, PaymentWarningBanner } from "@/components/vault/deletion-warning-banner";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const { signOut } = useClerk();
+  const [paymentStatus, setPaymentStatus] = useState("active");
+
+  useEffect(() => {
+    fetch("/api/settings", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.paymentStatus) setPaymentStatus(data.paymentStatus); })
+      .catch(() => {});
+  }, []);
 
   return (
-    <div className="flex h-screen w-full bg-background text-foreground">
+    <div className="flex flex-col h-screen w-full bg-background text-foreground">
+      {/* Global warning banners — shown on every authenticated page */}
+      <DeletionWarningBanner />
+      <PaymentWarningBanner paymentStatus={paymentStatus} />
+      <div className="flex flex-1 min-h-0 w-full">
       {/* Mini vertical sidebar for global nav */}
       <div
         className="w-14 shrink-0 border-r border-border/50 flex flex-col items-center py-4 bg-sidebar neon-border"
@@ -101,6 +114,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </div>
 
       <main className="flex-1 min-w-0 h-full relative">{children}</main>
+      </div>
     </div>
   );
 }

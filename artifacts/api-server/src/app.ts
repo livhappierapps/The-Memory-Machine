@@ -63,6 +63,11 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   }
 });
 
+// Fail loudly if SESSION_SECRET is the unsafe default
+if (process.env.SESSION_SECRET === "dev-secret-change-me" || !process.env.SESSION_SECRET) {
+  logger.warn("SESSION_SECRET is not set or is using the insecure default. Crypto operations (OTPs, signed tokens) will be predictable. Set SESSION_SECRET in production.");
+}
+
 // Purge threads soft-deleted 30+ days ago — runs at startup then every 6 hours
 purgeExpiredSoftDeletes();
 setInterval(purgeExpiredSoftDeletes, 6 * 60 * 60 * 1000);

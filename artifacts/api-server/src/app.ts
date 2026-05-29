@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import helmet from "helmet";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
 import {
@@ -11,8 +13,13 @@ import {
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { purgeExpiredSoftDeletes, sendReadyDeletionLinkEmails } from "./routes/deletion-requests";
+import { cleanupRateLimiter } from "./lib/rate-limiter";
+import { purgeExpiredSnapshots, runWeeklySnapshots } from "./lib/snapshot";
 
 const app: Express = express();
+
+// Security headers (CSP disabled — Clerk's FAPI JS needs inline scripts)
+app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use(
   pinoHttp({
@@ -31,6 +38,7 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 app.use(cors({ credentials: true, origin: true }));
+app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -78,6 +86,8 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === "dev-secret-ch
   }
 }
 
+// ── Background crons ───────────────────────────────────────────────────────────
+
 // Purge threads soft-deleted 30+ days ago — runs at startup then every 6 hours
 purgeExpiredSoftDeletes();
 setInterval(purgeExpiredSoftDeletes, 6 * 60 * 60 * 1000);
@@ -85,5 +95,23 @@ setInterval(purgeExpiredSoftDeletes, 6 * 60 * 60 * 1000);
 // Send queued deletion link emails once executeAfter has elapsed — runs every 5 minutes
 sendReadyDeletionLinkEmails();
 setInterval(sendReadyDeletionLinkEmails, 5 * 60 * 1000);
+
+// Purge expired snapshots — runs once at startup then every 6 hours
+purgeExpiredSnapshots();
+setInterval(purgeExpiredSnapshots, 6 * 60 * 60 * 1000);
+
+// Weekly automatic snapshots — runs every 7 days
+// Also check every hour so the weekly trigger fires accurately across restarts
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+let lastWeeklySnapshot = 0;
+setInterval(async () => {
+  if (Date.now() - lastWeeklySnapshot >= WEEK_MS) {
+    lastWeeklySnapshot = Date.now();
+    await runWeeklySnapshots();
+  }
+}, 60 * 60 * 1000);
+
+// Cleanup in-memory rate limiter entries every 10 minutes
+setInterval(cleanupRateLimiter, 10 * 60 * 1000);
 
 export default app;

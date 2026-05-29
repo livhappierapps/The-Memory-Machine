@@ -17,6 +17,7 @@ import { streamCompletion, resolveChatKey, type ChatProvider } from "../lib/ai-p
 import { embedMessageAsync } from "../lib/embeddings";
 import { retrieveMemories } from "../lib/memory";
 import { maybeSummarizeAsync } from "../lib/summarizer";
+import { encryptField, decryptField } from "../lib/field-crypto";
 
 const router: IRouter = Router();
 
@@ -54,7 +55,7 @@ router.get("/messages/recent", requireAuth, async (req: Request, res: Response) 
       .orderBy(desc(messagesTable.createdAt))
       .limit(limit);
 
-    res.json(messages);
+    res.json(messages.map((m) => ({ ...m, content: decryptField(userId, m.content) })));
   } catch (err) {
     req.log.error({ err }, "Failed to get recent messages");
     res.status(500).json({ error: "Internal server error" });
@@ -90,7 +91,7 @@ router.get("/threads/:threadId/messages", requireAuth, async (req: Request, res:
       .where(and(eq(messagesTable.threadId, params.data.threadId), eq(messagesTable.isSummary, false)))
       .orderBy(asc(messagesTable.createdAt));
 
-    res.json(messages);
+    res.json(messages.map((m) => ({ ...m, content: decryptField(userId, m.content) })));
   } catch (err) {
     req.log.error({ err }, "Failed to get messages");
     res.status(500).json({ error: "Internal server error" });
@@ -122,12 +123,13 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
       return;
     }
 
+    const plainContent = parsed.data.content;
     const [message] = await db
       .insert(messagesTable)
       .values({
         threadId: params.data.threadId,
         role: "user",
-        content: parsed.data.content,
+        content: encryptField(userId, plainContent),
         isSummary: false,
       })
       .returning();
@@ -137,7 +139,7 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
       .set({ messageCount: thread.messageCount + 1, lastMessageAt: new Date() })
       .where(eq(threadsTable.id, params.data.threadId));
 
-    res.json(message);
+    res.json({ ...message!, content: plainContent });
 
     // ── Async: embed the saved message (best-effort) ───────────────────────
     if (thread.profileId) {
@@ -150,7 +152,8 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
       const provider = profile?.embeddingProvider ?? "xai";
       const embKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey;
       if (embKey) {
-        embedMessageAsync(message.id, params.data.threadId, thread.profileId, parsed.data.content, embKey, provider);
+        // Embedding uses plaintext content (decryptField is a no-op on plaintext)
+        embedMessageAsync(message!.id, params.data.threadId, thread.profileId, plainContent, embKey, provider);
       }
     }
   } catch (err) {
@@ -201,15 +204,19 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     // Save user message first — before any API key check so the message is
     // always persisted and visible in the UI even when streaming cannot start.
+    const plainUserContent = parsed.data.content;
     const [userMsg] = await db
       .insert(messagesTable)
       .values({
         threadId: params.data.threadId,
         role: "user",
-        content: parsed.data.content,
+        content: encryptField(userId, plainUserContent),
         isSummary: false,
       })
       .returning();
+
+    // Expose plaintext to SSE client (never send the enc:v1: blob to the frontend)
+    const userMsgForClient = { ...userMsg!, content: plainUserContent };
 
     await db
       .update(threadsTable)
@@ -218,12 +225,19 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     // Determine which AI provider and key to use for this chat request
     const chatProvider = (profile?.chatProvider ?? "xai") as ChatProvider;
+    // Decrypt API keys for use with AI providers
+    const rawProfileApiKey = profile?.apiKey ? decryptField(userId, profile.apiKey) : null;
+    const rawOpenAiKey = profile?.openAiApiKey ? decryptField(userId, profile.openAiApiKey) : null;
+    const rawAnthropicKey = profile?.anthropicApiKey ? decryptField(userId, profile.anthropicApiKey) : null;
+    const rawGoogleKey = profile?.googleApiKey ? decryptField(userId, profile.googleApiKey) : null;
+    const rawSettingsApiKey = settings?.apiKey ? decryptField(userId, settings.apiKey) : null;
+
     const apiKey = resolveChatKey(
       chatProvider,
-      profile?.apiKey ?? settings?.apiKey ?? null,
-      profile?.openAiApiKey ?? null,
-      profile?.anthropicApiKey ?? null,
-      profile?.googleApiKey ?? null,
+      rawProfileApiKey ?? rawSettingsApiKey ?? null,
+      rawOpenAiKey ?? null,
+      rawAnthropicKey ?? null,
+      rawGoogleKey ?? null,
     );
     if (!apiKey) {
       const providerLabels: Record<ChatProvider, string> = {
@@ -239,7 +253,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
-      res.write(`data: ${JSON.stringify({ type: "user_message", message: userMsg })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "user_message", message: userMsgForClient })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: "error", error: `No API key configured for ${providerLabels[chatProvider]}. Add it in Settings → AI Provider.` })}\n\n`);
       res.end();
       return;
@@ -247,11 +261,17 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     // Load current thread history — exclude summary messages (they are internal
     // memory artifacts and must not be sent back as conversation turns to Grok)
-    const history = await db
+    const historyRaw = await db
       .select()
       .from(messagesTable)
       .where(and(eq(messagesTable.threadId, params.data.threadId), eq(messagesTable.isSummary, false)))
       .orderBy(asc(messagesTable.createdAt));
+
+    // Decrypt history content before sending to AI
+    const history = historyRaw.map((m) => ({
+      ...m,
+      content: decryptField(userId, m.content),
+    }));
 
     const model = thread.model || profile?.defaultModel || settings?.defaultModel || "grok-3";
     const maxCtx = profile?.maxContextMessages ?? settings?.maxContextMessages ?? 0;
@@ -274,7 +294,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       try {
         // Resolve the key to use for embedding the query (may differ from chat key)
         const embeddingProvider = profile.embeddingProvider ?? "xai";
-        const resolvedOpenAiKey = embeddingProvider === "openai" ? profile.openAiApiKey : null;
+        const resolvedOpenAiKey = embeddingProvider === "openai" ? rawOpenAiKey : null;
         if (embeddingProvider === "openai" && !resolvedOpenAiKey) {
           req.log.warn(
             { profileId: profile.id },
@@ -283,7 +303,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
         }
         // For xAI embeddings, use profile.apiKey (the dedicated xAI key),
         // not the chat key (which may be Anthropic/Google for this profile).
-        const embeddingApiKey = resolvedOpenAiKey ?? profile.apiKey ?? settings?.apiKey ?? "";
+        const embeddingApiKey = resolvedOpenAiKey ?? rawProfileApiKey ?? rawSettingsApiKey ?? "";
         const effectiveProvider = embeddingProvider === "openai" && !resolvedOpenAiKey ? "xai" : embeddingProvider;
         if (!embeddingApiKey) {
           req.log.warn({ profileId: profile.id, embeddingProvider }, "No embedding API key — skipping smart retrieval");
@@ -294,7 +314,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
           profileId: profile.id,
           userId,
           currentThreadId: params.data.threadId,
-          query: parsed.data.content,
+          query: plainUserContent,
           smartRetrieval,
           topN,
           alwaysIncludeLastN,
@@ -381,7 +401,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    sendEvent({ type: "user_message", message: userMsg });
+    sendEvent({ type: "user_message", message: userMsgForClient });
 
     // Emit memory sources so the frontend can show "What Leo knows"
     if (memorySources.length > 0) {
@@ -404,16 +424,19 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     if (res.writableEnded) return;
 
-    // Persist assistant response
+    // Persist assistant response (encrypted at rest)
     const [assistantMsg] = await db
       .insert(messagesTable)
       .values({
         threadId: params.data.threadId,
         role: "assistant",
-        content: fullContent,
+        content: encryptField(userId, fullContent),
         isSummary: false,
       })
       .returning();
+
+    // Expose plaintext to SSE client
+    const assistantMsgForClient = { ...assistantMsg!, content: fullContent };
 
     await db
       .update(threadsTable)
@@ -424,7 +447,7 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     // still refers to the original snapshot value, so the final count is correct:
     // snapshot + 2 overwrites snapshot + 1, giving the right absolute count.
 
-    sendEvent({ type: "done", message: assistantMsg, memorySources });
+    sendEvent({ type: "done", message: assistantMsgForClient, memorySources });
     res.end();
 
     // ── Async: generate embeddings for user + assistant messages ──────────
@@ -432,20 +455,21 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     // Embedding key is independent of chat provider:
     // openai embeddings → openAiApiKey; xai embeddings → profile.apiKey (xAI key), not the chat key.
     const embeddingKey =
-      (embeddingProvider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey ?? settings?.apiKey ?? "";
-    embedMessageAsync(userMsg.id, params.data.threadId, thread.profileId ?? null, parsed.data.content, embeddingKey, embeddingProvider);
+      (embeddingProvider === "openai" ? rawOpenAiKey : null) ?? rawProfileApiKey ?? rawSettingsApiKey ?? "";
+    // Embeddings always use plaintext content
+    embedMessageAsync(userMsg!.id, params.data.threadId, thread.profileId ?? null, plainUserContent, embeddingKey, embeddingProvider);
     if (fullContent) {
-      embedMessageAsync(assistantMsg.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);
+      embedMessageAsync(assistantMsg!.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
     // Summarization always uses xAI (callGrokForSummary is xAI-only), so always
     // pass the xAI key explicitly — never the chat provider key (which may be
     // Anthropic/Google for this profile). Skip if no xAI key is configured.
-    const xaiKeyForSummary = profile?.apiKey ?? settings?.apiKey;
+    const xaiKeyForSummary = rawProfileApiKey ?? rawSettingsApiKey;
     if (xaiKeyForSummary) {
       const summaryModel = chatProvider === "xai" ? model : (profile?.defaultModel ?? "grok-3-mini");
-      maybeSummarizeAsync(params.data.threadId, xaiKeyForSummary, summaryModel);
+      maybeSummarizeAsync(userId, params.data.threadId, xaiKeyForSummary, summaryModel);
     } else {
       req.log.debug({ chatProvider, threadId: params.data.threadId }, "Skipping summarization — no xAI key configured for this profile");
     }
@@ -556,7 +580,7 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
         parsedMessages.map((m) => ({
           threadId: params.data.threadId,
           role: m.role,
-          content: m.content,
+          content: encryptField(userId, m.content),
           isSummary: false,
         })),
       )
@@ -567,7 +591,11 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
       .set({ messageCount: thread.messageCount + inserted.length, lastMessageAt: new Date() })
       .where(eq(threadsTable.id, params.data.threadId));
 
-    res.json({ importedCount: inserted.length, messages: inserted });
+    // Return plaintext content to caller
+    res.json({
+      importedCount: inserted.length,
+      messages: inserted.map((m, i) => ({ ...m, content: parsedMessages[i]!.content })),
+    });
 
     // ── Async: embed imported messages (best-effort) ───────────────────────
     if (thread.profileId) {
@@ -577,11 +605,16 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
         .where(eq(profilesTable.id, thread.profileId));
       // Resolve effective embedding key (openAiApiKey for openai provider, else profile.apiKey)
       const provider = profile?.embeddingProvider ?? "xai";
-      const embKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey;
+      const rawProfileKey = profile?.apiKey ? decryptField(userId, profile.apiKey) : null;
+      const rawOpenAiKey = profile?.openAiApiKey ? decryptField(userId, profile.openAiApiKey) : null;
+      const embKey = (provider === "openai" ? rawOpenAiKey : null) ?? rawProfileKey;
       if (embKey) {
-        for (const msg of inserted) {
+        // Embed using plaintext content (parsedMessages[i].content, not the encrypted DB form)
+        for (let i = 0; i < inserted.length; i++) {
+          const msg = inserted[i]!;
+          const plain = parsedMessages[i]!.content;
           if (msg.role === "user" || msg.role === "assistant") {
-            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, msg.content, embKey, provider);
+            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, plain, embKey, provider);
           }
         }
       }

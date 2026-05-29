@@ -5,3 +5,5 @@ export * from "./settings";
 export * from "./embeddings";
 export * from "./deletion-requests";
 export * from "./user-keyphrases";
+export * from "./trusted-devices";
+export * from "./snapshots";

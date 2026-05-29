@@ -16,6 +16,7 @@ import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
 import { logger } from "./logger";
 import { embedMessageAsync } from "./embeddings";
+import { encryptField } from "./field-crypto";
 
 // ── Event types ───────────────────────────────────────────────────────────────
 
@@ -289,13 +290,18 @@ async function insertBatch(
     )
     .returning();
 
+  // Keep plaintext content separately — needed for embedding (before encryption)
+  const allMessagesPlain: string[] = [];
   const allMessages = threads.flatMap((thread, i) =>
-    (batch[i]?.messages ?? []).map((m) => ({
-      threadId: thread.id,
-      role: m.role,
-      content: m.content,
-      isSummary: false,
-    })),
+    (batch[i]?.messages ?? []).map((m) => {
+      allMessagesPlain.push(m.content);
+      return {
+        threadId: thread.id,
+        role: m.role,
+        content: encryptField(userId, m.content),
+        isSummary: false,
+      };
+    }),
   );
 
   // Chunk to stay under the PG parameter limit
@@ -311,11 +317,14 @@ async function insertBatch(
   // Fire-and-forget: generate embeddings for all inserted messages so that
   // smart memory retrieval works on imported conversations.
   // Embedding is skipped gracefully when apiKey is absent.
+  // Use plaintext content (allMessagesPlain[i]) not the encrypted DB form.
   if (apiKey) {
-    for (const msg of insertedMessages) {
+    for (let i = 0; i < insertedMessages.length; i++) {
+      const msg = insertedMessages[i]!;
       // Only embed user/assistant turns (skip any system messages)
       if (msg.role === "user" || msg.role === "assistant") {
-        embedMessageAsync(msg.id, msg.threadId, profileId, msg.content, apiKey, embeddingProvider);
+        const plain = allMessagesPlain[i] ?? "";
+        embedMessageAsync(msg.id, msg.threadId, profileId, plain, apiKey, embeddingProvider);
       }
     }
   }

@@ -2,6 +2,7 @@
 // into a ranked context block injected before each Grok request.
 
 import { db } from "@workspace/db";
+import { decryptField } from "./field-crypto";
 import { threadsTable, messagesTable } from "@workspace/db";
 import { eq, and, desc, not, inArray, sql } from "drizzle-orm";
 import { generateEmbedding } from "./embeddings";
@@ -47,6 +48,7 @@ const MAX_TOTAL_CONTEXT_CHARS = 40_000;
 
 /** Load the best representative messages from a thread for context injection. */
 async function loadThreadSnippet(
+  userId: string,
   threadId: number,
 ): Promise<Array<{ role: "user" | "assistant" | "system"; content: string }>> {
   // Prefer summary messages if available
@@ -57,10 +59,11 @@ async function loadThreadSnippet(
     .limit(1);
 
   if (summaries.length > 0) {
+    const plainSummary = decryptField(userId, summaries[0]!.content);
     return [
       {
         role: "system" as const,
-        content: `[Memory from past conversation: ${summaries[0]!.content.slice(0, MAX_SUMMARY_CHARS)}]`,
+        content: `[Memory from past conversation: ${plainSummary.slice(0, MAX_SUMMARY_CHARS)}]`,
       },
     ];
   }
@@ -75,7 +78,7 @@ async function loadThreadSnippet(
 
   return msgs.reverse().map((m) => ({
     role: m.role as "user" | "assistant" | "system",
-    content: m.content,
+    content: decryptField(userId, m.content),
   }));
 }
 
@@ -260,7 +263,7 @@ export async function retrieveMemories(
       break;
     }
     try {
-      const snippet = await loadThreadSnippet(src.threadId);
+      const snippet = await loadThreadSnippet(userId, src.threadId);
       if (snippet.length > 0) {
         const snippetChars = snippet.reduce((acc, m) => acc + m.content.length, 0);
         if (totalChars + snippetChars > MAX_TOTAL_CONTEXT_CHARS && contextMessages.length > 0) {

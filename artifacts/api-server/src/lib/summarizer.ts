@@ -2,6 +2,7 @@
 
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
+import { encryptField, decryptField } from "./field-crypto";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -55,6 +56,7 @@ async function callGrokForSummary(apiKey: string, content: string, model = "grok
  * and stores it. Safe to call multiple times — idempotent via the isSummary check.
  */
 export async function maybeSummarizeThread(
+  userId: string,
   threadId: number,
   apiKey: string,
   model?: string,
@@ -87,7 +89,7 @@ export async function maybeSummarizeThread(
     // Build compact text representation, capped at MAX_SOURCE_CHARS
     let source = "";
     for (const m of messages) {
-      const line = `${m.role === "user" ? "User" : "Assistant"}: ${m.content}\n\n`;
+      const line = `${m.role === "user" ? "User" : "Assistant"}: ${decryptField(userId, m.content)}\n\n`;
       if (source.length + line.length > MAX_SOURCE_CHARS) break;
       source += line;
     }
@@ -100,7 +102,7 @@ export async function maybeSummarizeThread(
     await db.insert(messagesTable).values({
       threadId,
       role: "assistant",
-      content: summary,
+      content: encryptField(userId, summary),
       isSummary: true,
     });
 
@@ -113,8 +115,8 @@ export async function maybeSummarizeThread(
 /**
  * Fire-and-forget wrapper — call this after streaming completes.
  */
-export function maybeSummarizeAsync(threadId: number, apiKey: string, model?: string): void {
-  maybeSummarizeThread(threadId, apiKey, model).catch((err) =>
+export function maybeSummarizeAsync(userId: string, threadId: number, apiKey: string, model?: string): void {
+  maybeSummarizeThread(userId, threadId, apiKey, model).catch((err) =>
     logger.warn({ err, threadId }, "maybeSummarizeAsync unhandled error"),
   );
 }

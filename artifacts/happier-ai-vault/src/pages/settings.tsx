@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyphraseSection } from "@/components/security/keyphrase-section";
+import { DevicesSection } from "@/components/security/devices-section";
+import { SnapshotsSection } from "@/components/security/snapshots-section";
 import { DeletedThreadsPanel } from "@/components/vault/deleted-threads-panel";
 import { DeletionFlowDialog } from "@/components/vault/deletion-flow-dialog";
 
@@ -814,6 +816,24 @@ function SettingsContent() {
               Set a keyphrase to add an extra layer of protection to all deletion requests. Requires 2FA to be enabled on your account.
             </p>
             <KeyphraseSection />
+          </div>
+
+          {/* Trusted Devices */}
+          <div>
+            <h3 className="text-base font-medium mb-1">Trusted Devices</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Devices you've verified with a one-time code. Trusted devices are remembered for 90 days and can bypass additional verification prompts.
+            </p>
+            <DevicesSection />
+          </div>
+
+          {/* Data Snapshots */}
+          <div>
+            <h3 className="text-base font-medium mb-1">Data Snapshots</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create encrypted backups of all your conversations. Snapshots are stored for 30 days and can be restored at any time — threads are re-imported with a "(Restored)" prefix.
+            </p>
+            <SnapshotsSection />
           </div>
 
           {/* Deleted conversations restore */}

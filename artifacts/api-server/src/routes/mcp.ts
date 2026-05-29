@@ -22,20 +22,32 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { settingsTable, threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, ilike, or, gte, lte, isNull } from "drizzle-orm";
+import { eq, and, desc, or, gte, lte, isNull, inArray, ilike } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { sha256Hex, decryptField } from "../lib/field-crypto";
 
 const router: IRouter = Router();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function getUserIdByToken(token: string): Promise<string | null> {
-  const [row] = await db
+  const tokenHash = sha256Hex(token);
+
+  // Primary: hash-based lookup (post-migration and all new tokens)
+  const [byHash] = await db
+    .select({ userId: settingsTable.userId })
+    .from(settingsTable)
+    .where(eq(settingsTable.mcpTokenHash, tokenHash))
+    .limit(1);
+  if (byHash) return byHash.userId;
+
+  // Fallback: plaintext lookup for pre-migration rows not yet visited by getOrCreateSettings
+  const [byPlain] = await db
     .select({ userId: settingsTable.userId })
     .from(settingsTable)
     .where(eq(settingsTable.mcpToken, token))
     .limit(1);
-  return row?.userId ?? null;
+  return byPlain?.userId ?? null;
 }
 
 function extractBearerToken(req: Request): string | null {
@@ -94,36 +106,55 @@ function buildMcpServer(userId: string): McpServer {
       try {
         const terms = query.trim().split(/\s+/).filter(Boolean);
 
-        const contentConditions = terms.map((t: string) => ilike(messagesTable.content, `%${t}%`));
-        const titleConditions = terms.map((t: string) => ilike(threadsTable.title, `%${t}%`));
+        // Load user's threads (title is plaintext — searchable directly)
+        const userThreads = await db
+          .select({ id: threadsTable.id, title: threadsTable.title, lastMessageAt: threadsTable.lastMessageAt })
+          .from(threadsTable)
+          .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
+          .orderBy(desc(threadsTable.lastMessageAt))
+          .limit(200);
 
-        const roleFilter =
+        const threadIds = userThreads.map((t) => t.id);
+        const threadMap = new Map(userThreads.map((t) => [t.id, t]));
+
+        // Role filter applied at DB level; content match done in memory (content is encrypted)
+        const roleCondition =
           role === "user" ? eq(messagesTable.role, "user")
           : role === "assistant" ? eq(messagesTable.role, "assistant")
           : undefined;
 
-        const rows = await db
-          .select({
-            threadId: threadsTable.id,
-            threadTitle: threadsTable.title,
-            messageRole: messagesTable.role,
-            messageContent: messagesTable.content,
-            createdAt: messagesTable.createdAt,
-          })
-          .from(messagesTable)
-          .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
-          .where(
-            and(
-              eq(threadsTable.userId, userId),
-              isNull(threadsTable.deletedAt),
-              roleFilter,
-              or(...contentConditions, ...titleConditions),
-            ),
-          )
-          .orderBy(desc(messagesTable.createdAt))
-          .limit((limit ?? 5) * 8);
+        const allMsgs = threadIds.length > 0
+          ? await db
+            .select({
+              threadId: messagesTable.threadId,
+              role: messagesTable.role,
+              content: messagesTable.content,
+              createdAt: messagesTable.createdAt,
+            })
+            .from(messagesTable)
+            .where(and(inArray(messagesTable.threadId, threadIds), roleCondition))
+            .orderBy(desc(messagesTable.createdAt))
+            .limit(5000)
+          : [];
 
-        if (rows.length === 0) {
+        // Decrypt and filter: title OR content must match all terms
+        const matchedRows: Array<{ threadId: number; threadTitle: string; messageRole: string; messageContent: string }> = [];
+        for (const m of allMsgs) {
+          const plain = decryptField(userId, m.content);
+          const thread = threadMap.get(m.threadId);
+          const titleMatch = terms.some((t) => (thread?.title ?? "").toLowerCase().includes(t.toLowerCase()));
+          const contentMatch = terms.every((t) => plain.toLowerCase().includes(t.toLowerCase()));
+          if (titleMatch || contentMatch) {
+            matchedRows.push({
+              threadId: m.threadId,
+              threadTitle: thread?.title ?? `Thread #${m.threadId}`,
+              messageRole: m.role,
+              messageContent: plain,
+            });
+          }
+        }
+
+        if (matchedRows.length === 0) {
           return {
             content: [{
               type: "text",
@@ -134,7 +165,7 @@ function buildMcpServer(userId: string): McpServer {
 
         // Group by thread, capped to `limit` threads
         const grouped = new Map<number, { title: string; excerpts: string[] }>();
-        for (const row of rows) {
+        for (const row of matchedRows) {
           if (grouped.size >= (limit ?? 5) && !grouped.has(row.threadId)) continue;
           if (!grouped.has(row.threadId)) grouped.set(row.threadId, { title: row.threadTitle, excerpts: [] });
           if (grouped.get(row.threadId)!.excerpts.length < 3) {
@@ -327,7 +358,7 @@ function buildMcpServer(userId: string): McpServer {
           .orderBy(messagesTable.createdAt);
 
         const slice = messages.slice(-(max_messages ?? 100));
-        const transcript = slice.map((m) => fmtMsg(m, 1000)).join("\n\n");
+        const transcript = slice.map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 1000)).join("\n\n");
 
         const date = (thread.lastMessageAt ?? thread.createdAt).toLocaleDateString("en-US", {
           weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -417,11 +448,11 @@ function buildMcpServer(userId: string): McpServer {
           .where(eq(messagesTable.threadId, thread_id))
           .orderBy(messagesTable.createdAt);
 
-        const head = messages.slice(0, 3).map((m) => fmtMsg(m, 250));
+        const head = messages.slice(0, 3).map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250));
         const mid = messages.length > 9
           ? [`\n… (${messages.length - 6} more messages in the middle) …\n`]
           : [];
-        const tail = messages.length > 6 ? messages.slice(-3).map((m) => fmtMsg(m, 250)) : [];
+        const tail = messages.length > 6 ? messages.slice(-3).map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250)) : [];
 
         const date = (thread.lastMessageAt ?? thread.createdAt).toLocaleDateString("en-US", {
           year: "numeric", month: "long", day: "numeric",

@@ -66,6 +66,8 @@ app.use(
   }),
 );
 app.use(cookieParser());
+// Raw body for Clerk webhook signature verification (must come before express.json)
+app.use("/api/webhooks/clerk", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 

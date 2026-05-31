@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AuditEvent,
   CreateProfileBody,
   CreateThreadBody,
   ExportResult,
@@ -1960,3 +1961,78 @@ export const useDeleteProfile = <
 > => {
   return useMutation(getDeleteProfileMutationOptions(options));
 };
+
+/**
+ * @summary Get the last 90 days of security audit events for the authenticated user
+ */
+export const getGetAuditLogUrl = () => {
+  return `/api/security/audit-log`;
+};
+
+export const getAuditLog = async (
+  options?: RequestInit,
+): Promise<AuditEvent[]> => {
+  return customFetch<AuditEvent[]>(getGetAuditLogUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAuditLogQueryKey = () => {
+  return [`/api/security/audit-log`] as const;
+};
+
+export const getGetAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAuditLog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAuditLogQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuditLog>>> = ({
+    signal,
+  }) => getAuditLog({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAuditLog>>
+>;
+export type GetAuditLogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the last 90 days of security audit events for the authenticated user
+ */
+
+export function useGetAuditLog<
+  TData = Awaited<ReturnType<typeof getAuditLog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLog>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAuditLogQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

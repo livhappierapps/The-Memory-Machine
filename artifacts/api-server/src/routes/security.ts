@@ -4,8 +4,9 @@ import {
   userKeyphrasesTable,
   trustedDevicesTable,
   snapshotsTable,
+  auditEventsTable,
 } from "@workspace/db";
-import { eq, and, gt, desc } from "drizzle-orm";
+import { eq, and, gt, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { encryptText, decryptText } from "../lib/crypto-utils";
 import { clerkClient } from "@clerk/express";
@@ -16,6 +17,7 @@ import { sensitiveEndpointLimiter } from "../lib/rate-limiter";
 import { createSnapshot, restoreSnapshot } from "../lib/snapshot";
 import { randomUUID } from "crypto";
 import { lt } from "drizzle-orm";
+import { recordAuditEvent } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -49,6 +51,34 @@ async function getUserEmail(userId: string): Promise<string | null> {
     return null;
   }
 }
+
+// ── Audit Log ──────────────────────────────────────────────────────────────────
+
+/** Return the last 90 days of audit events for the authenticated user */
+router.get("/security/audit-log", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+    const events = await db
+      .select({
+        id: auditEventsTable.id,
+        action: auditEventsTable.action,
+        metadata: auditEventsTable.metadata,
+        ip: auditEventsTable.ip,
+        createdAt: auditEventsTable.createdAt,
+      })
+      .from(auditEventsTable)
+      .where(and(eq(auditEventsTable.userId, userId), gte(auditEventsTable.createdAt, since)))
+      .orderBy(desc(auditEventsTable.createdAt))
+      .limit(200);
+
+    res.json(events);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch audit log");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ── Keyphrase ──────────────────────────────────────────────────────────────────
 
@@ -102,6 +132,8 @@ router.post("/security/keyphrase", requireAuth, sensitiveEndpointLimiter("keyphr
       await db.insert(userKeyphrasesTable).values({ userId, bcryptHash: argonHash, encryptedPlaintext });
     }
 
+    recordAuditEvent(req, userId, "keyphrase_set", { updated: !!existing });
+
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to set keyphrase");
@@ -133,6 +165,8 @@ router.post("/security/keyphrase/verify", requireAuth, sensitiveEndpointLimiter(
     const valid = kp.bcryptHash.startsWith("$argon2")
       ? await argon2Verify(kp.bcryptHash, keyphrase)
       : await bcrypt.compare(keyphrase, kp.bcryptHash);
+
+    recordAuditEvent(req, userId, "keyphrase_verified", { valid });
 
     res.json({ valid, hasKeyphrase: true });
   } catch (err) {
@@ -288,6 +322,8 @@ router.post("/security/devices/verify", requireAuth, sensitiveEndpointLimiter("d
       path: "/",
     });
 
+    recordAuditEvent(req, userId, "device_registered", { label });
+
     res.json({ success: true, label });
   } catch (err) {
     req.log.error({ err }, "Failed to verify device");
@@ -305,9 +341,19 @@ router.delete("/security/devices/:id", requireAuth, async (req: Request, res: Re
       return;
     }
 
+    // Grab the label before deleting for the audit record
+    const [device] = await db
+      .select({ label: trustedDevicesTable.label })
+      .from(trustedDevicesTable)
+      .where(and(eq(trustedDevicesTable.id, deviceId), eq(trustedDevicesTable.userId, userId)));
+
     await db
       .delete(trustedDevicesTable)
       .where(and(eq(trustedDevicesTable.id, deviceId), eq(trustedDevicesTable.userId, userId)));
+
+    if (device) {
+      recordAuditEvent(req, userId, "device_revoked", { label: device.label });
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -349,6 +395,9 @@ router.post("/security/snapshots", requireAuth, async (req: Request, res: Respon
     const { label = "Manual snapshot" } = req.body as { label?: string };
 
     const snap = await createSnapshot(userId, label);
+
+    recordAuditEvent(req, userId, "snapshot_created", { label: snap.label, sizeBytes: snap.sizeBytes });
+
     res.json({
       id: snap.id,
       label: snap.label,
@@ -381,6 +430,7 @@ router.post("/security/snapshots/:id/restore", requireAuth, async (req: Request,
     await restoreSnapshot(userId, snapshotId, (msg) => {
       res.write(`data: ${msg}\n\n`);
     });
+    recordAuditEvent(req, userId, "snapshot_restored", { snapshotId });
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   } catch (err) {
     req.log.error({ err }, "Snapshot restore failed");
@@ -402,6 +452,8 @@ router.delete("/security/snapshots/:id", requireAuth, async (req: Request, res: 
     await db
       .delete(snapshotsTable)
       .where(and(eq(snapshotsTable.id, snapshotId), eq(snapshotsTable.userId, userId)));
+
+    recordAuditEvent(req, userId, "snapshot_deleted", { snapshotId });
 
     res.json({ success: true });
   } catch (err) {

@@ -9,9 +9,11 @@ import mcpRouter from "./mcp";
 import profilesRouter from "./profiles";
 import deletionRequestsRouter from "./deletion-requests";
 import securityRouter from "./security";
+import webhooksRouter from "./webhooks";
 
 const router: IRouter = Router();
 
+router.use(webhooksRouter);
 router.use(healthRouter);
 router.use(profilesRouter);
 router.use(threadsRouter);

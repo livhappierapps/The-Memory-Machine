@@ -18,6 +18,7 @@ import bcrypt from "bcryptjs";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import { clerkClient } from "@clerk/express";
 import { randomUUID } from "crypto";
+import { recordAuditEvent } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -190,6 +191,14 @@ router.post("/deletion-requests", requireAuth, requireTrustedDevice, async (req:
       });
       await sendEmail({ to: userEmail, ...emailContent });
     }
+
+    recordAuditEvent(req, userId, "deletion_requested", {
+      targetType,
+      requestId: request.id,
+      ...(targetIds ? { targetIds } : {}),
+      ...(dateFrom ? { dateFrom } : {}),
+      ...(dateTo ? { dateTo } : {}),
+    });
 
     res.status(201).json({
       id: request.id,

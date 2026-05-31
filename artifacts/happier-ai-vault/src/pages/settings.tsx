@@ -19,11 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2 } from "lucide-react";
+import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyphraseSection } from "@/components/security/keyphrase-section";
 import { DevicesSection } from "@/components/security/devices-section";
 import { SnapshotsSection } from "@/components/security/snapshots-section";
+import { ActivityLog } from "@/components/security/activity-log";
 import { DeletedThreadsPanel } from "@/components/vault/deleted-threads-panel";
 import { DeletionFlowDialog } from "@/components/vault/deletion-flow-dialog";
 
@@ -843,6 +844,20 @@ function SettingsContent() {
               Conversations deleted in the last 30 days can be restored. After 30 days, they are permanently purged.
             </p>
             <DeletedThreadsPanel />
+          </div>
+
+          {/* Activity Log */}
+          <div className="border-t border-border/50 pt-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="w-4 h-4 text-primary" />
+              <h3 className="text-base font-medium">Activity Log</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Security events from the last 90 days — keyphrase changes, device registrations, snapshots, and deletion requests.
+            </p>
+            <div className="rounded-lg border border-border/50 bg-background">
+              <ActivityLog />
+            </div>
           </div>
 
           {/* Date-range deletion */}

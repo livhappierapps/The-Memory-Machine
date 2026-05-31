@@ -29,6 +29,7 @@
     "pino": "^9",
     "pino-http": "^10",
     "resend": "^6.12.4",
+    "svix": "^1.95.1",
     "zod": "catalog:"
   },
   "devDependencies": {

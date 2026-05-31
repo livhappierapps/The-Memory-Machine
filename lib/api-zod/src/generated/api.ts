@@ -480,3 +480,25 @@ export const UpdateProfileResponse = zod.object({
 export const DeleteProfileParams = zod.object({
   profileId: zod.coerce.number(),
 });
+
+/**
+ * @summary Get the last 90 days of security audit events for the authenticated user
+ */
+export const GetAuditLogResponseItem = zod.object({
+  id: zod.number(),
+  action: zod.enum([
+    "sign_in",
+    "keyphrase_set",
+    "keyphrase_verified",
+    "device_registered",
+    "device_revoked",
+    "snapshot_created",
+    "snapshot_restored",
+    "snapshot_deleted",
+    "deletion_requested",
+  ]),
+  metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+  ip: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const GetAuditLogResponse = zod.array(GetAuditLogResponseItem);

@@ -22,6 +22,8 @@ tags:
     description: Persona profile operations
   - name: memory
     description: Smart memory retrieval
+  - name: security
+    description: Security and audit log
 
 paths:
   /healthz:
@@ -462,8 +464,53 @@ paths:
         "204":
           description: Deleted
 
+  /security/audit-log:
+    get:
+      operationId: getAuditLog
+      tags: [security]
+      summary: Get the last 90 days of security audit events for the authenticated user
+      responses:
+        "200":
+          description: List of audit events newest-first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEvent"
+
 components:
   schemas:
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+          enum:
+            - sign_in
+            - keyphrase_set
+            - keyphrase_verified
+            - device_registered
+            - device_revoked
+            - snapshot_created
+            - snapshot_restored
+            - snapshot_deleted
+            - deletion_requested
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        ip:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - action
+        - createdAt
+
     HealthStatus:
       type: object
       properties:

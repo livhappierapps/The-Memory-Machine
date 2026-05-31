@@ -290,6 +290,9 @@ export default function SettingsScreen() {
       {/* Security */}
       <SecuritySection colors={colors} />
 
+      {/* Activity Log */}
+      <AuditLogSection colors={colors} />
+
       {/* Sign Out */}
       <TouchableOpacity style={[styles.signOutBtn, { borderColor: colors.destructive }]} onPress={handleSignOut} activeOpacity={0.8}>
         <Feather name="log-out" size={16} color={colors.destructive} />
@@ -723,6 +726,90 @@ function SecuritySection({ colors }: { colors: ReturnType<typeof import("@/hooks
         )}
       </SectionCard>
     </>
+  );
+}
+
+function AuditLogSection({ colors }: { colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
+  const { getToken } = useAuth();
+  const domain = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : "";
+  const [events, setEvents] = useState<
+    { id: number; action: string; metadata: Record<string, unknown> | null; ip: string | null; createdAt: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${domain}/api/security/audit-log`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+        });
+        if (res.ok && !cancelled) setEvents(await res.json());
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getToken, domain]);
+
+  const ACTION_LABEL: Record<string, string> = {
+    sign_in: "Sign-in",
+    keyphrase_set: "Keyphrase updated",
+    keyphrase_verified: "Keyphrase verified",
+    device_registered: "Device trusted",
+    device_revoked: "Device revoked",
+    snapshot_created: "Snapshot created",
+    snapshot_restored: "Snapshot restored",
+    snapshot_deleted: "Snapshot deleted",
+    deletion_requested: "Deletion requested",
+  };
+
+  const ACTION_ICON: Record<string, string> = {
+    sign_in: "log-in",
+    keyphrase_set: "key",
+    keyphrase_verified: "key",
+    device_registered: "smartphone",
+    device_revoked: "smartphone",
+    snapshot_created: "archive",
+    snapshot_restored: "rotate-ccw",
+    snapshot_deleted: "trash-2",
+    deletion_requested: "alert-triangle",
+  };
+
+  function formatTs(iso: string): string {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+      " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  return (
+    <SectionCard colors={colors} title="Activity Log" subtitle="Last 90 days of security events">
+      {loading ? (
+        <ActivityIndicator color={colors.primary} size="small" />
+      ) : events.length === 0 ? (
+        <Text style={[styles.hint, { color: colors.mutedForeground, textAlign: "center", paddingVertical: 12 }]}>
+          No security events recorded yet.
+        </Text>
+      ) : (
+        events.map((ev) => (
+          <View key={ev.id} style={[secStyles.deviceRow, { borderBottomColor: colors.border }]}>
+            <Feather name={(ACTION_ICON[ev.action] ?? "shield") as any} size={14} color={colors.primary} />
+            <View style={{ flex: 1, gap: 1 }}>
+              <Text style={[styles.infoLabel, { color: colors.foreground, fontSize: 13 }]}>
+                {ACTION_LABEL[ev.action] ?? ev.action}
+              </Text>
+              {ev.ip && (
+                <Text style={[styles.hint, { color: colors.mutedForeground }]}>{ev.ip}</Text>
+              )}
+            </View>
+            <Text style={[styles.hint, { color: colors.mutedForeground, textAlign: "right" }]}>
+              {formatTs(ev.createdAt)}
+            </Text>
+          </View>
+        ))
+      )}
+    </SectionCard>
   );
 }
 

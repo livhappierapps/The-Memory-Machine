@@ -6,6 +6,30 @@ import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 async function applyRequiredSchema(): Promise<void> {
+  // Ensure audit_events table exists with a DB-level check constraint on action
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id         SERIAL PRIMARY KEY,
+      user_id    TEXT        NOT NULL,
+      action     TEXT        NOT NULL,
+      metadata   JSONB,
+      ip         TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT audit_events_action_check CHECK (action IN (
+        'sign_in','keyphrase_set','keyphrase_verified',
+        'device_registered','device_revoked',
+        'snapshot_created','snapshot_restored','snapshot_deleted',
+        'deletion_requested'
+      ))
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS audit_events_user_id_idx    ON audit_events (user_id)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS audit_events_created_at_idx ON audit_events (created_at)
+  `);
+
   // Ensure smart-memory and multi-provider columns exist on profiles
   await db.execute(sql`
     ALTER TABLE profiles

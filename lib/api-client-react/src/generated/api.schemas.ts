@@ -5,6 +5,32 @@
  * Memory Machine API
  * OpenAPI spec version: 0.1.0
  */
+export type AuditEventAction =
+  (typeof AuditEventAction)[keyof typeof AuditEventAction];
+
+export const AuditEventAction = {
+  sign_in: "sign_in",
+  keyphrase_set: "keyphrase_set",
+  keyphrase_verified: "keyphrase_verified",
+  device_registered: "device_registered",
+  device_revoked: "device_revoked",
+  snapshot_created: "snapshot_created",
+  snapshot_restored: "snapshot_restored",
+  snapshot_deleted: "snapshot_deleted",
+  deletion_requested: "deletion_requested",
+} as const;
+
+export type AuditEventMetadata = { [key: string]: unknown } | null;
+
+export interface AuditEvent {
+  id: number;
+  action: AuditEventAction;
+  metadata?: AuditEventMetadata;
+  /** @nullable */
+  ip?: string | null;
+  createdAt: string;
+}
+
 export interface HealthStatus {
   status: string;
 }

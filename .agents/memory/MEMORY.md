@@ -1,3 +1,4 @@
+- [AI Master Degree Skill](ai-master-degree-skill.md) — PhD AI knowledge skill at .agents/skills/ai-master-degree/; 6 reference files covering Grok API, dev patterns, psychology, security, AGI, cost, multimodal.
 - [Soft delete pattern](soft-delete.md) — threads use deletedAt (nullable timestamp); all list/get queries filter with isNull(threadsTable.deletedAt); purge cron runs every 6h
 - [Deletion flow architecture](deletion-flow.md) — 5-step protected deletion: create → OTP (15min) → 24h/2wk wait → signed email link → final OTP; cancel token is a UUID stored in DB
 - [DB push interactive prompts](db-push-interactive.md) — drizzle-kit push asks interactive questions that can't be bypassed with flags; use psql directly for new tables in CI/automation

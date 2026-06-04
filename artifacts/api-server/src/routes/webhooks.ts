@@ -38,8 +38,10 @@ router.post(
     const secret = process.env.CLERK_WEBHOOK_SECRET;
 
     if (!secret) {
-      // Webhook secret not configured — accept but do nothing.
-      // This allows the server to boot cleanly without the secret set.
+      // CLERK_WEBHOOK_SECRET is not configured — log a warning so ops can spot
+      // the misconfiguration in server logs, then return 200 so Clerk doesn't
+      // retry the delivery endlessly (retries would only flood the log).
+      logger.warn("CLERK_WEBHOOK_SECRET is not set — sign-in events will not be recorded. Set the secret and register the webhook in Clerk Dashboard.");
       res.json({ ok: true, skipped: true });
       return;
     }

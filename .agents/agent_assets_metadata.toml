@@ -1,8 +1,13 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "6gcBfselepxfOEcnMOfIu"
 uri = "file://artifacts/memory-machine-mobile/assets/images/icon.png"
 type = "image"
 title = "memory machine mobile icon"
+
+[[outputs]]
+id = "XFT0gqsOqzEDNFBSP3lpW"
+uri = "file://memory-machine.zip"
+type = "unspecified"
+title = "Memory Machine — Full Codebase (clean)"

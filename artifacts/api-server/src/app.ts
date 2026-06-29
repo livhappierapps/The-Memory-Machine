@@ -19,8 +19,24 @@ import { deviceTrustMiddleware } from "./middlewares/device-trust";
 
 const app: Express = express();
 
-// Security headers (CSP disabled — Clerk's FAPI JS needs inline scripts)
-app.use(helmet({ contentSecurityPolicy: false }));
+// Security headers — CSP tuned for Clerk proxy; tighten further once Clerk CDN origins are stable
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev"],
+        connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev"],
+        imgSrc: ["'self'", "data:", "https:"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'", "data:", "https:"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+  }),
+);
 
 app.use(
   pinoHttp({

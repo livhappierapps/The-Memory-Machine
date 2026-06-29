@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
 import { requireAuth } from "../middlewares/auth";
+import { decryptField } from "../lib/field-crypto";
 import { streamImportFile } from "../lib/import-stream";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
@@ -150,7 +151,8 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
       .from(profilesTable)
       .where(eq(profilesTable.userId, userId))
       .limit(1);
-    const apiKey = firstProfile?.apiKey || settings?.apiKey || undefined;
+    const rawApiKey = firstProfile?.apiKey || settings?.apiKey || null;
+    const apiKey = rawApiKey ? decryptField(userId, rawApiKey) : undefined;
     const profileId = firstProfile?.id ?? null;
     const embeddingProvider = firstProfile?.embeddingProvider ?? "xai";
 

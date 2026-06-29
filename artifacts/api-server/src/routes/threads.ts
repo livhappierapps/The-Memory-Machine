@@ -366,7 +366,9 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
 
     // profile.apiKey / openAiApiKey are encrypted at rest — decrypt before use.
     const embeddingProvider = profile.embeddingProvider ?? "xai";
-    const xaiApiKey = (profile.apiKey ? decryptField(userId, profile.apiKey) : null) || settings?.apiKey;
+    const xaiApiKey =
+      (profile.apiKey ? decryptField(userId, profile.apiKey) : null) ||
+      (settings?.apiKey ? decryptField(userId, settings.apiKey) : null);
     const embeddingApiKey =
       (embeddingProvider === "openai" && profile.openAiApiKey
         ? decryptField(userId, profile.openAiApiKey)

@@ -13,7 +13,7 @@ import { clerkClient } from "@clerk/express";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import bcrypt from "bcryptjs";
 import { sha256Hex } from "../lib/field-crypto";
-import { sensitiveEndpointLimiter } from "../lib/rate-limiter";
+import { sensitiveEndpointLimiter, recordAuthFailure } from "../lib/rate-limiter";
 import { createSnapshot, restoreSnapshot } from "../lib/snapshot";
 import { randomUUID } from "crypto";
 import { lt } from "drizzle-orm";
@@ -166,6 +166,8 @@ router.post("/security/keyphrase/verify", requireAuth, sensitiveEndpointLimiter(
       ? await argon2Verify(kp.bcryptHash, keyphrase)
       : await bcrypt.compare(keyphrase, kp.bcryptHash);
 
+    if (!valid) recordAuthFailure(req.ip ?? req.socket?.remoteAddress ?? "unknown");
+
     recordAuditEvent(req, userId, "keyphrase_verified", { valid });
 
     res.json({ valid, hasKeyphrase: true });
@@ -272,7 +274,10 @@ router.post("/security/devices/verify", requireAuth, sensitiveEndpointLimiter("d
       return;
     }
 
+    const clientIp = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+
     if (challenge.otp !== otp.trim()) {
+      recordAuthFailure(clientIp);
       res.status(400).json({ error: "Invalid verification code" });
       return;
     }
@@ -296,6 +301,7 @@ router.post("/security/devices/verify", requireAuth, sensitiveEndpointLimiter("d
 
     // Ensure hash matches the challenge
     if (tokenHash !== challenge.tokenHash) {
+      recordAuthFailure(clientIp);
       res.status(400).json({ error: "Device token mismatch" });
       return;
     }

@@ -17,6 +17,7 @@ import { db } from "@workspace/db";
 import { trustedDevicesTable } from "@workspace/db";
 import { eq, and, gt } from "drizzle-orm";
 import { sha256Hex } from "../lib/field-crypto";
+import { getAuth } from "@clerk/express";
 
 declare global {
   namespace Express {
@@ -40,7 +41,10 @@ export async function deviceTrustMiddleware(
   req.deviceTokenRaw = raw;
   req.deviceTrusted = false;
 
-  if (raw && req.userId) {
+  // getAuth resolves Clerk session without depending on requireAuth having run first
+  const userId = getAuth(req).userId ?? req.userId ?? null;
+
+  if (raw && userId) {
     try {
       const hash = sha256Hex(raw);
       const now = new Date();
@@ -50,7 +54,7 @@ export async function deviceTrustMiddleware(
         .where(
           and(
             eq(trustedDevicesTable.tokenHash, hash),
-            eq(trustedDevicesTable.userId, req.userId),
+            eq(trustedDevicesTable.userId, userId),
             gt(trustedDevicesTable.expiresAt, now),
           ),
         );

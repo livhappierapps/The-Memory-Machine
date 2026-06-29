@@ -6,8 +6,14 @@ import {
   randomBytes,
 } from "crypto";
 
-const ROOT_SECRET =
-  process.env.ENCRYPTION_ROOT_SECRET ?? "dev-field-encryption-secret-change-me-32ch";
+const _rootSecretRaw = process.env.ENCRYPTION_ROOT_SECRET;
+if (!_rootSecretRaw || _rootSecretRaw.length < 32) {
+  throw new Error(
+    "ENCRYPTION_ROOT_SECRET must be set to a value of at least 32 characters. " +
+      "Add it to the Replit Secrets vault.",
+  );
+}
+const ROOT_SECRET: string = _rootSecretRaw;
 const ENC_PREFIX = "enc:v1:";
 
 function deriveUserKey(userId: string): Buffer {

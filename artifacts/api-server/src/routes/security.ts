@@ -220,25 +220,24 @@ router.post("/security/devices/challenge", requireAuth, sensitiveEndpointLimiter
 
     // Attempt email delivery via Resend if configured
     if (process.env.RESEND_API_KEY) {
-      try {
-        const email = await getUserEmail(userId);
-        if (email) {
-          const { Resend } = await import("resend");
-          const resend = new Resend(process.env.RESEND_API_KEY);
-          await resend.emails.send({
-            from: "Memory Machine <noreply@memorymachine.app>",
-            to: email,
-            subject: "Device verification code",
-            text: `Your verification code is: ${otp}\n\nThis code expires in 15 minutes. If you did not request this, ignore this email.`,
-          });
-        }
-        res.json({ deviceToken, sent: true, label });
-      } catch (emailErr) {
-        req.log.warn({ emailErr }, "OTP email failed — returning OTP in response");
-        res.json({ deviceToken, otp, sent: false, label });
+      // Email configured — OTP must be delivered out-of-band only. Never leak it in response.
+      const email = await getUserEmail(userId);
+      if (!email) {
+        pendingChallenges.delete(userId);
+        res.status(500).json({ error: "Could not retrieve email address for OTP delivery" });
+        return;
       }
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: "Memory Machine <noreply@memorymachine.app>",
+        to: email,
+        subject: "Device verification code",
+        text: `Your verification code is: ${otp}\n\nThis code expires in 15 minutes. If you did not request this, ignore this email.`,
+      });
+      res.json({ deviceToken, sent: true, label });
     } else {
-      // No email configured: return OTP directly (dev mode / no RESEND_API_KEY)
+      // No email configured — dev mode only. OTP returned in response for local testing.
       res.json({ deviceToken, otp, sent: false, label });
     }
   } catch (err) {
@@ -317,7 +316,7 @@ router.post("/security/devices/verify", requireAuth, sensitiveEndpointLimiter("d
     res.cookie("mm_device", rawToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: "strict",
       maxAge: 90 * 24 * 60 * 60 * 1000,
       path: "/",
     });

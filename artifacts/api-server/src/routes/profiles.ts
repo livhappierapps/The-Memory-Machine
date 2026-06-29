@@ -10,7 +10,7 @@ import {
   DeleteProfileParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
-import { encryptField } from "../lib/field-crypto";
+import { encryptField, isEncrypted } from "../lib/field-crypto";
 
 const router: IRouter = Router();
 
@@ -54,6 +54,14 @@ async function ensureDefaultProfile(userId: string) {
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId));
 
+  // settings.apiKey may be plaintext (legacy) or encrypted — normalise to encrypted
+  const rawApiKey = settings?.apiKey ?? null;
+  const profileApiKey = rawApiKey
+    ? isEncrypted(rawApiKey)
+      ? rawApiKey
+      : encryptField(userId, rawApiKey)
+    : null;
+
   const [defaultProfile] = await db
     .insert(profilesTable)
     .values({
@@ -61,7 +69,7 @@ async function ensureDefaultProfile(userId: string) {
       name: "Default",
       emoji: "🤖",
       color: "#2dd4bf",
-      apiKey: settings?.apiKey ?? null,
+      apiKey: profileApiKey,
       defaultModel: settings?.defaultModel ?? "grok-3",
       maxContextMessages: settings?.maxContextMessages ?? 100,
     })

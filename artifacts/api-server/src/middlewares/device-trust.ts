@@ -71,13 +71,18 @@ export async function deviceTrustMiddleware(
 
 /**
  * Middleware that blocks untrusted devices on destructive endpoints.
- * Only enforces when RESEND_API_KEY is configured (email can be sent).
- * Without email, the challenge can't be completed so we don't block.
+ * Fails closed: if email is not configured, returns 503 instead of allowing through.
  */
 export function requireTrustedDevice(req: Request, res: Response, next: NextFunction): void {
-  const emailConfigured = !!process.env.RESEND_API_KEY;
-  if (!emailConfigured || req.deviceTrusted) {
+  if (req.deviceTrusted) {
     next();
+    return;
+  }
+  if (!process.env.RESEND_API_KEY) {
+    res.status(503).json({
+      error: "device_trust_misconfigured",
+      message: "Device trust enforcement requires RESEND_API_KEY to be configured.",
+    });
     return;
   }
   res.status(403).json({

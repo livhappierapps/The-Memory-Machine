@@ -121,8 +121,9 @@ router.put("/settings", requireAuth, async (req: Request, res: Response) => {
 
     if (parsed.data.apiKey !== undefined) {
       const apiKeyVal = parsed.data.apiKey || null;
-      globalUpdate.apiKey = apiKeyVal;
-      profileUpdate.apiKey = apiKeyVal;
+      const encryptedApiKey = apiKeyVal ? encryptField(userId, apiKeyVal) : null;
+      globalUpdate.apiKey = encryptedApiKey;
+      profileUpdate.apiKey = encryptedApiKey;
     }
     if (parsed.data.defaultModel !== undefined) {
       globalUpdate.defaultModel = parsed.data.defaultModel;

@@ -42,7 +42,7 @@ export function decryptField(userId: string, encoded: string): string {
   const iv = buf.subarray(0, 12);
   const tag = buf.subarray(12, 28);
   const ct = buf.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   return decipher.update(ct).toString("utf8") + decipher.final("utf8");
 }

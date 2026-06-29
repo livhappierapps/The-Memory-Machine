@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "The Memory Machine (Mobile)",
+    "name": "The Memory Machine",
     "slug": "thememorymachinemobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "thememorymachinemobile",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "backgroundColor": "#2f2f37",
     "splash": {
@@ -16,14 +16,28 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.thememorymachinemobile.app"
+      "bundleIdentifier": "com.thememorymachinemobile.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "The Memory Machine uses the microphone for voice messages.",
+        "NSCameraUsageDescription": "The Memory Machine uses the camera to attach images to conversations.",
+        "NSPhotoLibraryUsageDescription": "The Memory Machine uses your photo library to attach images to conversations."
+      }
     },
     "android": {
       "package": "com.thememorymachinemobile.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#2f2f37"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -50,6 +64,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
     }
   }
 }

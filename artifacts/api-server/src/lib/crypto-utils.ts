@@ -23,7 +23,7 @@ export function decryptText(encoded: string): string {
   const tag = buf.subarray(28, 44);
   const encrypted = buf.subarray(44);
   const key = deriveKey(salt);
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   return decipher.update(encrypted).toString("utf8") + decipher.final("utf8");
 }

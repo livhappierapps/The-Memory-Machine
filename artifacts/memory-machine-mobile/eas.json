@@ -11,8 +11,8 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_..."
+        "EXPO_PUBLIC_DOMAIN": "https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA"
       }
     },
     "preview": {
@@ -21,15 +21,15 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_..."
+        "EXPO_PUBLIC_DOMAIN": "https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "your-replit-domain.replit.app",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_..."
+        "EXPO_PUBLIC_DOMAIN": "https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA"
       }
     }
   },

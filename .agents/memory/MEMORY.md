@@ -3,3 +3,4 @@
 - [Deletion flow architecture](deletion-flow.md) — 5-step protected deletion: create → OTP (15min) → 24h/2wk wait → signed email link → final OTP; cancel token is a UUID stored in DB
 - [DB push interactive prompts](db-push-interactive.md) — drizzle-kit push asks interactive questions that can't be bypassed with flags; use psql directly for new tables in CI/automation
 - [Playwright on Replit NixOS](playwright-nixos.md) — Chromium needs LD_LIBRARY_PATH set to nix store paths; bake into playwright.config.ts top-level before defineConfig()
+- [Mobile tsconfig quirks](mobile-tsconfig-quirks.md) — expo/tsconfig.base can't be resolved by tsc in this pnpm monorepo; inline all options + add ambient shims for expo/expo/fetch modules; crypt@0.0.2 store fix included

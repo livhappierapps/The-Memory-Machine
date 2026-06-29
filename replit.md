@@ -153,6 +153,7 @@ Chunked upload: client slices file (10 MB web / 5 MB mobile) → `POST /api/impo
 | `CLERK_PUBLISHABLE_KEY` | API server + web frontend | Web: exposed via `vite.config.ts` define. Do NOT use `publishableKeyFromHost()` — generates `clerk.localhost` URLs |
 | `CLERK_SECRET_KEY` | API server | Server-side verification |
 | `DATABASE_URL` / `PG*` | lib/db | PostgreSQL |
+| `ENCRYPTION_ROOT_SECRET` | API server | Root key for HKDF per-user AES-256-GCM field encryption. **Must be in Replit Secrets vault** (not userenv). If missing, falls back to dev default — do not use default in production. |
 
 Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_PUBLIC_DOMAIN`.
 
@@ -161,9 +162,12 @@ Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_P
 - `expo-file-system` ~19.0.22 (import from `expo-file-system/legacy`)
 - `expo-notifications` ~0.32.17
 
-## Last Verified (May 16 2026)
+## Last Verified (June 29 2026)
 - Typecheck: 0 errors across all 5 packages
-- Security scan: 0 vulnerabilities (`fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves 2 former HIGH CVEs in the MCP SDK transitive dep chain; all SAST/HoundDog findings are in `.agents/skills/` third-party scripts only)
+- Unit tests: 30/30 passing (api-server vitest)
+- Security scan: 0 critical/high in production code. GCM `authTagLength: 16` added to `crypto-utils.ts` + `field-crypto.ts`. `ENCRYPTION_ROOT_SECRET` must be moved from `.replit` userenv to Replit Secrets vault (pending user action — see action item below). All remaining SAST findings are in `.agents/skills/` third-party scripts only. `fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves MCP SDK CVE chain.
+- All 4 workflows running: API server, web, mobile (Metro), mockup sandbox
+- **Action required**: Move `ENCRYPTION_ROOT_SECRET` to the Replit Secrets tab (not the Env tab). Go to Secrets → add key `ENCRYPTION_ROOT_SECRET` with the value from the Env tab, then delete it from Env.
 - E2E: all flows green — sign-in, new thread, send message, archive/delete (sidebar dropdown), search, stats, settings persistence (number inputs verified), 404
 
 ## Workflows

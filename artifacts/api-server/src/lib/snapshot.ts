@@ -13,7 +13,7 @@ import {
   messagesTable,
   snapshotsTable,
 } from "@workspace/db";
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { eq, and, isNull, asc, gte } from "drizzle-orm";
 import { encryptField, decryptField } from "./field-crypto";
 import { logger } from "./logger";
 
@@ -179,9 +179,15 @@ export async function purgeExpiredSnapshots(): Promise<void> {
   }
 }
 
-/** Run weekly snapshots for all users who have threads. */
+/** Run weekly snapshots for all users who have threads.
+ *
+ * Checks the DB before creating, so restarting the server cannot trigger
+ * duplicate snapshots within the same 7-day window.
+ */
 export async function runWeeklySnapshots(): Promise<void> {
   try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
     const users = await db
       .selectDistinct({ userId: threadsTable.userId })
       .from(threadsTable)
@@ -189,6 +195,25 @@ export async function runWeeklySnapshots(): Promise<void> {
 
     for (const { userId } of users) {
       try {
+        // Skip if a weekly snapshot already exists within the last 7 days.
+        // This makes runWeeklySnapshots idempotent across server restarts.
+        const [recent] = await db
+          .select({ id: snapshotsTable.id })
+          .from(snapshotsTable)
+          .where(
+            and(
+              eq(snapshotsTable.userId, userId),
+              eq(snapshotsTable.label, "Weekly auto-snapshot"),
+              gte(snapshotsTable.createdAt, sevenDaysAgo),
+            ),
+          )
+          .limit(1);
+
+        if (recent) {
+          logger.info({ userId }, "Weekly snapshot skipped — created within last 7 days");
+          continue;
+        }
+
         await createSnapshot(userId, "Weekly auto-snapshot");
         logger.info({ userId }, "Weekly snapshot created");
       } catch (err) {

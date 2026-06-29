@@ -148,11 +148,12 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
         .from(profilesTable)
         .where(eq(profilesTable.id, thread.profileId));
       // Resolve the effective embedding key: prefer openAiApiKey for openai provider,
-      // fall back to profile.apiKey. Only skip embedding if no key of any kind is available.
+      // fall back to profile.apiKey. Keys are encrypted at rest — decrypt before use.
       const provider = profile?.embeddingProvider ?? "xai";
-      const embKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey;
+      const rawEmbKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey ?? null;
+      const embKey = rawEmbKey ? decryptField(userId, rawEmbKey) : null;
       if (embKey) {
-        // Embedding uses plaintext content (decryptField is a no-op on plaintext)
+        // Embedding uses plaintext content
         embedMessageAsync(message!.id, params.data.threadId, thread.profileId, plainContent, embKey, provider);
       }
     }

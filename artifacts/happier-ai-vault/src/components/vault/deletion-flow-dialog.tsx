@@ -9,10 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, Loader2, Shield, Lock } from "lucide-react";
+import { AlertTriangle, Loader2, Shield, Lock, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-type DeletionStep = "confirm" | "otp" | "keyphrase-entry" | "waiting";
+type DeletionStep = "confirm" | "otp" | "keyphrase-entry" | "waiting" | "device-challenge" | "device-otp";
 
 interface DeletionFlowDialogProps {
   open: boolean;
@@ -41,6 +41,8 @@ export function DeletionFlowDialog({
   const [executeAfter, setExecuteAfter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deviceToken, setDeviceToken] = useState<string | null>(null);
+  const [deviceOtp, setDeviceOtp] = useState("");
   const { toast } = useToast();
 
   const waitLabel = targetType === "history" || targetType === "account" ? "2 weeks" : "24 hours";
@@ -66,6 +68,10 @@ export function DeletionFlowDialog({
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 403 && data.error === "device_challenge_required") {
+          setStep("device-challenge");
+          return;
+        }
         if (data.error === "two_factor_required") {
           setError("You must enable two-factor authentication on your account before deleting data. Go to your account settings to enable it.");
         } else if (data.error === "recency_lock") {
@@ -77,6 +83,60 @@ export function DeletionFlowDialog({
       }
       setRequestId(data.id);
       setStep("otp");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeviceChallenge = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/security/devices/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ label: "Vault Browser" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Failed to send verification code");
+        return;
+      }
+      setDeviceToken(data.deviceToken);
+      setStep("device-otp");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeviceVerify = async () => {
+    if (!deviceToken || !deviceOtp) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/security/devices/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ deviceToken, otp: deviceOtp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Invalid verification code");
+        return;
+      }
+      setDeviceOtp("");
+      setDeviceToken(null);
+      toast({
+        title: "Device verified",
+        description: "This device is now trusted. Please confirm your deletion request.",
+      });
+      setStep("confirm");
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -201,6 +261,69 @@ export function DeletionFlowDialog({
               >
                 {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                 Start Deletion Process
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === "device-challenge" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-primary" />
+                Verify this device first
+              </DialogTitle>
+              <DialogDescription className="space-y-2 pt-1">
+                <p>
+                  Deletion requests require a <strong className="text-foreground">trusted device</strong>. This browser hasn't been verified yet.
+                </p>
+                <p className="text-sm">
+                  Click below to send a verification code to your email. Once verified, this device will be trusted for 90 days.
+                </p>
+              </DialogDescription>
+            </DialogHeader>
+            {error && <p className="text-sm text-red-400 bg-red-950/30 p-3 rounded-lg">{error}</p>}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+                Cancel
+              </Button>
+              <Button onClick={handleDeviceChallenge} disabled={loading}>
+                {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Smartphone className="w-4 h-4 mr-2" />}
+                Send Verification Code
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === "device-otp" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-primary" />
+                Verify your device
+              </DialogTitle>
+              <DialogDescription>
+                A 6-digit code was sent to your email. Enter it below to trust this device, then your deletion request will proceed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input
+                value={deviceOtp}
+                onChange={(e) => setDeviceOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                maxLength={6}
+                className="text-center text-2xl font-mono tracking-widest h-14"
+                autoFocus
+              />
+              {error && <p className="text-sm text-red-400">{error}</p>}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setStep("device-challenge"); setError(null); }} disabled={loading}>
+                Back
+              </Button>
+              <Button onClick={handleDeviceVerify} disabled={loading || deviceOtp.length !== 6}>
+                {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Verify Device
               </Button>
             </DialogFooter>
           </>

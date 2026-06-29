@@ -64,7 +64,7 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  brace-expansion: '>=2.0.3'
+  brace-expansion: '>=5.0.6'
   esbuild: 0.27.3
   esbuild>@esbuild/aix-ppc64: '-'
   esbuild>@esbuild/android-arm: '-'
@@ -131,3 +131,8 @@ overrides:
   rollup>@rollup/rollup-win32-x64-gnu: '-'
   rollup>@rollup/rollup-win32-x64-msvc: '-'
   yaml: '>=2.8.3'
+  uuid: '>=11.1.1'
+  ws: '>=8.21.0'
+  hono: '>=4.12.25'
+  js-cookie: '>=3.0.7'
+  qs: '>=6.15.2'

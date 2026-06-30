@@ -2,7 +2,7 @@
 
 **Effective date:** July 1, 2026  
 **Last updated:** July 1, 2026  
-**Published at:** livhappierapps.com/apps/thememorymachine/privacy
+**Published at:** https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev/privacy
 
 ---
 
@@ -121,4 +121,4 @@ We may update this policy from time to time. We will notify you of material chan
 
 **Livhappier Apps**  
 Email: oblivionhappier@icloud.com
-Website: livhappierapps.com
+Website: https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev

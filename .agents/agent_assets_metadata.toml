@@ -11,3 +11,15 @@ id = "XFT0gqsOqzEDNFBSP3lpW"
 uri = "file://memory-machine.zip"
 type = "unspecified"
 title = "Memory Machine — Full Shebang (1,495 files · 16.3 MB)"
+
+[[outputs]]
+id = "pqUABpdyUZHzHdgdLGHvC"
+uri = "file://.local/legal/privacy-policy.md"
+type = "text"
+title = "Privacy Policy — The Memory Machine"
+
+[[outputs]]
+id = "YMo9kmuTu2n7Wwzp7BGul"
+uri = "file://.local/legal/terms-of-service.md"
+type = "text"
+title = "Terms of Service — The Memory Machine"

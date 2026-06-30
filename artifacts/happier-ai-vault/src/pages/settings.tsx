@@ -1,5 +1,5 @@
 import { Show } from "@clerk/react";
-import { Redirect } from "wouter";
+import { Redirect, Link } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import {
   useGetSettings,
@@ -939,20 +939,20 @@ function SettingsContent() {
               Review our privacy practices and terms of use.
             </p>
             <div className="flex flex-wrap gap-3">
-              <a
+              <Link
                 href="/privacy"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 <FileText className="w-3.5 h-3.5" />
                 Privacy Policy
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/terms"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 <FileText className="w-3.5 h-3.5" />
                 Terms of Service
-              </a>
+              </Link>
             </div>
           </div>
         </div>

@@ -295,29 +295,35 @@ export default function SettingsScreen() {
       <AuditLogSection colors={colors} />
 
       {/* Legal */}
-      <View style={[styles.card, { marginTop: 4 }]}>
-        <View style={styles.cardHeader}>
-          <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>LEGAL</Text>
-        </View>
-        <View style={[styles.cardBody, { borderColor: colors.border, backgroundColor: colors.card }]}>
-          <TouchableOpacity
-            style={styles.infoRow}
-            onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_DOMAIN ?? "https://memory-machine.replit.app"}/privacy`)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.infoLabel, { color: colors.foreground }]}>Privacy Policy</Text>
-            <Feather name="external-link" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.infoRow, { borderBottomWidth: 0 }]}
-            onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_DOMAIN ?? "https://memory-machine.replit.app"}/terms`)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.infoLabel, { color: colors.foreground }]}>Terms of Service</Text>
-            <Feather name="external-link" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      {(() => {
+        const rawDomain = process.env.EXPO_PUBLIC_DOMAIN ?? "memory-machine.replit.app";
+        const legalBase = rawDomain.startsWith("http") ? rawDomain : `https://${rawDomain}`;
+        return (
+          <View style={[styles.card, { marginTop: 4 }]}>
+            <View style={styles.cardHeader}>
+              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>LEGAL</Text>
+            </View>
+            <View style={[styles.cardBody, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <TouchableOpacity
+                style={styles.infoRow}
+                onPress={() => Linking.openURL(`${legalBase}/privacy`)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.infoLabel, { color: colors.foreground }]}>Privacy Policy</Text>
+                <Feather name="external-link" size={14} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.infoRow, { borderBottomWidth: 0 }]}
+                onPress={() => Linking.openURL(`${legalBase}/terms`)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.infoLabel, { color: colors.foreground }]}>Terms of Service</Text>
+                <Feather name="external-link" size={14} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      })()}
 
       {/* Sign Out */}
       <TouchableOpacity style={[styles.signOutBtn, { borderColor: colors.destructive }]} onPress={handleSignOut} activeOpacity={0.8}>

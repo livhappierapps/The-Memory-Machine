@@ -302,7 +302,7 @@ export default function SettingsScreen() {
         <View style={[styles.cardBody, { borderColor: colors.border, backgroundColor: colors.card }]}>
           <TouchableOpacity
             style={styles.infoRow}
-            onPress={() => Linking.openURL("https://livhappierapps.com/apps/thememorymachine/privacy")}
+            onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_DOMAIN ?? "https://memory-machine.replit.app"}/privacy`)}
             activeOpacity={0.7}
           >
             <Text style={[styles.infoLabel, { color: colors.foreground }]}>Privacy Policy</Text>
@@ -310,7 +310,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.infoRow, { borderBottomWidth: 0 }]}
-            onPress={() => Linking.openURL("https://livhappierapps.com/apps/thememorymachine/terms")}
+            onPress={() => Linking.openURL(`${process.env.EXPO_PUBLIC_DOMAIN ?? "https://memory-machine.replit.app"}/terms`)}
             activeOpacity={0.7}
           >
             <Text style={[styles.infoLabel, { color: colors.foreground }]}>Terms of Service</Text>

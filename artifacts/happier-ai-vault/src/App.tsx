@@ -12,6 +12,8 @@ import Home from "@/pages/home";
 import Vault from "@/pages/vault";
 import Settings from "@/pages/settings";
 import DeletionConfirm from "@/pages/deletion-confirm";
+import Privacy from "@/pages/privacy";
+import Terms from "@/pages/terms";
 import NotFound from "@/pages/not-found";
 import { ProfileProvider } from "@/contexts/profile-context";
 
@@ -80,6 +82,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/vault" component={Vault} />
             <Route path="/settings" component={Settings} />
             <Route path="/deletion-confirm" component={DeletionConfirm} />
+            <Route path="/privacy" component={Privacy} />
+            <Route path="/terms" component={Terms} />
             <Route component={NotFound} />
           </Switch>
         </ProfileProvider>

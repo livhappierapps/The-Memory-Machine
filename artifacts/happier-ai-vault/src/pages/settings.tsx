@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2, Activity, FileText, ExternalLink } from "lucide-react";
+import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2, Activity, FileText } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyphraseSection } from "@/components/security/keyphrase-section";
 import { DevicesSection } from "@/components/security/devices-section";
@@ -940,21 +940,17 @@ function SettingsContent() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href="https://livhappierapps.com/apps/thememorymachine/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/privacy"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5" />
                 Privacy Policy
               </a>
               <a
-                href="https://livhappierapps.com/apps/thememorymachine/terms"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/terms"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5" />
                 Terms of Service
               </a>
             </div>

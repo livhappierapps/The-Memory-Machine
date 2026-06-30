@@ -175,6 +175,6 @@ Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_P
 | Name | Command | Port |
 |---|---|---|
 | API Server | `pnpm --filter @workspace/api-server run dev` | 8080 |
-| Web (Happier AI Vault) | `pnpm --filter @workspace/happier-ai-vault run dev` | 5173 |
+| Web (The Memory Machine) | `pnpm --filter @workspace/happier-ai-vault run dev` | 5173 |
 | Mobile (Memory Machine) | `pnpm --filter @workspace/memory-machine-mobile run dev` | Expo QR |
 | Component Preview | `pnpm --filter @workspace/mockup-sandbox run dev` | 8081 |

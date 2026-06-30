@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Happier AI Vault"
+title = "The Memory Machine"
 version = "1.0.0"
 id = "artifacts/happier-ai-vault"
 router = "path"

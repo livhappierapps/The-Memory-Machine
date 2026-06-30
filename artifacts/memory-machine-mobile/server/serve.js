@@ -65,14 +65,20 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
-function serveLandingPage(req, res, landingPageTemplate, appName) {
+function serveLandingPage(req, res, template, appName) {
+  if (!template) {
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${appName}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#2f2f37;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}.wrap{max-width:400px}h1{font-size:28px;font-weight:700;color:#1ad4be;margin-bottom:12px}p{font-size:15px;color:#aaa;line-height:1.6;margin-bottom:32px}.badge{display:inline-block;background:#1ad4be;color:#1a1a24;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;text-decoration:none;margin:6px}.badge:hover{opacity:.85}</style></head><body><div class="wrap"><h1>${appName}</h1><p>Download the app to get started.</p><a class="badge" href="https://apps.apple.com">App Store</a><a class="badge" href="https://play.google.com">Google Play</a></div></body></html>`;
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
   const forwardedProto = req.headers["x-forwarded-proto"];
   const protocol = forwardedProto || "https";
   const host = req.headers["x-forwarded-host"] || req.headers["host"];
   const baseUrl = `${protocol}://${host}`;
   const expsUrl = `${host}`;
 
-  const html = landingPageTemplate
+  const html = template
     .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
     .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
     .replace(/APP_NAME_PLACEHOLDER/g, appName);
@@ -104,8 +110,17 @@ function serveStaticFile(urlPath, res) {
   res.end(content);
 }
 
-const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
+let landingPageTemplate;
+try {
+  landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
+} catch {
+  landingPageTemplate = null;
+}
 const appName = getAppName();
+const hasBuild = fs.existsSync(STATIC_ROOT) && fs.statSync(STATIC_ROOT).isDirectory();
+if (!hasBuild) {
+  console.log("No static-build/ found — serving download landing page.");
+}
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -113,6 +128,13 @@ const server = http.createServer((req, res) => {
 
   if (basePath && pathname.startsWith(basePath)) {
     pathname = pathname.slice(basePath.length) || "/";
+  }
+
+  // Health check — always 200, required by deployment
+  if (pathname === "/status" || pathname === "/healthz") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", build: hasBuild }));
+    return;
   }
 
   if (pathname === "/" || pathname === "/manifest") {
@@ -129,7 +151,7 @@ const server = http.createServer((req, res) => {
   serveStaticFile(pathname, res);
 });
 
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.PORT || "21025", 10);
 server.listen(port, "0.0.0.0", () => {
-  console.log(`Serving static Expo build on port ${port}`);
+  console.log(`Memory Machine mobile server running on port ${port}`);
 });

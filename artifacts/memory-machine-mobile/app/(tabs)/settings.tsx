@@ -3,6 +3,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
+import { Linking } from "react-native";
 import {
   ActivityIndicator,
   Alert,
@@ -292,6 +293,31 @@ export default function SettingsScreen() {
 
       {/* Activity Log */}
       <AuditLogSection colors={colors} />
+
+      {/* Legal */}
+      <View style={[styles.card, { marginTop: 4 }]}>
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>LEGAL</Text>
+        </View>
+        <View style={[styles.cardBody, { borderColor: colors.border, backgroundColor: colors.card }]}>
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => Linking.openURL("https://livhappierapps.com/apps/thememorymachine/privacy")}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.infoLabel, { color: colors.foreground }]}>Privacy Policy</Text>
+            <Feather name="external-link" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.infoRow, { borderBottomWidth: 0 }]}
+            onPress={() => Linking.openURL("https://livhappierapps.com/apps/thememorymachine/terms")}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.infoLabel, { color: colors.foreground }]}>Terms of Service</Text>
+            <Feather name="external-link" size={14} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* Sign Out */}
       <TouchableOpacity style={[styles.signOutBtn, { borderColor: colors.destructive }]} onPress={handleSignOut} activeOpacity={0.8}>

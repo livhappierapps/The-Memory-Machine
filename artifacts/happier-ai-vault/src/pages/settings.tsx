@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2, Activity } from "lucide-react";
+import { Loader2, Key, Settings2, Plug, Copy, Check, RefreshCw, Smartphone, Monitor, Globe, Brain, ToggleLeft, ToggleRight, ShieldAlert, Trash2, Activity, FileText, ExternalLink } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyphraseSection } from "@/components/security/keyphrase-section";
 import { DevicesSection } from "@/components/security/devices-section";
@@ -927,6 +927,37 @@ function SettingsContent() {
               <Trash2 className="w-4 h-4" />
               Delete Account...
             </Button>
+          </div>
+
+          {/* Legal */}
+          <div className="border-t border-border/50 pt-6">
+            <div className="flex items-center gap-2 mb-1">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-base font-medium">Legal</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Review our privacy practices and terms of use.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="https://livhappierapps.com/apps/thememorymachine/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Privacy Policy
+              </a>
+              <a
+                href="https://livhappierapps.com/apps/thememorymachine/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Terms of Service
+              </a>
+            </div>
           </div>
         </div>
 

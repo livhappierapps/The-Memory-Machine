@@ -17,11 +17,6 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thememorymachinemobile.app",
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "The Memory Machine uses the microphone for voice messages.",
-        "NSCameraUsageDescription": "The Memory Machine uses the camera to attach images to conversations.",
-        "NSPhotoLibraryUsageDescription": "The Memory Machine uses your photo library to attach images to conversations."
-      },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -51,7 +46,6 @@
         "backgroundColor": "#2f2f37"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO",
         "android.permission.INTERNET",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED"

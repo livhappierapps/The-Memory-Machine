@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { OAuthButtons } from "@/components/OAuthButtons";
 import { useColors } from "@/hooks/useColors";
 
 type Step = "details" | "verify";
@@ -112,6 +113,8 @@ export default function SignUpScreen() {
               : `Enter the code sent to ${email}`}
           </Text>
         </View>
+
+        {step === "details" ? <OAuthButtons /> : null}
 
         <View style={styles.form}>
           {error ? (

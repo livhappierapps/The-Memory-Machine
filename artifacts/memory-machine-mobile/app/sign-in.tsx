@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { OAuthButtons } from "@/components/OAuthButtons";
 import { useColors } from "@/hooks/useColors";
 
 export default function SignInScreen() {
@@ -80,6 +81,8 @@ export default function SignInScreen() {
             Sign in to your vault
           </Text>
         </View>
+
+        <OAuthButtons />
 
         <View style={styles.form}>
           {error ? (

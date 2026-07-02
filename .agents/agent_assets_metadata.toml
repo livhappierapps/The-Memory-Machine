@@ -23,3 +23,9 @@ id = "YMo9kmuTu2n7Wwzp7BGul"
 uri = "file://.local/legal/terms-of-service.md"
 type = "text"
 title = "Terms of Service — The Memory Machine"
+
+[[outputs]]
+id = "OwoT5CwcmBTO_d_1ec-7Q"
+uri = "file://exports/memory-machine-full-backup.tar.gz"
+type = "unspecified"
+title = "Memory Machine — Full Project Backup"

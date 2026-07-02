@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "The Memory Machine",
-    "slug": "thememorymachinemobile",
+    "slug": "the-memory-machine",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

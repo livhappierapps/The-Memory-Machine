@@ -5,3 +5,4 @@
 - [Encryption root secret](encryption-root-secret.md) — ENCRYPTION_ROOT_SECRET must be in Replit Secrets vault (not Env tab); changing it breaks all existing encrypted data; server throws at startup if missing/short
 - [Playwright on Replit NixOS](playwright-nixos.md) — Chromium needs LD_LIBRARY_PATH set to nix store paths; bake into playwright.config.ts top-level before defineConfig()
 - [Mobile tsconfig quirks](mobile-tsconfig-quirks.md) — expo/tsconfig.base can't be resolved by tsc in this pnpm monorepo; inline all options + add ambient shims for expo/expo/fetch modules; crypt@0.0.2 store fix included
+- [EAS Android build on Replit](eas-build-replit.md) — two required env flags + npx invocation pattern; free plan quota quirks; Expo slug must match registered project name

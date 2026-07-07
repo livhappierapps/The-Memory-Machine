@@ -62,6 +62,7 @@ scripts/                 — Workspace utility scripts
 - `app/(tabs)/_layout.tsx` — tab bar with auth guard → /sign-in
 - `app/thread/[id].tsx` — full-screen chat with SSE, haptics, keyboard avoidance
 - `components/ImportSheet.tsx` — chunked ZIP import (5 MB slices, expo-file-system/legacy)
+- `components/OAuthButtons.tsx` — Google + Apple SSO via `useSSO()` + AntDesign brand icons
 - `contexts/ProfileContext.tsx` — active profile + AsyncStorage persistence
 
 ### Backend (`artifacts/api-server/src/`)
@@ -145,6 +146,32 @@ Chunked upload: client slices file (10 MB web / 5 MB mobile) → `POST /api/impo
 - **Neon CSS classes**: `neon-text`, `neon-text-pulse`, `neon-border`, `neon-box-pulse`, `neon-glow` (in `index.css`)
 - **Mobile**: Full-screen panel toggle on mobile (<md) — sidebar and chat each take 100vw, toggled on thread select
 
+## Auth — Social Sign-In
+
+Google and Apple sign-in are enabled on both web and mobile.
+- **Web**: Clerk prebuilt `<SignIn>`/`<SignUp>` auto-renders provider buttons — no code changes needed when toggling providers.
+- **Mobile**: `components/OAuthButtons.tsx` — uses `useSSO({ strategy })` hook with `expo-web-browser` + `expo-auth-session`. Rendered above the email/password form on both `app/sign-in.tsx` and `app/sign-up.tsx`.
+- Apple Guideline 4.8 compliant: Sign in with Apple is offered alongside Google.
+
+## EAS Build (Android APK / iOS IPA)
+
+EAS project: `@livhappier/the-memory-machine` (projectId: `d3cebcea-7cb8-4a32-8b53-c19e8a1557da`)
+
+**Required command** (run from `artifacts/memory-machine-mobile`):
+```bash
+EXPO_TOKEN=$(printenv EXPO_TOKEN) \
+EAS_SKIP_AUTO_FINGERPRINT=1 \
+EAS_NO_VCS=1 \
+npx eas-cli build --platform android --profile preview --non-interactive --no-wait
+```
+
+Both flags are **required** in Replit's sandbox:
+- `EAS_SKIP_AUTO_FINGERPRINT=1` — prevents a post-fingerprint git write that Replit blocks
+- `EAS_NO_VCS=1` — stops EAS acquiring a git index lock (also blocked by sandbox)
+
+Profiles: `development` (simulator), `preview` (internal APK/IPA), `production` (store build).
+Free Expo plan: limited monthly builds — resets 1st of each month. Upgrade at expo.dev/accounts/livhappier/settings/billing.
+
 ## Environment Secrets
 
 | Secret | Used by | Notes |
@@ -153,7 +180,8 @@ Chunked upload: client slices file (10 MB web / 5 MB mobile) → `POST /api/impo
 | `CLERK_PUBLISHABLE_KEY` | API server + web frontend | Web: exposed via `vite.config.ts` define. Do NOT use `publishableKeyFromHost()` — generates `clerk.localhost` URLs |
 | `CLERK_SECRET_KEY` | API server | Server-side verification |
 | `DATABASE_URL` / `PG*` | lib/db | PostgreSQL |
-| `ENCRYPTION_ROOT_SECRET` | API server | Root key for HKDF per-user AES-256-GCM field encryption. **Must be in Replit Secrets vault** (not userenv). If missing, falls back to dev default — do not use default in production. |
+| `ENCRYPTION_ROOT_SECRET` | API server | Root key for HKDF per-user AES-256-GCM field encryption. Must be in Replit **Secrets** vault (not Env tab). |
+| `EXPO_TOKEN` | EAS builds | Expo access token — generate at expo.dev → Account → Access Tokens |
 
 Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_PUBLIC_DOMAIN`.
 
@@ -162,13 +190,15 @@ Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_P
 - `expo-file-system` ~19.0.22 (import from `expo-file-system/legacy`)
 - `expo-notifications` ~0.32.17
 
-## Last Verified (June 29 2026)
+## Last Verified (July 7 2026)
 - Typecheck: 0 errors across all 5 packages
 - Unit tests: 30/30 passing (api-server vitest)
-- Security scan: 0 critical/high in production code. GCM `authTagLength: 16` added to `crypto-utils.ts` + `field-crypto.ts`. `ENCRYPTION_ROOT_SECRET` must be moved from `.replit` userenv to Replit Secrets vault (pending user action — see action item below). All remaining SAST findings are in `.agents/skills/` third-party scripts only. `fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves MCP SDK CVE chain.
+- Security scan: 0 critical/high in production code. All SAST findings are in `.agents/skills/` third-party scripts only. `fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves MCP SDK CVE chain.
 - All 4 workflows running: API server, web, mobile (Metro), mockup sandbox
-- **Action required**: Move `ENCRYPTION_ROOT_SECRET` to the Replit Secrets tab (not the Env tab). Go to Secrets → add key `ENCRYPTION_ROOT_SECRET` with the value from the Env tab, then delete it from Env.
-- E2E: all flows green — sign-in, new thread, send message, archive/delete (sidebar dropdown), search, stats, settings persistence (number inputs verified), 404
+- `ENCRYPTION_ROOT_SECRET` confirmed in Replit Secrets vault ✓
+- Google + Apple sign-in live on web and mobile ✓
+- E2E: all flows green — sign-in (email + Google + Apple), new thread, send message, archive/delete, search, stats, settings, 404
+- **APK build**: EAS free-plan monthly quota exhausted (resets Aug 1 2026). Previous build `bae40d16` errored with `EAS_BUILD_UNKNOWN_GRADLE_ERROR` — Gradle logs expired before root cause could be confirmed. Re-trigger with command above once quota resets; if error recurs, check expo.dev build logs for the "Run gradlew" phase.
 
 ## Workflows
 

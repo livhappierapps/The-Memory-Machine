@@ -1,6 +1,5 @@
 import { useAuth } from "@clerk/expo";
 import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
@@ -96,7 +95,7 @@ export default function TabLayout() {
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/sign-in" />;
 
-  const tabContent = isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />;
+  const tabContent = Platform.OS === "ios" ? <NativeTabLayout /> : <ClassicTabLayout />;
 
   return (
     <View style={{ flex: 1 }}>

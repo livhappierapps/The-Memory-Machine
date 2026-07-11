@@ -155,7 +155,7 @@ Google and Apple sign-in are enabled on both web and mobile.
 
 ## EAS Build (Android APK / iOS IPA)
 
-EAS project: `@livhappier/the-memory-machine` (projectId: `d3cebcea-7cb8-4a32-8b53-c19e8a1557da`)
+EAS project: `@livhappierapps/the-memory-machine` (projectId: `50517425-e4fe-4baf-8967-11881ece7adb`)
 
 **Required command** (run from `artifacts/memory-machine-mobile`):
 ```bash

@@ -27,9 +27,10 @@ Do NOT use `eas` directly — it is not globally installed; use `npx eas-cli`.
 
 ## Expo project details
 
-- Account: `livhappier`
-- Slug: `the-memory-machine` (must match `app.json` slug — was previously mismatched as `thememorymachinemobile`)
-- projectId: `d3cebcea-7cb8-4a32-8b53-c19e8a1557da` (in `app.json` → `extra.eas.projectId`)
+- Account: `livhappierapps` (remade July 2026 — old account `livhappier` is gone)
+- Slug: `the-memory-machine`
+- projectId: `50517425-e4fe-4baf-8967-11881ece7adb` (in `app.json` → `extra.eas.projectId`)
+- accountId: `1fab176d-47e6-48c3-8935-b29099032a52`
 
 **Why slug matters:** EAS validates that `app.json` slug matches the registered project slug. If they diverge, the build errors with "Slug for project does not match". The fix is to update `app.json` slug to match what's shown on expo.dev.
 
@@ -39,6 +40,16 @@ Do NOT use `eas` directly — it is not globally installed; use `npx eas-cli`.
 - Upgrade at: expo.dev/accounts/livhappier/settings/billing
 - Check build status: `npx eas-cli build:list --platform android --limit 5`
 
+## Re-linking after account recreation
+
+If the expo.dev account is remade, the projectId in app.json becomes invalid ("Experience with id ... does not exist").
+Re-link steps (all non-interactive, no git locks):
+1. `eas-cli init --non-interactive` does NOT work in Replit (exits -1). Use GraphQL API instead.
+2. Get accountId: `curl -X POST https://api.expo.dev/graphql -H "Authorization: Bearer $TOKEN" -d '{"query":"{ me { accounts { id name } } }"}'`
+3. Create project: mutation `app { createApp(appInput: { accountId, projectName }) { id } }`
+4. Update `app.json` → `extra.eas.projectId` with new id
+5. Trigger build normally — keystore is auto-generated in cloud on first build
+
 ## Known Gradle failure (build bae40d16, July 2 2026)
 
-First build errored with `EAS_BUILD_UNKNOWN_GRADLE_ERROR`. Logs expired before root cause confirmed. If this recurs after quota resets, check expo.dev build logs → "Run gradlew" phase for the specific Gradle error. Possible causes: New Architecture (`newArchEnabled: true`) compatibility with a native module.
+First build on old account errored with `EAS_BUILD_UNKNOWN_GRADLE_ERROR`. Root cause never confirmed (logs expired). New account/project started fresh — keystore regenerated automatically.

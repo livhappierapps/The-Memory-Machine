@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "thememorymachinemobile",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "backgroundColor": "#2f2f37",
     "splash": {
       "image": "./assets/images/icon.png",

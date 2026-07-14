@@ -1,6 +1,6 @@
 ---
 name: EAS Android build on Replit
-description: How to trigger EAS builds from Replit's sandbox without git lock errors; slug alignment; free plan quota limits.
+description: How to trigger EAS builds from Replit's sandbox; required flags; reanimated 4.x New Arch requirement; expo-glass-effect Android incompatibility.
 ---
 
 # EAS Android Build on Replit
@@ -21,9 +21,37 @@ Do NOT use `eas` directly — it is not globally installed; use `npx eas-cli`.
 - `EAS_SKIP_AUTO_FINGERPRINT=1` — prevents a post-fingerprint git write that Replit's sandbox blocks (read-only .git in agent context)
 - `EAS_NO_VCS=1` — stops EAS from acquiring a git index lock (also blocked by Replit sandbox)
 
-**Why:** Without these flags, EAS attempts filesystem operations on `.git/` that are blocked in Replit's sandbox, causing the build command to fail immediately before even uploading.
+## Reading build logs
 
-**How to apply:** Any time a new EAS build needs to be triggered from within Replit. Credit to agent Dev (livhappier's other project agent) for discovering these flags.
+EAS log URLs expire in ~15 min. Get fresh URL via `npx eas-cli build:view <id> --json` (field: `logFiles[]`).
+
+Log files are NDJSON (newline-delimited JSON). Fetch with Node.js `https.get` — each line is `{"msg":"...","phase":"RUN_GRADLEW",...}`. Do NOT use curl/grep/strings:
+
+```js
+node -e "
+const https = require('https'), url = '<logUrl>';
+https.get(url, res => {
+  let d = ''; res.on('data', c => d += c);
+  res.on('end', () => {
+    d.split('\n').filter(Boolean).forEach(l => {
+      try { const j = JSON.parse(l); if (j.msg) console.log(j.msg); } catch{}
+    });
+  });
+});
+"
+```
+
+## ⚠️ react-native-reanimated 4.x — REQUIRES New Architecture
+
+**react-native-reanimated 4.x (and react-native-worklets) REQUIRES `newArchEnabled: true`.**
+It will throw `assertNewArchitectureEnabledTask FAILED` if New Architecture is disabled.
+**Never set `newArchEnabled: false` with reanimated 4.x.**
+
+**Why:** Reanimated 4 dropped the old bridge architecture entirely. New Architecture (JSI/TurboModules) is mandatory. `react-native-worklets` is a required peer dep of reanimated 4.x — do not try to remove it.
+
+## ⚠️ expo-glass-effect — iOS only, breaks Android builds
+
+`expo-glass-effect` has no `expo-module.config.json` and is iOS-only. Including it in package.json causes Android Gradle/autolinking failures. **Do not add it back.** Replace `isLiquidGlassAvailable()` with `Platform.OS === 'ios'` checks.
 
 ## Expo project details
 
@@ -32,24 +60,25 @@ Do NOT use `eas` directly — it is not globally installed; use `npx eas-cli`.
 - projectId: `50517425-e4fe-4baf-8967-11881ece7adb` (in `app.json` → `extra.eas.projectId`)
 - accountId: `1fab176d-47e6-48c3-8935-b29099032a52`
 
-**Why slug matters:** EAS validates that `app.json` slug matches the registered project slug. If they diverge, the build errors with "Slug for project does not match". The fix is to update `app.json` slug to match what's shown on expo.dev.
+**Why slug matters:** EAS validates that `app.json` slug matches the registered project slug. If they diverge, the build errors with "Slug for project does not match".
 
 ## Free plan quota
 
 - Limited monthly Android builds (resets 1st of each month)
-- Upgrade at: expo.dev/accounts/livhappier/settings/billing
 - Check build status: `npx eas-cli build:list --platform android --limit 5`
 
 ## Re-linking after account recreation
 
-If the expo.dev account is remade, the projectId in app.json becomes invalid ("Experience with id ... does not exist").
-Re-link steps (all non-interactive, no git locks):
-1. `eas-cli init --non-interactive` does NOT work in Replit (exits -1). Use GraphQL API instead.
-2. Get accountId: `curl -X POST https://api.expo.dev/graphql -H "Authorization: Bearer $TOKEN" -d '{"query":"{ me { accounts { id name } } }"}'`
-3. Create project: mutation `app { createApp(appInput: { accountId, projectName }) { id } }`
-4. Update `app.json` → `extra.eas.projectId` with new id
-5. Trigger build normally — keystore is auto-generated in cloud on first build
+`eas-cli init --non-interactive` does NOT work in Replit (exits -1). Use GraphQL API:
+1. Get accountId: `curl -X POST https://api.expo.dev/graphql -H "Authorization: Bearer $TOKEN" -d '{"query":"{ me { accounts { id name } } }"}'`
+2. Create project: mutation `app { createApp(appInput: { accountId, projectName }) { id } }`
+3. Update `app.json` → `extra.eas.projectId` with new id
 
-## Known Gradle failure (build bae40d16, July 2 2026)
+## Build history
 
-First build on old account errored with `EAS_BUILD_UNKNOWN_GRADLE_ERROR`. Root cause never confirmed (logs expired). New account/project started fresh — keystore regenerated automatically.
+| Build | Result | Notes |
+|---|---|---|
+| bae40d16 | ERRORED | Old account; expo-glass-effect present; logs expired |
+| c097a361 | ERRORED | New account; expo-glass-effect still present |
+| fb427d75 | ERRORED | newArchEnabled: false — reanimated 4.x requires New Arch; error was assertNewArchitectureEnabledTask |
+| 6c272caf | IN_PROGRESS | newArchEnabled: true + expo-glass-effect removed — first clean combo |

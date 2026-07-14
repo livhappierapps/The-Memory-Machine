@@ -29,3 +29,9 @@ id = "OwoT5CwcmBTO_d_1ec-7Q"
 uri = "file://exports/memory-machine-full-backup.tar.gz"
 type = "unspecified"
 title = "Memory Machine — Full Project Backup"
+
+[[outputs]]
+id = "TtQyQ38Xy90kBUoFgST10"
+uri = "file://memory-machine-source.zip"
+type = "unspecified"
+title = "Memory Machine — Full Source Code"

@@ -190,15 +190,19 @@ Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_P
 - `expo-file-system` ~19.0.22 (import from `expo-file-system/legacy`)
 - `expo-notifications` ~0.32.17
 
-## Last Verified (July 7 2026)
-- Typecheck: 0 errors across all 5 packages
-- Unit tests: 30/30 passing (api-server vitest)
-- Security scan: 0 critical/high in production code. All SAST findings are in `.agents/skills/` third-party scripts only. `fast-uri>=3.1.2` override in pnpm-workspace.yaml resolves MCP SDK CVE chain.
-- All 4 workflows running: API server, web, mobile (Metro), mockup sandbox
+## Last Verified (July 16 2026)
+- Typecheck: 0 errors across all 5 packages ✓
+- Unit tests: 30/30 passing (api-server vitest) ✓
+- Security scan: 0 critical/high in production code ✓
+  - SAST: all findings are in `.agents/skills/` third-party scripts only — production code is clean
+  - HoundDog: 0 vulnerabilities
+  - Deps: 4 high vulns patched: `http-proxy-middleware→3.0.7`, `multer→2.2.0`, `vite→7.3.5`, `undici→6.27.0`
+- All 5 workflows running: API server, web, mobile (Metro), mockup sandbox ✓
 - `ENCRYPTION_ROOT_SECRET` confirmed in Replit Secrets vault ✓
 - Google + Apple sign-in live on web and mobile ✓
-- E2E: all flows green — sign-in (email + Google + Apple), new thread, send message, archive/delete, search, stats, settings, 404
-- **APK build**: EAS free-plan monthly quota exhausted (resets Aug 1 2026). Previous build `bae40d16` errored with `EAS_BUILD_UNKNOWN_GRADLE_ERROR` — Gradle logs expired before root cause could be confirmed. Re-trigger with command above once quota resets; if error recurs, check expo.dev build logs for the "Run gradlew" phase.
+- MCP memory bridge live at `/api/mcp` — responds 401 for missing auth (correct) ✓
+- **Expo account**: switched to `livhappierapps@gmail.com` (new account, same username). projectId `50517425-e4fe-4baf-8967-11881ece7adb` + Android keystore `JGHvHUO8uj` carried over. Update `EXPO_TOKEN` in Replit Secrets vault with the new token.
+- **APK build**: Build `fcb1b9ec` triggered Jul 16 2026 — `newArchEnabled: true`, `expo-glass-effect` removed. Track at https://expo.dev/accounts/livhappierapps/projects/the-memory-machine/builds/fcb1b9ec-bc08-4fa3-9b35-29687958aa66
 
 ## Workflows
 

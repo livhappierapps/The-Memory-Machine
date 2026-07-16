@@ -165,7 +165,7 @@ overrides:
   js-cookie: '>=3.0.7'
   qs: '>=6.15.2'
   http-proxy-middleware: '>=3.0.7'
-  undici: '>=6.27.0'
+  undici: ^6.27.0
 
 importers:
 
@@ -6949,9 +6949,9 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@8.7.0:
-    resolution: {integrity: sha512-N7iQtfyLhIMOFgQubvmLV26svHpO0bqKnAiWotTQCVKCmWrcGbBotPuW1x+xwYZ2VHdSTVUfPQQnlEt1/LouTQ==}
-    engines: {node: '>=22.19.0'}
+  undici@6.27.0:
+    resolution: {integrity: sha512-YmfV3YnEDzXRC5lZ2jWtWWHKGUm1zIt8AhesR1tens+HTNv+YZlN/dp6G727LOvMJ8xjP9Be7Y2Sdr96LDm+pg==}
+    engines: {node: '>=18.17'}
 
   unicode-canonical-property-names-ecmascript@2.0.1:
     resolution: {integrity: sha512-dA8WbNeb2a6oQzAQ55YlT5vQAWGV9WXOsi3SskE3bcCdM0P4SDd+24zS/OCacdRq5BkdsRj9q3Pg6YyQoxIGqg==}
@@ -8295,7 +8295,7 @@ snapshots:
       structured-headers: 0.4.1
       tar: 7.5.15
       terminal-link: 2.1.1
-      undici: 8.7.0
+      undici: 6.27.0
       wrap-ansi: 7.0.0
       ws: 8.21.0
     optionalDependencies:
@@ -8371,7 +8371,7 @@ snapshots:
       structured-headers: 0.4.1
       tar: 7.5.15
       terminal-link: 2.1.1
-      undici: 8.7.0
+      undici: 6.27.0
       wrap-ansi: 7.0.0
       ws: 8.21.0
     optionalDependencies:
@@ -14820,7 +14820,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@8.7.0: {}
+  undici@6.27.0: {}
 
   unicode-canonical-property-names-ecmascript@2.0.1: {}
 

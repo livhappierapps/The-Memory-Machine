@@ -137,4 +137,4 @@ overrides:
   js-cookie: '>=3.0.7'
   qs: '>=6.15.2'
   http-proxy-middleware: '>=3.0.7'
-  undici: '>=6.27.0'
+  undici: '^6.27.0'

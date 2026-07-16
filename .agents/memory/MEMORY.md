@@ -6,3 +6,4 @@
 - [Playwright on Replit NixOS](playwright-nixos.md) — Chromium needs LD_LIBRARY_PATH set to nix store paths; bake into playwright.config.ts top-level before defineConfig()
 - [Mobile tsconfig quirks](mobile-tsconfig-quirks.md) — expo/tsconfig.base can't be resolved by tsc in this pnpm monorepo; inline all options + add ambient shims for expo/expo/fetch modules; crypt@0.0.2 store fix included
 - [EAS Android build on Replit](eas-build-replit.md) — two required env flags + npx invocation pattern; free plan quota quirks; Expo slug must match registered project name
+- [EAS Node version vs undici](eas-node-undici.md) — EAS SDK 54 workers run Node 20; undici@8.x needs Node 21+; always use ^major.minor.patch overrides, never >=

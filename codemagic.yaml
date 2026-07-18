@@ -1,0 +1,44 @@
+workflows:
+  android-apk:
+    name: Memory Machine — Android APK
+    max_build_duration: 60
+    environment:
+      node: 20.19.0
+      java: 17
+      vars:
+        EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
+      groups:
+        - memory_machine  # Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY here in Codemagic dashboard
+    cache:
+      cache_paths:
+        - $HOME/.pnpm-store
+        - $CM_BUILD_DIR/node_modules/.cache
+    scripts:
+      - name: Enable corepack + install pnpm
+        script: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Install workspace dependencies
+        script: pnpm install --frozen-lockfile
+
+      - name: Expo prebuild (generate android/ folder)
+        script: |
+          cd artifacts/memory-machine-mobile
+          npx expo prebuild --platform android --clean
+
+      - name: Build debug APK
+        script: |
+          cd artifacts/memory-machine-mobile/android
+          ./gradlew assembleDebug --no-daemon
+
+    artifacts:
+      - artifacts/memory-machine-mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+    publishing:
+      email:
+        recipients:
+          - livhappierapps@gmail.com
+        notify:
+          success: true
+          failure: true

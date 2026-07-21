@@ -1,4 +1,45 @@
 workflows:
+  leo-android-apk:
+    name: Leo App — Android APK
+    max_build_duration: 60
+    environment:
+      node: 20.19.0
+      java: 17
+    cache:
+      cache_paths:
+        - $HOME/.pnpm-store
+    scripts:
+      - name: Enable corepack + install pnpm
+        script: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        script: |
+          cd artifacts/leo-app
+          pnpm install
+
+      - name: Expo prebuild
+        script: |
+          cd artifacts/leo-app
+          npx expo prebuild --platform android --clean
+
+      - name: Build debug APK
+        script: |
+          cd artifacts/leo-app/android
+          ./gradlew assembleDebug --no-daemon
+
+    artifacts:
+      - artifacts/leo-app/android/app/build/outputs/apk/debug/app-debug.apk
+
+    publishing:
+      email:
+        recipients:
+          - livhappierapps@gmail.com
+        notify:
+          success: true
+          failure: true
+
   android-apk:
     name: Memory Machine — Android APK
     max_build_duration: 60

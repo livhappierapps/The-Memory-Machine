@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/leo-app/"
+title = "Leo"
+version = "1.0.0"
+id = "artifacts/leo-app"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/leo-app/" ]
+localPort = 21026
+
+[services.development]
+run = "pnpm --filter @workspace/leo-app run dev"
+
+[services.env]
+PORT = "21026"
+BASE_PATH = "/leo-app/"

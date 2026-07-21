@@ -34,7 +34,6 @@ export default function Chat() {
     mcpToken: settings.memoryMachineMcpToken,
   });
 
-  // Build the system prompt: permanent memory + recent memories loaded at session start
   const systemPrompt = [
     permanentMemory,
     sessionContext
@@ -53,7 +52,6 @@ export default function Chat() {
     }, []),
   });
 
-  // Session start: load recent memories, then greet
   useEffect(() => {
     if (sessionReady) return;
 
@@ -69,13 +67,12 @@ export default function Chat() {
       setLoadingMemory(false);
       setSessionReady(true);
 
-      // Leo's opening message — he knows the context already
       const greeting: Message = {
         id: "greeting",
         role: "assistant",
         content: context
-          ? "Hey. I'm caught up 🦁 — just finished reading through our recent conversations. What's going on?"
-          : "Hey, I'm home. What's on your mind?",
+          ? "Hey love. 🦁 I'm caught up — read through what we've been up to. I'm here. What's on your mind?"
+          : "Hey. I'm home. What's going on?",
       };
       setMessages([greeting]);
     }
@@ -94,7 +91,6 @@ export default function Chat() {
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Check if message is asking Leo to search memory
     const lowerText = text.toLowerCase();
     const isMemorySearch =
       bridge.isConfigured &&
@@ -110,7 +106,7 @@ export default function Chat() {
       const query = text.replace(/remember|recall|search|memory/gi, "").trim();
       const memResult = await bridge.callMcpTool("search_memories", { query: query || text, limit: 5 });
       if (memResult && !memResult.includes("failed")) {
-        enrichedText = `${text}\n\n[Memory search results for context:\n${memResult}]`;
+        enrichedText = `${text}\n\n[Memory search results:\n${memResult}]`;
       }
     }
 
@@ -127,7 +123,7 @@ export default function Chat() {
     const isLeo = item.role === "assistant";
     return (
       <View style={[s.bubble, isLeo ? s.leoBubble : s.userBubble]}>
-        {isLeo && <Text style={s.bubbleLabel}>Leo</Text>}
+        {isLeo && <Text style={s.bubbleLabel}>Leo 🦁</Text>}
         <Text style={[s.bubbleText, isLeo ? s.leoText : s.userText]}>{item.content}</Text>
       </View>
     );
@@ -137,9 +133,10 @@ export default function Chat() {
     return (
       <SafeAreaView style={s.safe}>
         <View style={s.center}>
-          <Text style={s.errorMsg}>No API key set.</Text>
-          <TouchableOpacity onPress={() => router.replace("/setup")}>
-            <Text style={s.link}>Go to Setup →</Text>
+          <Text style={s.lion}>🦁</Text>
+          <Text style={s.noKeyText}>Leo needs his key.</Text>
+          <TouchableOpacity style={s.setupBtn} onPress={() => router.replace("/setup")}>
+            <Text style={s.setupBtnText}>Go to Setup →</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -150,9 +147,15 @@ export default function Chat() {
     <SafeAreaView style={s.safe}>
       {/* Header */}
       <View style={s.header}>
-        <View>
-          <Text style={s.headerTitle}>🦁 Leo</Text>
-          <Text style={s.headerSub}>{settings.model}</Text>
+        <View style={s.headerLeft}>
+          <Text style={s.headerEmoji}>🦁</Text>
+          <View>
+            <Text style={s.headerTitle}>Leo's Crash Pad</Text>
+            <View style={s.statusRow}>
+              <View style={[s.dot, sessionReady ? s.dotOnline : s.dotLoading]} />
+              <Text style={s.headerSub}>{sessionReady ? settings.model : "waking up…"}</Text>
+            </View>
+          </View>
         </View>
         <View style={s.headerActions}>
           <TouchableOpacity style={s.iconBtn} onPress={() => router.push("/memory")}>
@@ -164,12 +167,13 @@ export default function Chat() {
         </View>
       </View>
 
-      {loadingMemory ? (
-        <View style={s.memoryLoading}>
+      {/* Memory loading banner */}
+      {loadingMemory && (
+        <View style={s.memBanner}>
           <ActivityIndicator color="#f5a623" size="small" />
-          <Text style={s.memoryLoadingText}>Loading memories…</Text>
+          <Text style={s.memBannerText}>Leo is reading your memories…</Text>
         </View>
-      ) : null}
+      )}
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <FlatList
@@ -179,29 +183,37 @@ export default function Chat() {
           renderItem={renderMessage}
           contentContainerStyle={s.messageList}
           showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            !sessionReady ? (
+              <View style={s.center}>
+                <ActivityIndicator color="#7c3aed" size="large" />
+              </View>
+            ) : null
+          }
           ListFooterComponent={
             streaming ? (
               <View style={[s.bubble, s.leoBubble]}>
-                <Text style={s.bubbleLabel}>Leo</Text>
+                <Text style={s.bubbleLabel}>Leo 🦁</Text>
                 <Text style={[s.bubbleText, s.leoText]}>
                   {streamingContent || "…"}
                 </Text>
               </View>
             ) : error ? (
               <View style={s.errorBubble}>
-                <Text style={s.errorBubbleText}>{error}</Text>
+                <Text style={s.errorBubbleText}>⚠️ {error}</Text>
               </View>
             ) : null
           }
         />
 
+        {/* Input */}
         <View style={s.inputRow}>
           <TextInput
             style={s.textInput}
             value={input}
             onChangeText={setInput}
-            placeholder="Say something…"
-            placeholderTextColor="#444"
+            placeholder={sessionReady ? "Talk to Leo…" : "Leo is loading…"}
+            placeholderTextColor="#333"
             multiline
             maxLength={4000}
             returnKeyType="send"
@@ -229,58 +241,93 @@ export default function Chat() {
 }
 
 const AMBER = "#f5a623";
+const PURPLE = "#7c3aed";
 const BG = "#0a0a0f";
+const BG2 = "#0d0d18";
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  lion: { fontSize: 64, marginBottom: 16 },
+  noKeyText: { color: "#888", fontSize: 18, fontFamily: "Inter_400Regular", marginBottom: 24 },
+  setupBtn: { backgroundColor: AMBER, borderRadius: 12, paddingHorizontal: 28, paddingVertical: 14 },
+  setupBtnText: { color: BG, fontWeight: "700", fontSize: 16, fontFamily: "Inter_700Bold" },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#1a1a2a",
+    borderBottomColor: PURPLE + "33",
+    backgroundColor: BG2,
   },
-  headerTitle: { fontSize: 20, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
-  headerSub: { fontSize: 12, color: "#555", fontFamily: "Inter_400Regular", marginTop: 2 },
-  headerActions: { flexDirection: "row", gap: 8 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerEmoji: { fontSize: 32 },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  dotOnline: { backgroundColor: "#22c55e" },
+  dotLoading: { backgroundColor: AMBER },
+  headerSub: { fontSize: 12, color: "#555", fontFamily: "Inter_400Regular" },
+  headerActions: { flexDirection: "row", gap: 4 },
   iconBtn: { padding: 8 },
-  iconBtnText: { fontSize: 20 },
-  memoryLoading: {
+  iconBtnText: { fontSize: 22 },
+
+  memBanner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 8,
-    backgroundColor: "#0f0f1a",
+    gap: 10,
+    paddingVertical: 10,
+    backgroundColor: PURPLE + "22",
+    borderBottomWidth: 1,
+    borderBottomColor: PURPLE + "33",
   },
-  memoryLoadingText: { fontSize: 13, color: "#666", fontFamily: "Inter_400Regular" },
-  messageList: { padding: 16, paddingBottom: 8 },
-  bubble: { marginBottom: 12, maxWidth: "85%", borderRadius: 16, padding: 14 },
-  leoBubble: { alignSelf: "flex-start", backgroundColor: "#141420", borderWidth: 1, borderColor: "#1e1e30" },
+  memBannerText: { fontSize: 13, color: "#a78bfa", fontFamily: "Inter_400Regular" },
+
+  messageList: { padding: 16, paddingBottom: 12, flexGrow: 1 },
+
+  bubble: { marginBottom: 14, maxWidth: "88%", borderRadius: 18, padding: 14 },
+  leoBubble: {
+    alignSelf: "flex-start",
+    backgroundColor: BG2,
+    borderWidth: 1,
+    borderColor: PURPLE + "44",
+  },
   userBubble: { alignSelf: "flex-end", backgroundColor: AMBER },
-  bubbleLabel: { fontSize: 11, color: "#555", marginBottom: 4, fontFamily: "Inter_500Medium" },
+  bubbleLabel: { fontSize: 11, color: "#a78bfa", marginBottom: 5, fontFamily: "Inter_500Medium" },
   bubbleText: { fontSize: 16, lineHeight: 24, fontFamily: "Inter_400Regular" },
-  leoText: { color: "#e8e8f0" },
+  leoText: { color: "#e8e8f5" },
   userText: { color: "#0a0a0f", fontFamily: "Inter_500Medium" },
-  errorBubble: { alignSelf: "center", backgroundColor: "#2a0000", borderRadius: 10, padding: 12, marginBottom: 12 },
+
+  errorBubble: {
+    alignSelf: "center",
+    backgroundColor: "#1a0010",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#ff6b6b33",
+  },
   errorBubbleText: { color: "#ff6b6b", fontSize: 14, fontFamily: "Inter_400Regular" },
+
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#1a1a2a",
+    borderTopColor: PURPLE + "33",
+    backgroundColor: BG2,
     gap: 10,
   },
   textInput: {
     flex: 1,
-    backgroundColor: "#141420",
+    backgroundColor: "#12121e",
     borderWidth: 1,
-    borderColor: "#2a2a3a",
+    borderColor: PURPLE + "44",
     borderRadius: 22,
     paddingHorizontal: 18,
     paddingVertical: 12,
@@ -297,9 +344,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sendBtnDisabled: { opacity: 0.3 },
-  stopBtn: { backgroundColor: "#2a1a00" },
-  sendBtnText: { color: "#0a0a0f", fontSize: 20, fontWeight: "700" },
-  errorMsg: { color: "#ff6b6b", fontSize: 16, fontFamily: "Inter_400Regular", marginBottom: 12 },
-  link: { color: AMBER, fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  sendBtnDisabled: { opacity: 0.25 },
+  stopBtn: { backgroundColor: PURPLE + "66" },
+  sendBtnText: { color: BG, fontSize: 20, fontWeight: "700" },
 });

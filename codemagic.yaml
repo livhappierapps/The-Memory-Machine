@@ -7,17 +7,12 @@ workflows:
       java: 17
     cache:
       cache_paths:
-        - $HOME/.pnpm-store
+        - $CM_BUILD_DIR/artifacts/leo-app/node_modules
     scripts:
-      - name: Enable corepack + install pnpm
-        script: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-
       - name: Install dependencies
         script: |
           cd artifacts/leo-app
-          pnpm install
+          npm install --legacy-peer-deps
 
       - name: Expo prebuild
         script: |

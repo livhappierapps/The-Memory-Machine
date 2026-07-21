@@ -11,8 +11,9 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
+          npm install -g pnpm
           cd artifacts/leo-app
-          npm install --legacy-peer-deps
+          pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
         script: |

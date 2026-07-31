@@ -8,7 +8,8 @@
  * Custom header:      Authorization: Bearer <token>
  *
  * Tools:
- *   search_memories          — multi-word keyword search across all conversations
+ *   save_memory              — write a new note/memory that Leo wants to remember
+ *   search_memories          — semantic + keyword search across all conversations
  *   search_by_date           — find conversations within a date range
  *   list_recent_conversations — most recently active threads
  *   get_conversation         — full message history of a specific thread
@@ -21,10 +22,28 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { db } from "@workspace/db";
-import { settingsTable, threadsTable, messagesTable } from "@workspace/db";
-import { eq, and, desc, or, gte, lte, isNull, inArray, ilike } from "drizzle-orm";
+import {
+  settingsTable,
+  threadsTable,
+  messagesTable,
+  profilesTable,
+} from "@workspace/db";
+import {
+  eq,
+  and,
+  desc,
+  or,
+  gte,
+  lte,
+  isNull,
+  inArray,
+  ilike,
+  asc,
+  sql,
+} from "drizzle-orm";
 import { logger } from "../lib/logger";
-import { sha256Hex, decryptField } from "../lib/field-crypto";
+import { sha256Hex, encryptField, decryptField } from "../lib/field-crypto";
+import { generateEmbedding, storeEmbedding } from "../lib/embeddings";
 
 const router: IRouter = Router();
 
@@ -57,6 +76,32 @@ function extractBearerToken(req: Request): string | null {
   return match ? match[1].trim() : null;
 }
 
+// ── Profile helpers ───────────────────────────────────────────────────────────
+
+interface ProfileInfo {
+  id: number;
+  apiKey: string | null;
+  embeddingProvider: string;
+}
+
+/**
+ * Load the user's first profile (lowest id = default created on sign-up).
+ * Used to obtain the API key for embedding generation in MCP tools.
+ */
+async function getDefaultProfile(userId: string): Promise<ProfileInfo | null> {
+  const [profile] = await db
+    .select({
+      id: profilesTable.id,
+      apiKey: profilesTable.apiKey,
+      embeddingProvider: profilesTable.embeddingProvider,
+    })
+    .from(profilesTable)
+    .where(eq(profilesTable.userId, userId))
+    .orderBy(asc(profilesTable.id))
+    .limit(1);
+  return profile ?? null;
+}
+
 // ── Tool helpers ──────────────────────────────────────────────────────────────
 
 function fmtMsg(m: { role: string; content: string }, maxLen = 300) {
@@ -82,13 +127,134 @@ function fmtThread(t: {
 // ── MCP server factory ────────────────────────────────────────────────────────
 
 function buildMcpServer(userId: string): McpServer {
-  const server = new McpServer({ name: "Memory Machine", version: "1.0.0" });
+  const server = new McpServer({ name: "Memory Machine", version: "1.1.0" });
+
+  // ── save_memory ───────────────────────────────────────────────────────────
+  server.tool(
+    "save_memory",
+    [
+      "Save a new memory, note, or piece of information to the Memory Machine vault.",
+      "Use this when you want to remember something for the future — a decision made, a project detail,",
+      "a personal note, something the user told you, or any information worth keeping.",
+      "The memory is stored as a pinned conversation and is immediately searchable.",
+      "Returns the ID of the saved memory so you can retrieve it later with get_conversation.",
+    ].join(" "),
+    {
+      title: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe(
+          "A short, descriptive title for this memory (e.g. 'Middlemain project — authentication decisions', 'User prefers dark themes'). This becomes the conversation title visible in the app.",
+        ),
+      content: z
+        .string()
+        .min(1)
+        .max(50_000)
+        .describe(
+          "The full text of the memory. Can be plain prose, a list, structured notes — whatever captures what you want to remember.",
+        ),
+      pin: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Whether to pin this memory so it always surfaces in context (default true — pin it)."),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional list of short tags or categories (e.g. ['project', 'middlemain', 'architecture']). Prepended to the content to improve searchability.",
+        ),
+    },
+    async ({ title, content, pin, tags }) => {
+      try {
+        // Prepend tags to content so they improve keyword + semantic search
+        const tagLine = tags && tags.length > 0
+          ? `[Tags: ${tags.join(", ")}]\n\n`
+          : "";
+        const fullContent = `${tagLine}${content}`;
+
+        // Look up the default profile so we can generate an embedding
+        const profile = await getDefaultProfile(userId);
+
+        // Create the thread
+        const [thread] = await db
+          .insert(threadsTable)
+          .values({
+            userId,
+            profileId: profile?.id ?? null,
+            title,
+            pinned: pin ?? true,
+            archived: false,
+            model: "grok-3",
+            messageCount: 0,
+          })
+          .returning({ id: threadsTable.id });
+
+        if (!thread) {
+          return {
+            content: [{ type: "text", text: "Failed to create memory thread." }],
+            isError: true,
+          };
+        }
+
+        const threadId = thread.id;
+
+        // Insert the content as an encrypted message
+        const encryptedContent = encryptField(userId, fullContent);
+        const [message] = await db
+          .insert(messagesTable)
+          .values({
+            threadId,
+            role: "user",
+            content: encryptedContent,
+            isSummary: false,
+          })
+          .returning({ id: messagesTable.id });
+
+        // Update message count and last_message_at on the thread
+        await db.execute(sql`
+          UPDATE threads
+          SET message_count = 1,
+              last_message_at = now()
+          WHERE id = ${threadId}
+        `);
+
+        // Generate and store an embedding in the background (needs API key)
+        if (message && profile?.apiKey) {
+          generateEmbedding(fullContent, profile.apiKey, profile.embeddingProvider)
+            .then((vec) => vec ? storeEmbedding(message.id, threadId, profile.id, vec) : undefined)
+            .catch((err) => logger.warn({ err }, "MCP save_memory: embedding failed"));
+        }
+
+        const pinNote = (pin ?? true) ? " (pinned)" : "";
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `✅ Memory saved${pinNote}: "${title}" (ID: #${threadId})`,
+                "",
+                "You can retrieve it later with: get_conversation(thread_id: " + threadId + ")",
+                "Or search for it with: search_memories(query: \"" + title.slice(0, 50) + "\")",
+              ].join("\n"),
+            },
+          ],
+        };
+      } catch (err) {
+        logger.error({ err }, "MCP save_memory error");
+        return { content: [{ type: "text", text: "Error saving memory." }], isError: true };
+      }
+    },
+  );
 
   // ── search_memories ──────────────────────────────────────────────────────
   server.tool(
     "search_memories",
     [
       "Search through all stored conversation memories.",
+      "Uses semantic (vector) search when possible for meaning-aware results,",
+      "falling back to keyword search on conversation titles.",
       "Supports keywords, phrases, names, emotions, topics — anything.",
       "Returns matching excerpts grouped by conversation.",
       "Use this when you want to recall something specific from the past.",
@@ -104,88 +270,153 @@ function buildMcpServer(userId: string): McpServer {
     },
     async ({ query, limit, role }) => {
       try {
-        const terms = query.trim().split(/\s+/).filter(Boolean);
+        const maxResults = limit ?? 5;
+        const resultThreadIds = new Set<number>();
+        const threadScores = new Map<number, number>(); // threadId → best similarity score
 
-        // Load user's threads (title is plaintext — searchable directly)
-        const userThreads = await db
-          .select({ id: threadsTable.id, title: threadsTable.title, lastMessageAt: threadsTable.lastMessageAt })
-          .from(threadsTable)
-          .where(and(eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
-          .orderBy(desc(threadsTable.lastMessageAt))
-          .limit(200);
+        // ── Path 1: semantic search via pgvector ─────────────────────────────
+        const profile = await getDefaultProfile(userId);
+        if (profile?.apiKey) {
+          const queryVec = await generateEmbedding(query, profile.apiKey, profile.embeddingProvider);
+          if (queryVec) {
+            const vecLiteral = `[${queryVec.join(",")}]`;
 
-        const threadIds = userThreads.map((t) => t.id);
-        const threadMap = new Map(userThreads.map((t) => [t.id, t]));
+            type SemRow = { thread_id: number; score: number };
+            const semRows = await db.execute<SemRow>(sql`
+              SELECT thread_id, score
+              FROM (
+                SELECT DISTINCT ON (e.thread_id)
+                  e.thread_id,
+                  1 - (e.embedding <=> ${vecLiteral}::vector) AS score
+                FROM embeddings e
+                JOIN threads t ON t.id = e.thread_id
+                WHERE t.user_id = ${userId}
+                  AND t.deleted_at IS NULL
+                ORDER BY e.thread_id, e.embedding <=> ${vecLiteral}::vector
+              ) best_per_thread
+              WHERE score > 0.3
+              ORDER BY score DESC
+              LIMIT ${maxResults * 2}
+            `);
 
-        // Role filter applied at DB level; content match done in memory (content is encrypted)
-        const roleCondition =
-          role === "user" ? eq(messagesTable.role, "user")
-          : role === "assistant" ? eq(messagesTable.role, "assistant")
-          : undefined;
-
-        const allMsgs = threadIds.length > 0
-          ? await db
-            .select({
-              threadId: messagesTable.threadId,
-              role: messagesTable.role,
-              content: messagesTable.content,
-              createdAt: messagesTable.createdAt,
-            })
-            .from(messagesTable)
-            .where(and(inArray(messagesTable.threadId, threadIds), roleCondition))
-            .orderBy(desc(messagesTable.createdAt))
-            .limit(5000)
-          : [];
-
-        // Decrypt and filter: title OR content must match all terms
-        const matchedRows: Array<{ threadId: number; threadTitle: string; messageRole: string; messageContent: string }> = [];
-        for (const m of allMsgs) {
-          const plain = decryptField(userId, m.content);
-          const thread = threadMap.get(m.threadId);
-          const titleMatch = terms.some((t) => (thread?.title ?? "").toLowerCase().includes(t.toLowerCase()));
-          const contentMatch = terms.every((t) => plain.toLowerCase().includes(t.toLowerCase()));
-          if (titleMatch || contentMatch) {
-            matchedRows.push({
-              threadId: m.threadId,
-              threadTitle: thread?.title ?? `Thread #${m.threadId}`,
-              messageRole: m.role,
-              messageContent: plain,
-            });
+            for (const row of semRows.rows) {
+              resultThreadIds.add(row.thread_id);
+              threadScores.set(row.thread_id, row.score);
+            }
           }
         }
 
-        if (matchedRows.length === 0) {
+        // ── Path 2: keyword search on thread titles (always runs as fallback/supplement) ──
+        const terms = query.trim().split(/\s+/).filter(Boolean);
+        if (terms.length > 0) {
+          const titleThreads = await db
+            .select({ id: threadsTable.id })
+            .from(threadsTable)
+            .where(
+              and(
+                eq(threadsTable.userId, userId),
+                isNull(threadsTable.deletedAt),
+                or(
+                  ...terms.map((t) => ilike(threadsTable.title, `%${t}%`)),
+                ),
+              ),
+            )
+            .limit(maxResults);
+
+          for (const t of titleThreads) {
+            if (!resultThreadIds.has(t.id)) {
+              resultThreadIds.add(t.id);
+              threadScores.set(t.id, 0); // keyword match, no vector score
+            }
+          }
+        }
+
+        if (resultThreadIds.size === 0) {
           return {
-            content: [{
-              type: "text",
-              text: `No memories found matching "${query}". The vault may not contain conversations about this topic yet.`,
-            }],
+            content: [
+              {
+                type: "text",
+                text: `No memories found matching "${query}". The vault may not contain conversations about this topic yet.`,
+              },
+            ],
           };
         }
 
-        // Group by thread, capped to `limit` threads
-        const grouped = new Map<number, { title: string; excerpts: string[] }>();
-        for (const row of matchedRows) {
-          if (grouped.size >= (limit ?? 5) && !grouped.has(row.threadId)) continue;
-          if (!grouped.has(row.threadId)) grouped.set(row.threadId, { title: row.threadTitle, excerpts: [] });
-          if (grouped.get(row.threadId)!.excerpts.length < 3) {
-            grouped.get(row.threadId)!.excerpts.push(
-              fmtMsg({ role: row.messageRole, content: row.messageContent }),
-            );
-          }
+        // ── Load thread metadata and a message snippet for each result ───────
+        const ids = [...resultThreadIds].slice(0, maxResults);
+        const threads = await db
+          .select({
+            id: threadsTable.id,
+            title: threadsTable.title,
+            pinned: threadsTable.pinned,
+            lastMessageAt: threadsTable.lastMessageAt,
+            createdAt: threadsTable.createdAt,
+          })
+          .from(threadsTable)
+          .where(inArray(threadsTable.id, ids));
+
+        const threadMap = new Map(threads.map((t) => [t.id, t]));
+
+        // Sort: vector score DESC (title-only keyword matches go at the end)
+        const sortedIds = ids.sort(
+          (a, b) => (threadScores.get(b) ?? 0) - (threadScores.get(a) ?? 0),
+        );
+
+        // Fetch one representative message per thread (first matching role)
+        const roleCondition =
+          role === "user"
+            ? eq(messagesTable.role, "user")
+            : role === "assistant"
+              ? eq(messagesTable.role, "assistant")
+              : undefined;
+
+        const output: string[] = [];
+        for (const threadId of sortedIds) {
+          const t = threadMap.get(threadId);
+          if (!t) continue;
+
+          const msgs = await db
+            .select({ role: messagesTable.role, content: messagesTable.content })
+            .from(messagesTable)
+            .where(and(eq(messagesTable.threadId, threadId), roleCondition))
+            .orderBy(desc(messagesTable.createdAt))
+            .limit(3);
+
+          const excerpts = msgs.map((m) =>
+            fmtMsg({ role: m.role, content: decryptField(userId, m.content) }),
+          );
+
+          const score = threadScores.get(threadId);
+          const scoreNote =
+            score && score > 0
+              ? ` (similarity: ${Math.round(score * 100)}%)`
+              : "";
+          const pin = t.pinned ? " 📌" : "";
+          const date = (t.lastMessageAt ?? t.createdAt).toLocaleDateString("en-US", {
+            year: "numeric", month: "short", day: "numeric",
+          });
+
+          output.push(
+            [
+              `## Conversation #${threadId}${pin}: "${t.title}"${scoreNote} — ${date}`,
+              ...excerpts,
+            ].join("\n"),
+          );
         }
 
-        const output = Array.from(grouped.entries())
-          .map(([id, { title, excerpts }]) =>
-            `## Conversation #${id}: "${title}"\n${excerpts.join("\n")}`,
-          )
-          .join("\n\n---\n\n");
-
         return {
-          content: [{
-            type: "text",
-            text: `Found memories matching "${query}" in ${grouped.size} conversation(s):\n\n${output}\n\nUse get_conversation with a conversation ID to read the full text.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: [
+                `Found memories matching "${query}" in ${output.length} conversation(s):`,
+                "",
+                output.join("\n\n---\n\n"),
+                "",
+                "Use get_conversation with a conversation ID to read the full text.",
+              ].join("\n"),
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP search_memories error");
@@ -254,10 +485,12 @@ function buildMcpServer(userId: string): McpServer {
             ? ` between ${from ?? "the beginning"} and ${to ?? "today"}`
             : "";
           return {
-            content: [{
-              type: "text",
-              text: `No conversations found${dateRange}${keyword ? ` containing "${keyword}"` : ""}.`,
-            }],
+            content: [
+              {
+                type: "text",
+                text: `No conversations found${dateRange}${keyword ? ` containing "${keyword}"` : ""}.`,
+              },
+            ],
           };
         }
 
@@ -270,10 +503,12 @@ function buildMcpServer(userId: string): McpServer {
 
         const lines = threads.map(fmtThread);
         return {
-          content: [{
-            type: "text",
-            text: `${header} (${threads.length} found):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `${header} (${threads.length} found):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text.`,
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP search_by_date error");
@@ -317,10 +552,12 @@ function buildMcpServer(userId: string): McpServer {
 
         const lines = threads.map(fmtThread);
         return {
-          content: [{
-            type: "text",
-            text: `Recent conversations (${threads.length} shown):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text, or search_memories to find something specific.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `Recent conversations (${threads.length} shown):\n\n${lines.join("\n")}\n\nUse get_conversation with a conversation ID to read the full text, or search_memories to find something specific.`,
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP list_recent_conversations error");
@@ -358,20 +595,25 @@ function buildMcpServer(userId: string): McpServer {
           .orderBy(messagesTable.createdAt);
 
         const slice = messages.slice(-(max_messages ?? 100));
-        const transcript = slice.map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 1000)).join("\n\n");
+        const transcript = slice
+          .map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 1000))
+          .join("\n\n");
 
         const date = (thread.lastMessageAt ?? thread.createdAt).toLocaleDateString("en-US", {
           weekday: "long", year: "numeric", month: "long", day: "numeric",
         });
-        const truncNote = messages.length > slice.length
-          ? `\n_(Showing last ${slice.length} of ${messages.length} messages)_\n`
-          : "";
+        const truncNote =
+          messages.length > slice.length
+            ? `\n_(Showing last ${slice.length} of ${messages.length} messages)_\n`
+            : "";
 
         return {
-          content: [{
-            type: "text",
-            text: `# Conversation #${thread.id}: "${thread.title}"\n${thread.messageCount} messages · ${date}${truncNote}\n\n${transcript}`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `# Conversation #${thread.id}: "${thread.title}"\n${thread.messageCount} messages · ${date}${truncNote}\n\n${transcript}`,
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP get_conversation error");
@@ -397,24 +639,34 @@ function buildMcpServer(userId: string): McpServer {
             createdAt: threadsTable.createdAt,
           })
           .from(threadsTable)
-          .where(and(eq(threadsTable.userId, userId), eq(threadsTable.pinned, true)))
+          .where(
+            and(
+              eq(threadsTable.userId, userId),
+              eq(threadsTable.pinned, true),
+              isNull(threadsTable.deletedAt),
+            ),
+          )
           .orderBy(desc(threadsTable.updatedAt));
 
         if (threads.length === 0) {
           return {
-            content: [{
-              type: "text",
-              text: "No pinned memories yet. Pin conversations from the Memory Machine app to make them always accessible here.",
-            }],
+            content: [
+              {
+                type: "text",
+                text: "No pinned memories yet. Use save_memory to create a pinned note, or pin conversations from the Memory Machine app.",
+              },
+            ],
           };
         }
 
         const lines = threads.map(fmtThread);
         return {
-          content: [{
-            type: "text",
-            text: `Pinned memories (${threads.length}):\n\n${lines.join("\n")}\n\nUse get_conversation with an ID to read the full content.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `Pinned memories (${threads.length}):\n\n${lines.join("\n")}\n\nUse get_conversation with an ID to read the full content.`,
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP get_pinned_memories error");
@@ -448,21 +700,31 @@ function buildMcpServer(userId: string): McpServer {
           .where(eq(messagesTable.threadId, thread_id))
           .orderBy(messagesTable.createdAt);
 
-        const head = messages.slice(0, 3).map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250));
-        const mid = messages.length > 9
-          ? [`\n… (${messages.length - 6} more messages in the middle) …\n`]
-          : [];
-        const tail = messages.length > 6 ? messages.slice(-3).map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250)) : [];
+        const head = messages
+          .slice(0, 3)
+          .map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250));
+        const mid =
+          messages.length > 9
+            ? [`\n… (${messages.length - 6} more messages in the middle) …\n`]
+            : [];
+        const tail =
+          messages.length > 6
+            ? messages
+                .slice(-3)
+                .map((m) => fmtMsg({ ...m, content: decryptField(userId, m.content) }, 250))
+            : [];
 
         const date = (thread.lastMessageAt ?? thread.createdAt).toLocaleDateString("en-US", {
           year: "numeric", month: "long", day: "numeric",
         });
 
         return {
-          content: [{
-            type: "text",
-            text: `# Snapshot: "${thread.title}" (#${thread.id})\n${thread.messageCount} messages · ${date}\n\n${[...head, ...mid, ...tail].join("\n\n")}`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `# Snapshot: "${thread.title}" (#${thread.id})\n${thread.messageCount} messages · ${date}\n\n${[...head, ...mid, ...tail].join("\n\n")}`,
+            },
+          ],
         };
       } catch (err) {
         logger.error({ err }, "MCP get_memory_summary error");

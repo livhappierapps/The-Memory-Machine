@@ -4,25 +4,32 @@ const path = require("path");
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "../..");
 
+function resolvePkg(name) {
+  try {
+    return path.dirname(
+      require.resolve(`${name}/package.json`, {
+        paths: [projectRoot, workspaceRoot],
+      }),
+    );
+  } catch {
+    return path.resolve(workspaceRoot, "node_modules", name);
+  }
+}
+
 const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
-
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(workspaceRoot, "node_modules"),
 ];
+config.resolver.unstable_enableSymlinks = true;
 
-// Stop Metro from walking up the Replit monorepo and grabbing a second React.
-config.resolver.disableHierarchicalLookup = true;
-
-const reactDir = path.resolve(workspaceRoot, "node_modules/react");
-const reactNativeDir = path.resolve(workspaceRoot, "node_modules/react-native");
-
+// One physical React for the whole bundle. Dual copies make useId dispatcher null in Expo Go.
 config.resolver.extraNodeModules = {
-  react: reactDir,
-  "react-dom": path.resolve(workspaceRoot, "node_modules/react-dom"),
-  "react-native": reactNativeDir,
+  react: resolvePkg("react"),
+  "react-dom": resolvePkg("react-dom"),
+  "react-native": resolvePkg("react-native"),
 };
 
 module.exports = config;

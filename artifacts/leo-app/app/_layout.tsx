@@ -10,7 +10,6 @@ import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LeoProvider } from "@/contexts/LeoContext";
@@ -39,17 +38,15 @@ export default function RootLayout() {
     <View style={{ flex: 1, backgroundColor: "#0a0a0f" }}>
       <SafeAreaProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <KeyboardProvider>
-            <LeoProvider>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="chat" />
-                <Stack.Screen name="setup" />
-                <Stack.Screen name="memory" />
-                <Stack.Screen name="settings" />
-              </Stack>
-            </LeoProvider>
-          </KeyboardProvider>
+          <LeoProvider>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="chat" />
+              <Stack.Screen name="setup" />
+              <Stack.Screen name="memory" />
+              <Stack.Screen name="settings" />
+            </Stack>
+          </LeoProvider>
         </GestureHandlerRootView>
       </SafeAreaProvider>
     </View>

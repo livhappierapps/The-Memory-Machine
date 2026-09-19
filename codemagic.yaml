@@ -5,6 +5,9 @@ workflows:
     environment:
       node: 20.19.0
       java: 17
+      vars:
+        CI: "1"
+        EXPO_NO_TELEMETRY: "1"
     cache:
       cache_paths:
         - $HOME/.pnpm-store
@@ -18,13 +21,15 @@ workflows:
 
       - name: Install workspace dependencies
         script: |
-          # lockfile overrides lag workspace.yaml; allow refresh on CI
           pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
         script: |
           cd artifacts/leo-app
-          npx expo prebuild --platform android --clean
+          # --no-install: do not prompt "Install the updated dependencies?"
+          npx expo prebuild --platform android --clean --no-install
+          cd ../..
+          pnpm install --no-frozen-lockfile
 
       - name: Build debug APK
         script: |
@@ -49,6 +54,8 @@ workflows:
       node: 20.19.0
       java: 17
       vars:
+        CI: "1"
+        EXPO_NO_TELEMETRY: "1"
         EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
       groups:
         - memory_machine
@@ -69,7 +76,9 @@ workflows:
       - name: Expo prebuild (generate android/ folder)
         script: |
           cd artifacts/memory-machine-mobile
-          npx expo prebuild --platform android --clean
+          npx expo prebuild --platform android --clean --no-install
+          cd ../..
+          pnpm install --no-frozen-lockfile
 
       - name: Build debug APK
         script: |

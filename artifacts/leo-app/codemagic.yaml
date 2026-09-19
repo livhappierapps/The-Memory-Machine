@@ -5,6 +5,9 @@ workflows:
     environment:
       node: 20.19.0
       java: 17
+      vars:
+        CI: "1"
+        EXPO_NO_TELEMETRY: "1"
       groups:
         - leo_secrets
     cache:
@@ -29,7 +32,14 @@ workflows:
           if [ -d artifacts/leo-app ]; then
             cd artifacts/leo-app
           fi
-          npx expo prebuild --platform android --clean
+          npx expo prebuild --platform android --clean --no-install
+          if [ -f ../../pnpm-workspace.yaml ]; then
+            cd ../..
+            pnpm install --no-frozen-lockfile
+          elif [ -f ../../../pnpm-workspace.yaml ]; then
+            cd ../../..
+            pnpm install --no-frozen-lockfile
+          fi
 
       - name: Build debug APK
         script: |

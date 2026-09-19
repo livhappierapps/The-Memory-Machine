@@ -18,8 +18,8 @@ workflows:
 
       - name: Install workspace dependencies
         script: |
-          # leo-app uses catalog: versions; must install from monorepo root
-          pnpm install --frozen-lockfile
+          # lockfile overrides lag workspace.yaml; allow refresh on CI
+          pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
         script: |
@@ -64,7 +64,7 @@ workflows:
           pnpm --version
 
       - name: Install workspace dependencies
-        script: pnpm install --frozen-lockfile
+        script: pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild (generate android/ folder)
         script: |

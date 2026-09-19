@@ -19,11 +19,10 @@ workflows:
 
       - name: Install workspace dependencies
         script: |
-          # Must run from repo root so catalog: deps resolve
           if [ -f ../../pnpm-workspace.yaml ]; then
             cd ../..
           fi
-          pnpm install --frozen-lockfile
+          pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
         script: |

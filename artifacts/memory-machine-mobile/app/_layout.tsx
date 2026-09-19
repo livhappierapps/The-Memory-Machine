@@ -21,9 +21,8 @@ import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { useNotifications } from "@/hooks/useNotifications";
+import { Sentry } from "../sentry";
 
-// Persist Clerk sessions to secure storage so users stay logged in across
-// app restarts and cold launches on real devices.
 const tokenCache = {
   async getToken(key: string) {
     try {
@@ -36,7 +35,7 @@ const tokenCache = {
     try {
       await SecureStore.setItemAsync(key, value);
     } catch {
-      // ignore — don't crash if secure store is unavailable
+      // ignore
     }
   },
   async clearToken(key: string) {
@@ -48,7 +47,6 @@ const tokenCache = {
   },
 };
 
-// Point all generated hooks at the remote API server.
 setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"]}`);
 
 SplashScreen.preventAutoHideAsync();
@@ -89,7 +87,7 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -130,3 +128,5 @@ export default function RootLayout() {
     </View>
   );
 }
+
+export default Sentry.wrap(RootLayout);

@@ -13,10 +13,11 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LeoProvider } from "@/contexts/LeoContext";
+import { Sentry } from "../sentry";
 
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -52,3 +53,5 @@ export default function RootLayout() {
     </View>
   );
 }
+
+export default Sentry.wrap(RootLayout);

@@ -36,7 +36,16 @@
     "plugins": [
       ["expo-router", { "origin": "https://replit.com/" }],
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "livhappierapps",
+          "project": "leo-app",
+          "note": "Set SENTRY_AUTH_TOKEN in CodeMagic/EAS for source map upload. DSN is EXPO_PUBLIC_SENTRY_DSN."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

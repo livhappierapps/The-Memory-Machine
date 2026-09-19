@@ -1,4 +1,4 @@
-const { getDefaultConfig } = require("expo/metro-config");
+const { getSentryExpoConfig } = require("@sentry/react-native/metro");
 const path = require("path");
 
 const projectRoot = __dirname;
@@ -16,7 +16,7 @@ function resolvePkg(name) {
   }
 }
 
-const config = getDefaultConfig(projectRoot);
+const config = getSentryExpoConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [
@@ -25,8 +25,8 @@ config.resolver.nodeModulesPaths = [
 ];
 config.resolver.unstable_enableSymlinks = true;
 
-// One physical React for the whole bundle. Dual copies make useId dispatcher null in Expo Go.
 config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules || {}),
   react: resolvePkg("react"),
   "react-dom": resolvePkg("react-dom"),
   "react-native": resolvePkg("react-native"),

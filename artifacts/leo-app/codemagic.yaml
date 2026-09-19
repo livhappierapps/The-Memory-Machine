@@ -6,33 +6,44 @@ workflows:
       node: 20.19.0
       java: 17
       groups:
-        - leo_secrets  # Add XAI_API_KEY here in Codemagic dashboard (optional — can be entered in-app)
+        - leo_secrets
     cache:
       cache_paths:
         - $HOME/.pnpm-store
     scripts:
-      - name: Enable corepack + install pnpm
+      - name: Enable Corepack (use repo pnpm, do not npm -g)
         script: |
           corepack enable
-          corepack prepare pnpm@latest --activate
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
 
-      - name: Install dependencies
+      - name: Install workspace dependencies
         script: |
-          cd artifacts/leo-app
-          pnpm install
+          # Must run from repo root so catalog: deps resolve
+          if [ -f ../../pnpm-workspace.yaml ]; then
+            cd ../..
+          fi
+          pnpm install --frozen-lockfile
 
       - name: Expo prebuild
         script: |
-          cd artifacts/leo-app
+          if [ -d artifacts/leo-app ]; then
+            cd artifacts/leo-app
+          fi
           npx expo prebuild --platform android --clean
 
       - name: Build debug APK
         script: |
-          cd artifacts/leo-app/android
+          if [ -d artifacts/leo-app/android ]; then
+            cd artifacts/leo-app/android
+          else
+            cd android
+          fi
           ./gradlew assembleDebug --no-daemon
 
     artifacts:
       - artifacts/leo-app/android/app/build/outputs/apk/debug/app-debug.apk
+      - android/app/build/outputs/apk/debug/app-debug.apk
 
     publishing:
       email:

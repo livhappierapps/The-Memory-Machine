@@ -7,13 +7,19 @@ workflows:
       java: 17
     cache:
       cache_paths:
+        - $HOME/.pnpm-store
         - $CM_BUILD_DIR/artifacts/leo-app/node_modules
     scripts:
-      - name: Install dependencies
+      - name: Enable Corepack (use repo pnpm, do not npm -g)
         script: |
-          npm install -g pnpm
-          cd artifacts/leo-app
-          pnpm install --no-frozen-lockfile
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
+
+      - name: Install workspace dependencies
+        script: |
+          # leo-app uses catalog: versions; must install from monorepo root
+          pnpm install --frozen-lockfile
 
       - name: Expo prebuild
         script: |
@@ -45,16 +51,17 @@ workflows:
       vars:
         EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
       groups:
-        - memory_machine  # Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY here in Codemagic dashboard
+        - memory_machine
     cache:
       cache_paths:
         - $HOME/.pnpm-store
         - $CM_BUILD_DIR/node_modules/.cache
     scripts:
-      - name: Enable corepack + install pnpm
+      - name: Enable Corepack (use repo pnpm, do not npm -g)
         script: |
           corepack enable
-          corepack prepare pnpm@latest --activate
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
 
       - name: Install workspace dependencies
         script: pnpm install --frozen-lockfile

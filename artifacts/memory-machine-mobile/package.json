@@ -62,6 +62,7 @@
     "expo-document-picker": "^14.0.8",
     "expo-file-system": "^19.0.23",
     "expo-notifications": "^0.32.17",
-    "expo-secure-store": "~15.0.8"
+    "expo-secure-store": "~15.0.8",
+    "jszip": "^3.10.1"
   }
 }

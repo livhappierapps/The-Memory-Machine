@@ -114,14 +114,14 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
               {phase === "picking" && (
                 <View style={styles.statusBlock}>
                   <ActivityIndicator color={colors.primary} />
-                  <Text style={[styles.statusText, { color: colors.mutedForeground }]}>Opening file picker…</Text>
+                  <Text style={[styles.statusText, { color: colors.mutedForeground }]}>Opening file picker...</Text>
                 </View>
               )}
               {phase === "processing" && (
                 <View style={styles.statusBlock}>
                   <ActivityIndicator color={colors.primary} size="large" />
                   <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-                    Reading conversations on-device…
+                    Reading conversations on-device...
                   </Text>
                 </View>
               )}
@@ -166,14 +166,20 @@ export function ImportSheet({ visible, onClose, onImported }: Props) {
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.55)" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 10, maxHeight: "88%" },
+  sheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    maxHeight: "88%",
+  },
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, marginBottom: 12 },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   sheetTitle: { fontSize: 18, fontWeight: "600" },
   body: { gap: 16, paddingBottom: 8 },
   desc: { fontSize: 14, lineHeight: 20 },
   dropZone: { borderWidth: 1, borderStyle: "dashed", borderRadius: 16, padding: 28, alignItems: "center", gap: 8 },
-  dropZoneIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "justify" === "justify" ? "center" : "center" },
+  dropZoneIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   dropZoneTitle: { fontSize: 16, fontWeight: "600" },
   dropZoneSub: { fontSize: 13 },
   statusBlock: { alignItems: "center", gap: 12, paddingVertical: 24 },

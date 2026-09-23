@@ -7,3 +7,5 @@ declare module "expo/fetch" {
   const fetch: typeof globalThis.fetch;
   export { fetch };
 }
+
+declare module "jszip";

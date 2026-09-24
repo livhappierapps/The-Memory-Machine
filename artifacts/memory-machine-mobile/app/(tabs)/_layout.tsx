@@ -13,6 +13,10 @@ import { useColors } from "@/hooks/useColors";
 function NativeTabLayout() {
   return (
     <NativeTabs>
+      <NativeTabs.Trigger name="phone">
+        <Icon sf={{ default: "iphone", selected: "iphone" }} />
+        <Label>Phone</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="vault">
         <Icon sf={{ default: "archivebox", selected: "archivebox.fill" }} />
         <Label>Vault</Label>
@@ -60,6 +64,18 @@ function ClassicTabLayout() {
           ) : null,
       }}
     >
+      <Tabs.Screen
+        name="phone"
+        options={{
+          title: "Phone",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="iphone" tintColor={color} size={24} />
+            ) : (
+              <Feather name="smartphone" size={22} color={color} />
+            ),
+        }}
+      />
       <Tabs.Screen
         name="vault"
         options={{

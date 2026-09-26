@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Platform,
   StyleSheet,
@@ -13,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
-import { loadLocalThreads, type LocalThread } from "@/lib/localVault";
+import { deleteLocalThread, loadLocalThreads, type LocalThread } from "@/lib/localVault";
 
 export default function LocalThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -39,6 +40,23 @@ export default function LocalThreadScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const messages = [...(thread?.messages ?? [])].reverse();
 
+  const askDelete = () => {
+    if (!thread) return;
+    Alert.alert("Delete from this phone?", thread.title, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            await deleteLocalThread(thread.id);
+            router.back();
+          })();
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 6, borderBottomColor: colors.border }]}>
@@ -48,6 +66,11 @@ export default function LocalThreadScreen() {
         <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
           {thread?.title ?? (loading ? "Loading" : "Missing thread")}
         </Text>
+        {thread ? (
+          <TouchableOpacity onPress={askDelete} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Feather name="trash-2" size={20} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        ) : null}
       </View>
       {loading ? (
         <View style={styles.center}>

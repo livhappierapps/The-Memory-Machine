@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Platform,
   StyleSheet,
@@ -16,10 +17,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ImportSheet } from "@/components/ImportSheet";
 import { useColors } from "@/hooks/useColors";
 import {
+  deleteLocalThread,
   loadLocalThreads,
   searchLocalThreads,
   type LocalThread,
 } from "@/lib/localVault";
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export default function PhoneVaultScreen() {
   const colors = useColors();
@@ -41,6 +49,21 @@ export default function PhoneVaultScreen() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const askDelete = useCallback((item: LocalThread) => {
+    Alert.alert("Delete from this phone?", item.title, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            setThreads(await deleteLocalThread(item.id));
+          })();
+        },
+      },
+    ]);
+  }, []);
 
   const shown = searchLocalThreads(threads, search);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -95,13 +118,21 @@ export default function PhoneVaultScreen() {
             <TouchableOpacity
               style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => router.push(`/thread/local/${item.id}`)}
+              onLongPress={() => askDelete(item)}
+              delayLongPress={380}
               activeOpacity={0.75}
             >
-              <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={1}>
-                {item.title}
-              </Text>
+              <View style={styles.rowTop}>
+                <Text style={[styles.rowTitle, { color: colors.foreground }]} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <TouchableOpacity onPress={() => askDelete(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="trash-2" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
               <Text style={[styles.rowMeta, { color: colors.mutedForeground }]}>
                 {item.messages.length} messages
+                {item.createdAt ? ` · ${formatWhen(item.createdAt)}` : ""}
               </Text>
             </TouchableOpacity>
           )}
@@ -139,6 +170,7 @@ const styles = StyleSheet.create({
   empty: { marginTop: 10, fontSize: 15 },
   list: { padding: 16, gap: 8 },
   row: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 4 },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
+  rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowTitle: { flex: 1, fontSize: 16, fontWeight: "600" },
   rowMeta: { fontSize: 13 },
 });

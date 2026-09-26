@@ -206,6 +206,8 @@ function extractConversations(json: unknown): unknown[] {
   for (const key of ["conversations", "chats", "messages", "data", "history", "items"]) {
     if (Array.isArray(o[key]) && (o[key] as unknown[]).length > 0) return o[key] as unknown[];
   }
+  const asOne = parseConversationItem(o);
+  if (asOne) return [o];
   for (const val of Object.values(o)) {
     if (Array.isArray(val) && (val as unknown[]).length > 0) return val as unknown[];
   }
@@ -227,6 +229,12 @@ export async function saveLocalThreads(threads: LocalThread[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
 }
 
+export async function deleteLocalThread(id: string): Promise<LocalThread[]> {
+  const next = (await loadLocalThreads()).filter((t) => t.id !== id);
+  await saveLocalThreads(next);
+  return next;
+}
+
 export function searchLocalThreads(threads: LocalThread[], query: string): LocalThread[] {
   const q = query.trim().toLowerCase();
   if (!q) return threads;
@@ -236,11 +244,11 @@ export function searchLocalThreads(threads: LocalThread[], query: string): Local
   });
 }
 
-async function readJsonText(fileUri: string, fileName: string): Promise<string> {
+async function readJsonPayloads(fileUri: string, fileName: string): Promise<string[]> {
   const lower = fileName.toLowerCase();
   const isZip = lower.endsWith(".zip");
   if (!isZip) {
-    return LegacyFileSystem.readAsStringAsync(fileUri, { encoding: "utf8" });
+    return [await LegacyFileSystem.readAsStringAsync(fileUri, { encoding: "utf8" })];
   }
   const b64 = await LegacyFileSystem.readAsStringAsync(fileUri, { encoding: "base64" });
   const zip = await JSZip.loadAsync(b64, { base64: true });
@@ -250,25 +258,32 @@ async function readJsonText(fileUri: string, fileName: string): Promise<string> 
   if (jsonEntries.length === 0) {
     throw new Error("No JSON files found inside the ZIP archive.");
   }
-  const [, best] =
-    jsonEntries.find(([name]) => name.toLowerCase().includes("grok-backend")) ??
-    jsonEntries.find(([name]) => name.toLowerCase().includes("conversation")) ??
-    jsonEntries[0]!;
-  return best.async("string");
+  const texts: string[] = [];
+  for (const [, entry] of jsonEntries) {
+    texts.push(await entry.async("string"));
+  }
+  return texts;
 }
 
 export async function importLocalFile(
   fileUri: string,
   fileName: string,
 ): Promise<LocalImportResult> {
-  const jsonText = await readJsonText(fileUri, fileName);
-  let json: unknown;
-  try {
-    json = JSON.parse(jsonText);
-  } catch {
-    throw new Error("The file does not contain valid JSON.");
+  const payloads = await readJsonPayloads(fileUri, fileName);
+  const rawConversations: unknown[] = [];
+  let parseErrors = 0;
+
+  for (const jsonText of payloads) {
+    try {
+      const json = JSON.parse(jsonText) as unknown;
+      const extracted = extractConversations(json);
+      if (extracted.length === 0) parseErrors += 1;
+      else rawConversations.push(...extracted);
+    } catch {
+      parseErrors += 1;
+    }
   }
-  const rawConversations = extractConversations(json);
+
   if (rawConversations.length === 0) {
     throw new Error(
       "No conversations found. Use a Grok export ZIP or a conversations JSON file.",
@@ -279,7 +294,7 @@ export async function importLocalFile(
   const seen = new Set(existing.map((t) => `${t.title}::${t.messages.length}`));
   const added: LocalThread[] = [];
   let skipped = 0;
-  let errors = 0;
+  let errors = parseErrors;
 
   for (const raw of rawConversations) {
     try {

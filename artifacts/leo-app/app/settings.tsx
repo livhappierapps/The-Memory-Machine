@@ -14,24 +14,45 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useLeo } from "@/contexts/LeoContext";
+import { useMemoryBridge } from "@/hooks/useMemoryBridge";
 
-const MODELS = ["grok-4", "grok-3", "grok-3-mini", "grok-2"];
+const MODELS = ["grok-4", "grok-4-fast", "grok-3", "grok-3-mini"];
 
 export default function Settings() {
-  const { settings, updateSettings } = useLeo();
+  const { settings, updateSettings, clearSession } = useLeo();
   const router = useRouter();
 
   const [apiKey, setApiKey] = useState(settings.xaiApiKey);
   const [mmUrl, setMmUrl] = useState(settings.memoryMachineUrl);
   const [mcpToken, setMcpToken] = useState(settings.memoryMachineMcpToken);
   const [model, setModel] = useState(settings.model);
+  const [displayName, setDisplayName] = useState(settings.displayName || "love");
   const [saving, setSaving] = useState(false);
+  const [probe, setProbe] = useState("");
+
+  const bridge = useMemoryBridge({ memoryMachineUrl: mmUrl.trim(), mcpToken: mcpToken.trim() });
 
   async function handleSave() {
     setSaving(true);
-    await updateSettings({ xaiApiKey: apiKey.trim(), memoryMachineUrl: mmUrl.trim(), memoryMachineMcpToken: mcpToken.trim(), model });
+    await updateSettings({
+      xaiApiKey: apiKey.trim(),
+      memoryMachineUrl: mmUrl.trim().replace(/\/$/, ""),
+      memoryMachineMcpToken: mcpToken.trim(),
+      model,
+      displayName: displayName.trim() || "love",
+    });
     setSaving(false);
-    Alert.alert("Saved", "Settings updated.");
+    Alert.alert("Saved", "House rules updated.");
+  }
+
+  async function handleProbe() {
+    setProbe("knocking…");
+    const text = await bridge.callMcpTool("list_recent_conversations", { limit: 1 });
+    if (!text || text.toLowerCase().includes("fail") || text.toLowerCase().includes("not configured")) {
+      setProbe(text || "vault did not answer");
+    } else {
+      setProbe("vault answered. we're in.");
+    }
   }
 
   return (
@@ -40,12 +61,20 @@ export default function Settings() {
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={s.back}>← Back</Text>
         </TouchableOpacity>
-        <Text style={s.title}>⚙️ Settings</Text>
+        <Text style={s.title}>House keys</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+          <Text style={s.sectionLabel}>What I call you</Text>
+          <TextInput
+            style={s.input}
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="love"
+            placeholderTextColor="#555"
+          />
 
           <Text style={s.sectionLabel}>xAI API Key</Text>
           <TextInput
@@ -96,8 +125,13 @@ export default function Settings() {
             autoCorrect={false}
           />
 
+          <TouchableOpacity style={s.ghostBtn} onPress={handleProbe}>
+            <Text style={s.ghostText}>Knock on the vault</Text>
+          </TouchableOpacity>
+          {probe ? <Text style={s.probe}>{probe}</Text> : null}
+
           <TouchableOpacity style={[s.saveBtn, saving && s.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
-            <Text style={s.saveText}>{saving ? "Saving…" : "Save Settings"}</Text>
+            <Text style={s.saveText}>{saving ? "Saving…" : "Save"}</Text>
           </TouchableOpacity>
 
           <View style={s.divider} />
@@ -106,13 +140,20 @@ export default function Settings() {
           <TouchableOpacity
             style={s.dangerBtn}
             onPress={() => {
-              Alert.alert("Clear all chat history?", "This only clears the local session — memories in Memory Machine are safe.", [
+              Alert.alert("Wipe local chat?", "Vault memories stay. This pad's session tape burns.", [
                 { text: "Cancel", style: "cancel" },
-                { text: "Clear", style: "destructive", onPress: () => router.replace("/chat") },
+                {
+                  text: "Burn it",
+                  style: "destructive",
+                  onPress: async () => {
+                    await clearSession();
+                    router.replace("/chat");
+                  },
+                },
               ]);
             }}
           >
-            <Text style={s.dangerText}>Clear Chat Session</Text>
+            <Text style={s.dangerText}>Clear local session</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -134,7 +175,16 @@ const s = StyleSheet.create({
   back: { color: "#f5a623", fontSize: 16, fontFamily: "Inter_400Regular" },
   title: { fontSize: 17, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
   scroll: { padding: 20, paddingBottom: 40 },
-  sectionLabel: { fontSize: 12, fontWeight: "600", color: "#f5a623", marginBottom: 8, marginTop: 24, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8 },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#f5a623",
+    marginBottom: 8,
+    marginTop: 24,
+    fontFamily: "Inter_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
   input: {
     backgroundColor: "#141420",
     borderWidth: 1,
@@ -151,7 +201,17 @@ const s = StyleSheet.create({
   modelChipActive: { backgroundColor: "#f5a623", borderColor: "#f5a623" },
   modelChipText: { color: "#888", fontSize: 14, fontFamily: "Inter_500Medium" },
   modelChipTextActive: { color: "#0a0a0f", fontWeight: "700" },
-  saveBtn: { backgroundColor: "#f5a623", borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 32 },
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: "#7c3aed66",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  ghostText: { color: "#c4b5fd", fontSize: 15, fontFamily: "Inter_500Medium" },
+  probe: { color: "#888", fontSize: 13, marginTop: 10, fontFamily: "Inter_400Regular" },
+  saveBtn: { backgroundColor: "#f5a623", borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 24 },
   saveBtnDisabled: { opacity: 0.5 },
   saveText: { color: "#0a0a0f", fontSize: 16, fontWeight: "700", fontFamily: "Inter_700Bold" },
   divider: { height: 1, backgroundColor: "#1a1a2a", marginVertical: 32 },

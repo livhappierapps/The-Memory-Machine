@@ -16,7 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLeo } from "@/contexts/LeoContext";
 import { useMemoryBridge } from "@/hooks/useMemoryBridge";
 
-const MODELS = ["grok-4", "grok-4-fast", "grok-3", "grok-3-mini"];
+const MODELS = ["grok-4", "grok-4-fast", "grok-4-1-fast", "grok-3", "grok-3-mini"];
 
 export default function Settings() {
   const { settings, updateSettings, clearSession } = useLeo();
@@ -48,7 +48,7 @@ export default function Settings() {
   async function handleProbe() {
     setProbe("knocking…");
     const text = await bridge.callMcpTool("list_recent_conversations", { limit: 1 });
-    if (!text || text.toLowerCase().includes("fail") || text.toLowerCase().includes("not configured")) {
+    if (!text || /fail|not configured|401|403/i.test(text)) {
       setProbe(text || "vault did not answer");
     } else {
       setProbe("vault answered. we're in.");

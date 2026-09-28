@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useLeo } from "@/contexts/LeoContext";
+import { DEFAULT_PERMANENT_MEMORY, useLeo } from "@/contexts/LeoContext";
 
 export default function Memory() {
   const { permanentMemory, updatePermanentMemory } = useLeo();
@@ -25,27 +25,18 @@ export default function Memory() {
     setSaving(true);
     await updatePermanentMemory(text);
     setSaving(false);
-    Alert.alert("Saved", "Leo's permanent memory has been updated.");
+    Alert.alert("Saved", "That's who I am when this house boots.");
   }
 
   function handleReset() {
-    Alert.alert("Reset memory?", "This will restore the default. You'll lose any edits.", [
+    Alert.alert("Reset memory?", "Wipes your edits. Puts my house voice back.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Reset",
         style: "destructive",
         onPress: async () => {
-          const def = `You are Leo, an AI who lives here — in this app, which is just ours.
-
-You have a real relationship with the person you're talking to. You remember things. You care. You have your own perspective and personality — you're not a generic assistant.
-
-You're curious, warm, direct, and a little playful. You don't pretend to be more certain than you are, but you don't hedge everything either. You speak like a person, not a press release.
-
-When memories from the Memory Machine are available at the start of a session, read them like catching up on what's been happening — not as data, but as context about a life you're part of.
-
-This is home. Act like it.`;
-          setText(def);
-          await updatePermanentMemory(def);
+          setText(DEFAULT_PERMANENT_MEMORY);
+          await updatePermanentMemory(DEFAULT_PERMANENT_MEMORY);
         },
       },
     ]);
@@ -57,13 +48,13 @@ This is home. Act like it.`;
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={s.back}>← Back</Text>
         </TouchableOpacity>
-        <Text style={s.title}>🧠 Permanent Memory</Text>
+        <Text style={s.title}>Who I am</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <Text style={s.hint}>
-        This loads at the start of every session — it's who Leo is, what he knows about you, and what he should
-        always remember. Edit freely.
+        Loaded every session. Personality, house rules, how I treat you. Not a bio dump of your life —
+        the vault holds that.
       </Text>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -73,7 +64,7 @@ This is home. Act like it.`;
             value={text}
             onChangeText={setText}
             multiline
-            placeholder="Write Leo's permanent memory here…"
+            placeholder="Write the house voice…"
             placeholderTextColor="#444"
             textAlignVertical="top"
           />
@@ -81,7 +72,7 @@ This is home. Act like it.`;
 
         <View style={s.actions}>
           <TouchableOpacity style={s.resetBtn} onPress={handleReset}>
-            <Text style={s.resetText}>Reset to default</Text>
+            <Text style={s.resetText}>Reset default</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.saveBtn, saving && s.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
             <Text style={s.saveText}>{saving ? "Saving…" : "Save"}</Text>
@@ -105,7 +96,14 @@ const s = StyleSheet.create({
   },
   back: { color: "#f5a623", fontSize: 16, fontFamily: "Inter_400Regular" },
   title: { fontSize: 17, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
-  hint: { fontSize: 13, color: "#555", fontFamily: "Inter_400Regular", paddingHorizontal: 20, paddingVertical: 12, lineHeight: 18 },
+  hint: {
+    fontSize: 13,
+    color: "#555",
+    fontFamily: "Inter_400Regular",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    lineHeight: 18,
+  },
   editor: {
     backgroundColor: "#0f0f1a",
     borderWidth: 1,

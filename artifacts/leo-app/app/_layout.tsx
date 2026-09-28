@@ -7,6 +7,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -37,10 +38,11 @@ function RootLayout() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0a0a0f" }}>
+      <StatusBar style="light" backgroundColor="#0a0a0f" />
       <SafeAreaProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <LeoProvider>
-            <Stack screenOptions={{ headerShown: false }}>
+            <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: "#0a0a0f" } }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="chat" />
               <Stack.Screen name="setup" />

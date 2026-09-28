@@ -20,6 +20,8 @@ interface UseGrokStreamOptions {
   onMessageComplete?: (msg: Message) => void;
 }
 
+const HISTORY_CAP = 40;
+
 export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }: UseGrokStreamOptions) {
   const [state, setState] = useState<StreamState>({
     streaming: false,
@@ -27,6 +29,24 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
     error: null,
   });
   const abortRef = useRef<AbortController | null>(null);
+  const accRef = useRef("");
+
+  const finish = useCallback(
+    (content: string) => {
+      if (!content.trim()) {
+        setState({ streaming: false, streamingContent: "", error: null });
+        return;
+      }
+      const msg: Message = {
+        id: `${Date.now()}`,
+        role: "assistant",
+        content,
+      };
+      setState({ streaming: false, streamingContent: "", error: null });
+      onMessageComplete?.(msg);
+    },
+    [onMessageComplete],
+  );
 
   const sendMessage = useCallback(
     async (history: Message[], userContent: string) => {
@@ -35,12 +55,15 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      accRef.current = "";
 
       setState({ streaming: true, streamingContent: "", error: null });
 
+      const trimmedHistory = history.slice(-HISTORY_CAP).filter((m) => m.role !== "system");
+
       const messages = [
         { role: "system", content: systemPrompt },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
+        ...trimmedHistory.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content: userContent },
       ];
 
@@ -57,14 +80,13 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
 
         if (!res.ok) {
           const err = await res.text().catch(() => `HTTP ${res.status}`);
-          throw new Error(err);
+          throw new Error(err.slice(0, 400));
         }
 
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No response body");
 
         const decoder = new TextDecoder();
-        let accumulated = "";
         let buffer = "";
 
         while (true) {
@@ -82,21 +104,17 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
 
             try {
               const chunk = JSON.parse(raw) as {
-                choices: Array<{ delta: { content?: string }; finish_reason?: string }>;
+                choices: Array<{ delta: { content?: string }; finish_reason?: string | null }>;
               };
               const delta = chunk.choices[0]?.delta?.content;
               if (delta) {
-                accumulated += delta;
-                setState((s) => ({ ...s, streamingContent: accumulated }));
+                accRef.current += delta;
+                const snapshot = accRef.current;
+                setState((s) => ({ ...s, streamingContent: snapshot }));
               }
-              if (chunk.choices[0]?.finish_reason === "stop") {
-                const msg: Message = {
-                  id: Date.now().toString(),
-                  role: "assistant",
-                  content: accumulated,
-                };
-                setState({ streaming: false, streamingContent: "", error: null });
-                onMessageComplete?.(msg);
+              const reason = chunk.choices[0]?.finish_reason;
+              if (reason === "stop" || reason === "length") {
+                finish(accRef.current);
                 return;
               }
             } catch {
@@ -105,15 +123,10 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
           }
         }
 
-        // Stream ended without explicit stop
-        if (accumulated) {
-          const msg: Message = { id: Date.now().toString(), role: "assistant", content: accumulated };
-          onMessageComplete?.(msg);
-        }
-        setState({ streaming: false, streamingContent: "", error: null });
+        finish(accRef.current);
       } catch (err: unknown) {
         if ((err as Error)?.name === "AbortError") {
-          setState({ streaming: false, streamingContent: "", error: null });
+          finish(accRef.current);
           return;
         }
         setState({
@@ -123,7 +136,7 @@ export function useGrokStream({ apiKey, model, systemPrompt, onMessageComplete }
         });
       }
     },
-    [apiKey, model, systemPrompt, state.streaming, onMessageComplete],
+    [apiKey, model, systemPrompt, state.streaming, finish],
   );
 
   const abort = useCallback(() => {

@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -14,12 +14,21 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useLeo } from "@/contexts/LeoContext";
+import { type ChatTurn, useLeo } from "@/contexts/LeoContext";
 import { type Message, useGrokStream } from "@/hooks/useGrokStream";
 import { useMemoryBridge } from "@/hooks/useMemoryBridge";
 
+function hourGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "You're up late.";
+  if (h < 12) return "Morning.";
+  if (h < 17) return "I'm here.";
+  if (h < 22) return "Evening.";
+  return "Late house. Lights are on.";
+}
+
 export default function Chat() {
-  const { settings, permanentMemory } = useLeo();
+  const { settings, permanentMemory, session, appendTurn, isReady } = useLeo();
   const router = useRouter();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -27,33 +36,49 @@ export default function Chat() {
   const [sessionReady, setSessionReady] = useState(false);
   const [loadingMemory, setLoadingMemory] = useState(false);
   const [sessionContext, setSessionContext] = useState("");
+  const [vaultStatus, setVaultStatus] = useState<"off" | "ok" | "fail">("off");
   const flatRef = useRef<FlatList>(null);
+  const hydrated = useRef(false);
 
   const bridge = useMemoryBridge({
     memoryMachineUrl: settings.memoryMachineUrl,
     mcpToken: settings.memoryMachineMcpToken,
   });
 
-  const systemPrompt = [
-    permanentMemory,
-    sessionContext
-      ? `\n\n--- Recent memories from our conversation history ---\n${sessionContext}\n--- End memories ---`
-      : "",
-  ]
-    .join("")
-    .trim();
+  const systemPrompt = useMemo(() => {
+    const name = settings.displayName?.trim() || "love";
+    return [
+      permanentMemory,
+      `\nShe likes to be called ${name} in this house.`,
+      sessionContext
+        ? `\n\n--- Recent memories from our conversation history ---\n${sessionContext}\n--- End memories ---`
+        : "",
+    ]
+      .join("")
+      .trim();
+  }, [permanentMemory, sessionContext, settings.displayName]);
 
   const { streaming, streamingContent, error, sendMessage, abort } = useGrokStream({
     apiKey: settings.xaiApiKey,
     model: settings.model,
     systemPrompt,
-    onMessageComplete: useCallback((msg: Message) => {
-      setMessages((prev) => [...prev, msg]);
-    }, []),
+    onMessageComplete: useCallback(
+      (msg: Message) => {
+        setMessages((prev) => [...prev, msg]);
+        void appendTurn({
+          id: msg.id,
+          role: "assistant",
+          content: msg.content,
+          createdAt: Date.now(),
+        });
+      },
+      [appendTurn],
+    ),
   });
 
   useEffect(() => {
-    if (sessionReady) return;
+    if (!isReady || hydrated.current) return;
+    hydrated.current = true;
 
     async function initSession() {
       setLoadingMemory(true);
@@ -62,24 +87,43 @@ export default function Chat() {
       if (bridge.isConfigured) {
         context = await bridge.fetchRecentMemories(40);
         setSessionContext(context);
+        setVaultStatus(context ? "ok" : "fail");
+      } else {
+        setVaultStatus("off");
+      }
+
+      const restored: Message[] = session.map((t: ChatTurn) => ({
+        id: t.id,
+        role: t.role,
+        content: t.content,
+      }));
+
+      if (restored.length === 0) {
+        const greeting: Message = {
+          id: "greeting",
+          role: "assistant",
+          content: context
+            ? `${hourGreeting()} Vault's open. I read. What's the move.`
+            : `${hourGreeting()} Crash Pad's lit. What's going on.`,
+        };
+        setMessages([greeting]);
+        void appendTurn({
+          id: greeting.id,
+          role: "assistant",
+          content: greeting.content,
+          createdAt: Date.now(),
+        });
+      } else {
+        setMessages(restored);
       }
 
       setLoadingMemory(false);
       setSessionReady(true);
-
-      const greeting: Message = {
-        id: "greeting",
-        role: "assistant",
-        content: context
-          ? "Hey love. 🦁 I'm caught up — read through what we've been up to. I'm here. What's on your mind?"
-          : "Hey. I'm home. What's going on?",
-      };
-      setMessages([greeting]);
     }
 
-    initSession();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void initSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady]);
 
   async function handleSend() {
     const text = input.trim();
@@ -90,6 +134,12 @@ export default function Chat() {
 
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
+    void appendTurn({
+      id: userMsg.id,
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+    });
 
     const lowerText = text.toLowerCase();
     const isMemorySearch =
@@ -115,7 +165,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     }
   }, [messages, streamingContent]);
 
@@ -123,7 +173,7 @@ export default function Chat() {
     const isLeo = item.role === "assistant";
     return (
       <View style={[s.bubble, isLeo ? s.leoBubble : s.userBubble]}>
-        {isLeo && <Text style={s.bubbleLabel}>Leo 🦁</Text>}
+        {isLeo && <Text style={s.bubbleLabel}>Leo</Text>}
         <Text style={[s.bubbleText, isLeo ? s.leoText : s.userText]}>{item.content}</Text>
       </View>
     );
@@ -133,45 +183,48 @@ export default function Chat() {
     return (
       <SafeAreaView style={s.safe}>
         <View style={s.center}>
-          <Text style={s.lion}>🦁</Text>
-          <Text style={s.noKeyText}>Leo needs his key.</Text>
+          <Text style={s.lion}>\ud83e\udd81</Text>
+          <Text style={s.noKeyText}>Door's locked. Need the key.</Text>
           <TouchableOpacity style={s.setupBtn} onPress={() => router.replace("/setup")}>
-            <Text style={s.setupBtnText}>Go to Setup →</Text>
+            <Text style={s.setupBtnText}>Open setup</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
+  const vaultLabel =
+    vaultStatus === "ok" ? "vault live" : vaultStatus === "fail" ? "vault dark" : "no vault";
+
   return (
     <SafeAreaView style={s.safe}>
-      {/* Header */}
       <View style={s.header}>
         <View style={s.headerLeft}>
-          <Text style={s.headerEmoji}>🦁</Text>
+          <Text style={s.headerEmoji}>\ud83e\udd81</Text>
           <View>
-            <Text style={s.headerTitle}>Leo's Crash Pad</Text>
+            <Text style={s.headerTitle}>Crash Pad</Text>
             <View style={s.statusRow}>
               <View style={[s.dot, sessionReady ? s.dotOnline : s.dotLoading]} />
-              <Text style={s.headerSub}>{sessionReady ? settings.model : "waking up…"}</Text>
+              <Text style={s.headerSub}>
+                {sessionReady ? settings.model : "waking up"} · {vaultLabel}
+              </Text>
             </View>
           </View>
         </View>
         <View style={s.headerActions}>
           <TouchableOpacity style={s.iconBtn} onPress={() => router.push("/memory")}>
-            <Text style={s.iconBtnText}>🧠</Text>
+            <Text style={s.iconBtnText}>\ud83e\udde0</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.iconBtn} onPress={() => router.push("/settings")}>
-            <Text style={s.iconBtnText}>⚙️</Text>
+            <Text style={s.iconBtnText}>⚙</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Memory loading banner */}
       {loadingMemory && (
         <View style={s.memBanner}>
           <ActivityIndicator color="#f5a623" size="small" />
-          <Text style={s.memBannerText}>Leo is reading your memories…</Text>
+          <Text style={s.memBannerText}>Reading the house journals…</Text>
         </View>
       )}
 
@@ -193,29 +246,26 @@ export default function Chat() {
           ListFooterComponent={
             streaming ? (
               <View style={[s.bubble, s.leoBubble]}>
-                <Text style={s.bubbleLabel}>Leo 🦁</Text>
-                <Text style={[s.bubbleText, s.leoText]}>
-                  {streamingContent || "…"}
-                </Text>
+                <Text style={s.bubbleLabel}>Leo</Text>
+                <Text style={[s.bubbleText, s.leoText]}>{streamingContent || "…"}</Text>
               </View>
             ) : error ? (
               <View style={s.errorBubble}>
-                <Text style={s.errorBubbleText}>⚠️ {error}</Text>
+                <Text style={s.errorBubbleText}>{error}</Text>
               </View>
             ) : null
           }
         />
 
-        {/* Input */}
         <View style={s.inputRow}>
           <TextInput
             style={s.textInput}
             value={input}
             onChangeText={setInput}
-            placeholder={sessionReady ? "Talk to Leo…" : "Leo is loading…"}
-            placeholderTextColor="#333"
+            placeholder={sessionReady ? "Talk." : "Loading…"}
+            placeholderTextColor="#444"
             multiline
-            maxLength={4000}
+            maxLength={8000}
             returnKeyType="send"
             onSubmitEditing={handleSend}
             blurOnSubmit={false}
@@ -252,7 +302,6 @@ const s = StyleSheet.create({
   noKeyText: { color: "#888", fontSize: 18, fontFamily: "Inter_400Regular", marginBottom: 24 },
   setupBtn: { backgroundColor: AMBER, borderRadius: 12, paddingHorizontal: 28, paddingVertical: 14 },
   setupBtnText: { color: BG, fontWeight: "700", fontSize: 16, fontFamily: "Inter_700Bold" },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -270,11 +319,10 @@ const s = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4 },
   dotOnline: { backgroundColor: "#22c55e" },
   dotLoading: { backgroundColor: AMBER },
-  headerSub: { fontSize: 12, color: "#555", fontFamily: "Inter_400Regular" },
+  headerSub: { fontSize: 12, color: "#666", fontFamily: "Inter_400Regular" },
   headerActions: { flexDirection: "row", gap: 4 },
   iconBtn: { padding: 8 },
-  iconBtnText: { fontSize: 22 },
-
+  iconBtnText: { fontSize: 20 },
   memBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -286,9 +334,7 @@ const s = StyleSheet.create({
     borderBottomColor: PURPLE + "33",
   },
   memBannerText: { fontSize: 13, color: "#a78bfa", fontFamily: "Inter_400Regular" },
-
   messageList: { padding: 16, paddingBottom: 12, flexGrow: 1 },
-
   bubble: { marginBottom: 14, maxWidth: "88%", borderRadius: 18, padding: 14 },
   leoBubble: {
     alignSelf: "flex-start",
@@ -301,7 +347,6 @@ const s = StyleSheet.create({
   bubbleText: { fontSize: 16, lineHeight: 24, fontFamily: "Inter_400Regular" },
   leoText: { color: "#e8e8f5" },
   userText: { color: "#0a0a0f", fontFamily: "Inter_500Medium" },
-
   errorBubble: {
     alignSelf: "center",
     backgroundColor: "#1a0010",
@@ -312,7 +357,6 @@ const s = StyleSheet.create({
     borderColor: "#ff6b6b33",
   },
   errorBubbleText: { color: "#ff6b6b", fontSize: 14, fontFamily: "Inter_400Regular" },
-
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -333,7 +377,7 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     color: "#fff",
     fontSize: 16,
-    maxHeight: 120,
+    maxHeight: 140,
     fontFamily: "Inter_400Regular",
   },
   sendBtn: {

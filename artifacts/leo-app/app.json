@@ -50,6 +50,10 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "pad": "home",
+      "owner": "livhappierapps"
     }
   }
 }

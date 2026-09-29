@@ -1,1 +1,1 @@
-# PLACEHOLDER
+open('/home/workdir/.grok/skills/expo-smartly/SKILL.md').read()

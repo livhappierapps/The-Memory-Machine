@@ -1,1 +1,1 @@
-# PLACEHOLDER
+open('/home/workdir/.grok/skills/expo-smartly/references/connector-map.md').read()

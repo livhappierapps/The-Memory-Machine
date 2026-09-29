@@ -1,1 +1,1 @@
-# PLACEHOLDER
+open('/home/workdir/.grok/skills/expo-smartly/references/loop-patterns.md').read()

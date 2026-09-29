@@ -18,6 +18,16 @@
         "EAS_NO_VCS": "1"
       }
     },
+    "ios-device": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "EAS_NO_VCS": "1"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

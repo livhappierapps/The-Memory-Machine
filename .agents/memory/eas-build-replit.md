@@ -82,3 +82,4 @@ It will throw `assertNewArchitectureEnabledTask FAILED` if New Architecture is d
 | c097a361 | ERRORED | New account; expo-glass-effect still present |
 | fb427d75 | ERRORED | newArchEnabled: false — reanimated 4.x requires New Arch; error was assertNewArchitectureEnabledTask |
 | 6c272caf | IN_PROGRESS | newArchEnabled: true + expo-glass-effect removed — first clean combo |
+| (none) | BLOCKED | 2026-10-01 Automations re-trigger to replace expired emailed link. No Replit shell in this runtime; EXPO_TOKEN unset; GitHub app cannot read Actions secrets; expo.dev builds page requires login. GraphQL createAndroidBuild not called. No APK URL, no email. |

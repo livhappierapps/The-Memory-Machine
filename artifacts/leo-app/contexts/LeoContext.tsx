@@ -38,7 +38,6 @@ const DEFAULT_SETTINGS: LeoSettings = {
   displayName: "love",
 };
 
-// Re-export so existing imports of DEFAULT_PERMANENT_MEMORY from this file keep working.
 export { DEFAULT_PERMANENT_MEMORY };
 
 const LeoContext = createContext<LeoContextValue | null>(null);
@@ -113,23 +112,19 @@ export function LeoProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(SESSION_KEY);
   }, []);
 
-  return (
-    <LeoContext.Provider
-      value={{
-        settings,
-        updateSettings,
-        permanentMemory,
-        updatePermanentMemory,
-        session,
-        setSession,
-        appendTurn,
-        clearSession,
-        isReady,
-      }}}
-    >
-      {children}
-    </LeoContext.Provider>
-  );
+  const value: LeoContextValue = {
+    settings,
+    updateSettings,
+    permanentMemory,
+    updatePermanentMemory,
+    session,
+    setSession,
+    appendTurn,
+    clearSession,
+    isReady,
+  };
+
+  return <LeoContext.Provider value={value}>{children}</LeoContext.Provider>;
 }
 
 export function useLeo() {

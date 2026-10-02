@@ -1,0 +1,69 @@
+name: Android debug APK
+
+# Manual only. Do not add push/pull_request here — debug APKs are slow and
+# this exists so a connected GitHub session can start a sideload build.
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App folder under artifacts/
+        required: true
+        default: memory-machine-mobile
+        type: choice
+        options:
+          - memory-machine-mobile
+          - leo-app
+
+jobs:
+  apk:
+    name: assembleDebug ${{ inputs.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install workspace
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Expo prebuild
+        working-directory: artifacts/${{ inputs.app }}
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Reinstall after prebuild
+        run: pnpm install --no-frozen-lockfile
+
+      - name: assembleDebug
+        working-directory: artifacts/${{ inputs.app }}/android
+        run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-debug-apk
+          path: artifacts/${{ inputs.app }}/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

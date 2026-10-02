@@ -8,6 +8,11 @@ import JSZip from "jszip";
 
 const STORAGE_KEY = "mm.localVault.v1";
 
+type ZipFile = {
+  dir: boolean;
+  async: (type: "string") => Promise<string>;
+};
+
 export type LocalRole = "user" | "assistant";
 
 export interface LocalMessage {
@@ -252,7 +257,8 @@ async function readJsonPayloads(fileUri: string, fileName: string): Promise<stri
   }
   const b64 = await LegacyFileSystem.readAsStringAsync(fileUri, { encoding: "base64" });
   const zip = await JSZip.loadAsync(b64, { base64: true });
-  const jsonEntries = Object.entries(zip.files).filter(
+  const files = zip.files as Record<string, ZipFile>;
+  const jsonEntries = Object.entries(files).filter(
     ([name, f]) => !f.dir && name.toLowerCase().endsWith(".json"),
   );
   if (jsonEntries.length === 0) {

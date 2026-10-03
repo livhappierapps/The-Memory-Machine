@@ -87,29 +87,16 @@ jobs:
           # Resolve duplicate META-INF/versions/9/OSGI-INF/MANIFEST.MF from
           # okhttp3 logging-interceptor and jspecify jars (mergeDebugJavaResource).
           if ! grep -q "pickFirsts" "${BUILD_GRADLE}"; then
-            python3 - <<'PY'
-import re
-path = "android/app/build.gradle"
-with open(path) as f:
-    src = f.read()
-block = """
+            cat >> "${BUILD_GRADLE}" <<'EOF'
+
     packaging {
         resources {
             pickFirsts += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF"]
         }
     }
-"""
-            if re.search(r"android\s*\{", src):
-                src = re.sub(r"(android\s*\{)", r"\1\n" + block, src, count=1)
-            else:
-                src = src + "\n" + block
-            with open(path, "w") as f:
-                f.write(src)
-print("Added packaging.resources.pickFirsts to", path)
-PY
-          else
-            echo "packaging block already present in ${BUILD_GRADLE}"
+EOF
           fi
+          echo "--- packaging block in ${BUILD_GRADLE} ---"
           grep -n "pickFirsts" "${BUILD_GRADLE}"
 
       - name: assembleDebug

@@ -18,7 +18,7 @@ jobs:
   apk:
     name: assembleDebug ${{ inputs.app}}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
@@ -74,6 +74,43 @@ jobs:
 
       - name: Reinstall after prebuild
         run: pnpm install --no-frozen-lockfile
+
+      - name: Fix duplicate META-INF resources in app build.gradle
+        working-directory: artifacts/${{ inputs.app}}
+        run: |
+          set -euo pipefail
+          BUILD_GRADLE="android/app/build.gradle"
+          if [ ! -f "${BUILD_GRADLE}" ]; then
+            echo "ERROR: ${BUILD_GRADLE} not found after expo prebuild"
+            exit 1
+          fi
+          # Resolve duplicate META-INF/versions/9/OSGI-INF/MANIFEST.MF from
+          # okhttp3 logging-interceptor and jspecify jars (mergeDebugJavaResource).
+          if ! grep -q "pickFirsts" "${BUILD_GRADLE}"; then
+            python3 - <<'PY'
+import re
+path = "android/app/build.gradle"
+with open(path) as f:
+    src = f.read()
+block = """
+    packaging {
+        resources {
+            pickFirsts += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF"]
+        }
+    }
+"""
+            if re.search(r"android\s*\{", src):
+                src = re.sub(r"(android\s*\{)", r"\1\n" + block, src, count=1)
+            else:
+                src = src + "\n" + block
+            with open(path, "w") as f:
+                f.write(src)
+print("Added packaging.resources.pickFirsts to", path)
+PY
+          else
+            echo "packaging block already present in ${BUILD_GRADLE}"
+          fi
+          grep -n "pickFirsts" "${BUILD_GRADLE}"
 
       - name: assembleDebug
         working-directory: artifacts/${{ inputs.app}}/android

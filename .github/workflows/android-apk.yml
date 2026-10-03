@@ -61,7 +61,7 @@ jobs:
           yes | "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${SDK_ROOT}" \
             "platforms;android-34" \
             "build-tools;34.0.0" \
-            "platform-tools"
+            "platform-tools" || true
           echo "Installed Android SDK to ${SDK_ROOT}"
           "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version
 

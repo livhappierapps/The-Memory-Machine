@@ -16,13 +16,17 @@ on:
 
 jobs:
   apk:
-    name: assembleDebug ${{ inputs.app }}
+    name: assembleDebug ${{ inputs.app}}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
       EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
+      # Manual SDK install below — android-actions/setup-android@v3 is broken
+      # on current runners (sdkmanager cannot find the 'tools' package).
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      PATH: /usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools:/usr/local/bin:/usr/bin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,26 +48,40 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="$HOME/android-sdk"
+          CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          mkdir -p "${SDK_ROOT}/cmdline-tools"
+          curl -fsSL -o /tmp/cmdtools.zip "${CMDLINE_TOOLS_URL}"
+          unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+          rm -rf "${SDK_ROOT}/cmdline-tools/latest"
+          mv /tmp/cmdtools/cmdline-tools "${SDK_ROOT}/cmdline-tools/latest"
+          yes | "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${SDK_ROOT}" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "platform-tools"
+          echo "Installed Android SDK to ${SDK_ROOT}"
+          "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version
 
       - name: Install workspace
         run: pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
-        working-directory: artifacts/${{ inputs.app }}
+        working-directory: artifacts/${{ inputs.app}}
         run: npx expo prebuild --platform android --clean --no-install
 
       - name: Reinstall after prebuild
         run: pnpm install --no-frozen-lockfile
 
       - name: assembleDebug
-        working-directory: artifacts/${{ inputs.app }}/android
+        working-directory: artifacts/${{ inputs.app}}/android
         run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-debug-apk
-          path: artifacts/${{ inputs.app }}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: artifacts/${{ inputs.app}}/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

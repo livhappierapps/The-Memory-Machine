@@ -7,8 +7,8 @@ on:
     inputs:
       app:
         description: App folder under artifacts/
-        required: true
         default: memory-machine-mobile
+        required: true
         type: choice
         options:
           - memory-machine-mobile

@@ -85,36 +85,16 @@ jobs:
         working-directory: artifacts/${{ inputs.app }}
         run: |
           set -euo pipefail
-          BUILD_GRADLE="android/app/build.gradle"
-          if [ ! -f "${BUILD_GRADLE}" ]; then
-            echo "ERROR: ${BUILD_GRADLE} not found after expo prebuild"
-            exit 1
-          fi
-          if ! grep -q "pickFirsts" "${BUILD_GRADLE}"; then
-            awk '
-              BEGIN { inserted = 0 }
-              /^android \{/ && !inserted {
-                print
-                print "    packaging {"
-                print "        resources {"
-                print "            pickFirsts += [\"META-INF/versions/9/OSGI-INF/MANIFEST.MF\"]"
-                print "        }"
-                print "    }"
-                inserted = 1
-                next
-              }
-              { print }
-              END {
-                if (!inserted) {
-                  print "ERROR: android block not found" > "/dev/stderr"
-                  exit 1
-                }
-              }
-            ' "${BUILD_GRADLE}" > /tmp/build.gradle.fixed
-            mv /tmp/build.gradle.fixed "${BUILD_GRADLE}"
-          fi
-          echo "--- packaging block in ${BUILD_GRADLE} ---"
-          grep -n "pickFirsts" "${BUILD_GRADLE}"
+          python3 -c 'import json; from pathlib import Path; p = Path("android/app/build.gradle"); src = p.read_text(); needle = "META-INF/versions/9/OSGI-INF/MANIFEST.MF"; quoted = json.dumps(needle); snippet = "\n        resources {\n            excludes += [%s]\n            pickFirsts += [%s]\n        }\n" % (quoted, quoted); token = "packagingOptions {"; idx = src.find(token);
+          if idx < 0:
+              raise SystemExit("no packagingOptions block in build.gradle")
+          if quoted not in src:
+              src = src[:idx + len(token)] + snippet + src[idx + len(token):]
+              p.write_text(src)
+          print("--- packaging region ---")
+          for i, line in enumerate(p.read_text().splitlines(), 1):
+              if "packaging" in line or "MANIFEST.MF" in line or "excludes" in line or "pickFirst" in line:
+                  print("%d:%s" % (i, line))'
 
       - name: assembleDebug
         working-directory: artifacts/${{ inputs.app }}/android

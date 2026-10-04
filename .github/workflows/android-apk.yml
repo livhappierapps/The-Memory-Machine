@@ -110,27 +110,9 @@ jobs:
           pnpm install --no-frozen-lockfile
           df -h /
 
-      - name: Clean gradle cache before build
-        run: |
-          set -euo pipefail
-          cd artifacts/${{ inputs.app }}/android
-          ./gradlew clean --no-daemon || true
-          df -h /
-
       - name: Fix duplicate META-INF resources in app build.gradle
         working-directory: artifacts/${{ inputs.app }}
-        run: |
-          set -euo pipefail
-          python3 -c 'import json; from pathlib import Path; p = Path("android/app/build.gradle"); src = p.read_text(); needle = "META-INF/versions/9/OSGI-INF/MANIFEST.MF"; quoted = json.dumps(needle); token = "packagingOptions {"; idx = src.find(token)
-          if idx < 0:
-              raise SystemExit("no packagingOptions block in build.gradle")
-          if quoted not in src:
-              src = src[:idx + len(token)] + snippet + src[idx + len(token):]
-              p.write_text(src)
-          print("--- packaging region ---")
-          for i, line in enumerate(p.read_text().splitlines(), 1):
-              if "packaging" in line or "MANIFEST.MF" in line or "excludes" in line or "pickFirst" in line:
-                  print("%d:%s" % (i, line))'
+        run: python3 "$GITHUB_WORKSPACE/scripts/patch-android-packaging.py"
 
       - name: assembleDebug
         working-directory: artifacts/${{ inputs.app }}/android
@@ -140,15 +122,6 @@ jobs:
           df -h /
           echo "Starting gradle build..."
           ./gradlew assembleDebug --no-daemon --build-cache
-          df -h /
-
-      - name: Cleanup before upload
-        if: always()
-        run: |
-          set -euo pipefail
-          echo "Cleaning up build artifacts..."
-          rm -rf artifacts/${{ inputs.app }}/android/build || true
-          rm -rf artifacts/${{ inputs.app }}/node_modules/.pnpm || true
           df -h /
 
       - name: Upload APK

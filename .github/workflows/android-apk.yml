@@ -2,13 +2,15 @@ name: Android debug APK
 
 # Manual only. Do not add push/pull_request here — debug APKs are slow and
 # this exists so a connected GitHub session can start a sideload build.
+# Do not put a heredoc terminator at column 0 inside a run: | block.
+# That ends the YAML block scalar and GitHub drops workflow_dispatch.
 on:
   workflow_dispatch:
     inputs:
       app:
         description: App folder under artifacts/
-        default: memory-machine-mobile
         required: true
+        default: memory-machine-mobile
         type: choice
         options:
           - memory-machine-mobile
@@ -16,7 +18,7 @@ on:
 
 jobs:
   apk:
-    name: assembleDebug ${{ inputs.app}}
+    name: assembleDebug ${{ inputs.app }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -45,8 +47,8 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-            distribution: temurin
-            java-version: "17"
+          distribution: temurin
+          java-version: "17"
 
       - name: Install Android SDK packages
         run: |
@@ -64,19 +66,23 @@ jobs:
             "platform-tools" || true
           echo "Installed Android SDK to ${SDK_ROOT}"
           "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version
+          echo "ANDROID_HOME=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "${SDK_ROOT}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "${SDK_ROOT}/platform-tools" >> "$GITHUB_PATH"
 
       - name: Install workspace
         run: pnpm install --no-frozen-lockfile
 
       - name: Expo prebuild
-        working-directory: artifacts/${{ inputs.app}}
+        working-directory: artifacts/${{ inputs.app }}
         run: npx expo prebuild --platform android --clean --no-install
 
       - name: Reinstall after prebuild
         run: pnpm install --no-frozen-lockfile
 
       - name: Fix duplicate META-INF resources in app build.gradle
-        working-directory: artifacts/${{ inputs.app}}
+        working-directory: artifacts/${{ inputs.app }}
         run: |
           set -euo pipefail
           BUILD_GRADLE="android/app/build.gradle"
@@ -84,28 +90,39 @@ jobs:
             echo "ERROR: ${BUILD_GRADLE} not found after expo prebuild"
             exit 1
           fi
-          # Resolve duplicate META-INF/versions/9/OSGI-INF/MANIFEST.MF from
-          # okhttp3 logging-interceptor and jspecify jars (mergeDebugJavaResource).
           if ! grep -q "pickFirsts" "${BUILD_GRADLE}"; then
-            cat >> "${BUILD_GRADLE}" <<'EOF'
-
-    packaging {
-        resources {
-            pickFirsts += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF"]
-        }
-    }
-EOF
+            awk '
+              BEGIN { inserted = 0 }
+              /^android \{/ && !inserted {
+                print
+                print "    packaging {"
+                print "        resources {"
+                print "            pickFirsts += [\"META-INF/versions/9/OSGI-INF/MANIFEST.MF\"]"
+                print "        }"
+                print "    }"
+                inserted = 1
+                next
+              }
+              { print }
+              END {
+                if (!inserted) {
+                  print "ERROR: android block not found" > "/dev/stderr"
+                  exit 1
+                }
+              }
+            ' "${BUILD_GRADLE}" > /tmp/build.gradle.fixed
+            mv /tmp/build.gradle.fixed "${BUILD_GRADLE}"
           fi
           echo "--- packaging block in ${BUILD_GRADLE} ---"
           grep -n "pickFirsts" "${BUILD_GRADLE}"
 
       - name: assembleDebug
-        working-directory: artifacts/${{ inputs.app}}/android
+        working-directory: artifacts/${{ inputs.app }}/android
         run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-debug-apk
-          path: artifacts/${{ inputs.app}}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: artifacts/${{ inputs.app }}/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

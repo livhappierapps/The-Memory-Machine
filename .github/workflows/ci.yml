@@ -10,19 +10,21 @@ on:
 jobs:
   typecheck:
     name: Install and typecheck
-    runs-on: ubuntu-latest
+    # Pin past the Oct 19, 2026 ubuntu-latest -> Ubuntu 26 migration.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
+          version: 9.15.9
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm

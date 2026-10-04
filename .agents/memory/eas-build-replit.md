@@ -33,7 +33,7 @@ const https = require('https'), url = '<logUrl>';
 https.get(url, res => {
   let d = ''; res.on('data', c => d += c);
   res.on('end', () => {
-    d.split('\n').filter(Boolean).forEach(l => {
+    d.split('\\n').filter(Boolean).forEach(l => {
       try { const j = JSON.parse(l); if (j.msg) console.log(j.msg); } catch{}
     });
   });
@@ -83,3 +83,4 @@ It will throw `assertNewArchitectureEnabledTask FAILED` if New Architecture is d
 | fb427d75 | ERRORED | newArchEnabled: false — reanimated 4.x requires New Arch; error was assertNewArchitectureEnabledTask |
 | 6c272caf | IN_PROGRESS | newArchEnabled: true + expo-glass-effect removed — first clean combo |
 | (none) | BLOCKED | 2026-10-01 Automations re-trigger to replace expired emailed link. No Replit shell in this runtime; EXPO_TOKEN unset; GitHub app cannot read Actions secrets; expo.dev builds page requires login. GraphQL createAndroidBuild not called. No APK URL, no email. |
+| (none) | BLOCKED | 2026-10-04 re-triggered to replace expired emailed link. Same blocker: no Replit shell, EXPO_TOKEN unset, expo.dev login wall. Fallback: GitHub Actions android-apk.yml. Run 16 (37200428355) FINISHED success; artifact memory-machine-mobile-debug-apk id 11304045386, expires 2026-10-18. Run 17 (37206771761) already in progress. Run 18 (37209202480) queued by this re-trigger. Link posted on issue #3. No email (no mail connector). |

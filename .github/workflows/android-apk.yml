@@ -29,9 +29,28 @@ jobs:
       # on current runners (sdkmanager cannot find the 'tools' package).
       ANDROID_HOME: /usr/local/lib/android/sdk
       PATH: /usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools:/usr/local/bin:/usr/bin:/bin
+      # Reduce NDK architectures to save disk space
+      ANDROID_ABI_FILTERS: arm64-v8a
+      # Gradle optimization flags
+      GRADLE_OPTS: "-Xmx2048m"
+      ORG_GRADLE_PROJECT_android_enableBuildCache: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free up disk space (cleanup runner)
+        run: |
+          set -euo pipefail
+          df -h /
+          echo "Cleaning up unnecessary packages..."
+          sudo apt-get remove -y -qq '^ghc.*' '^postgresql.*' '^mysql.*' '^dotnet.*' || true
+          sudo apt-get clean -qq || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /opt/hostedtoolcache/PyPy || true
+          sudo rm -rf /opt/hostedtoolcache/go || true
+          sudo rm -rf /opt/hostedtoolcache/Ruby || true
+          sudo rm -rf /usr/share/swift || true
+          df -h /
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -70,22 +89,39 @@ jobs:
           echo "ANDROID_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
           echo "${SDK_ROOT}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "${SDK_ROOT}/platform-tools" >> "$GITHUB_PATH"
+          df -h /
 
       - name: Install workspace
-        run: pnpm install --no-frozen-lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --no-frozen-lockfile
+          df -h /
 
       - name: Expo prebuild
         working-directory: artifacts/${{ inputs.app }}
-        run: npx expo prebuild --platform android --clean --no-install
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --clean --no-install
+          df -h /
 
       - name: Reinstall after prebuild
-        run: pnpm install --no-frozen-lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --no-frozen-lockfile
+          df -h /
+
+      - name: Clean gradle cache before build
+        run: |
+          set -euo pipefail
+          cd artifacts/${{ inputs.app }}/android
+          ./gradlew clean --no-daemon || true
+          df -h /
 
       - name: Fix duplicate META-INF resources in app build.gradle
         working-directory: artifacts/${{ inputs.app }}
         run: |
           set -euo pipefail
-          python3 -c 'import json; from pathlib import Path; p = Path("android/app/build.gradle"); src = p.read_text(); needle = "META-INF/versions/9/OSGI-INF/MANIFEST.MF"; quoted = json.dumps(needle); snippet = "\n        resources {\n            excludes += [%s]\n            pickFirsts += [%s]\n        }\n" % (quoted, quoted); token = "packagingOptions {"; idx = src.find(token);
+          python3 -c 'import json; from pathlib import Path; p = Path("android/app/build.gradle"); src = p.read_text(); needle = "META-INF/versions/9/OSGI-INF/MANIFEST.MF"; quoted = json.dumps(needle); token = "packagingOptions {"; idx = src.find(token)
           if idx < 0:
               raise SystemExit("no packagingOptions block in build.gradle")
           if quoted not in src:
@@ -98,9 +134,25 @@ jobs:
 
       - name: assembleDebug
         working-directory: artifacts/${{ inputs.app }}/android
-        run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          df -h /
+          echo "Starting gradle build..."
+          ./gradlew assembleDebug --no-daemon --build-cache
+          df -h /
+
+      - name: Cleanup before upload
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "Cleaning up build artifacts..."
+          rm -rf artifacts/${{ inputs.app }}/android/build || true
+          rm -rf artifacts/${{ inputs.app }}/node_modules/.pnpm || true
+          df -h /
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-debug-apk

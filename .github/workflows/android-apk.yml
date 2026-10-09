@@ -1,9 +1,12 @@
-name: Android debug APK
+name: Android sideload APK
 
-# Manual only. Do not add push/pull_request here — debug APKs are slow and
+# Manual only. Do not add push/pull_request here — these builds are slow and
 # this exists so a connected GitHub session can start a sideload build.
 # Do not put a heredoc terminator at column 0 inside a run: | block.
 # That ends the YAML block scalar and GitHub drops workflow_dispatch.
+#
+# assembleRelease, not assembleDebug. Debug APKs omit the JS bundle and wait
+# for Metro. Sideloaded, that leaves the splash icon on screen forever.
 on:
   workflow_dispatch:
     inputs:
@@ -18,14 +21,18 @@ on:
 
 jobs:
   apk:
-    name: assembleDebug ${{ inputs.app }}
+    name: assembleRelease ${{ inputs.app }}
     # Pin past the Oct 19, 2026 ubuntu-latest -> Ubuntu 26 migration.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
-      EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
+      # Host only. The app prefixes https:// and also accepts a full URL.
+      EXPO_PUBLIC_DOMAIN: the-memory-machine.replit.app
+      # Publishable test key already committed in eas.json. Empty key crashes
+      # ClerkProvider after the splash hides.
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA
       # Manual SDK install below — android-actions/setup-android@v3 is broken
       # on current runners (sdkmanager cannot find the 'tools' package).
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -111,24 +118,40 @@ jobs:
           pnpm install --no-frozen-lockfile
           df -h /
 
-      - name: Fix duplicate META-INF resources in app build.gradle
+      - name: Fix packaging and force debug signing on release
         working-directory: artifacts/${{ inputs.app }}
         run: python3 "$GITHUB_WORKSPACE/scripts/patch-android-packaging.py"
 
-      - name: assembleDebug
+      - name: assembleRelease
         working-directory: artifacts/${{ inputs.app }}/android
         run: |
           set -euo pipefail
           chmod +x ./gradlew
           df -h /
-          echo "Starting gradle build..."
-          ./gradlew assembleDebug --no-daemon --build-cache
+          echo "Starting gradle release build (embeds JS bundle)..."
+          ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
           df -h /
+
+      - name: Verify JS bundle is inside the APK
+        working-directory: artifacts/${{ inputs.app }}
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "release APK missing"
+            find android/app/build/outputs -type f -name '*.apk' || true
+            exit 1
+          fi
+          if ! unzip -l "$APK" | grep -E 'index\.android\.bundle'; then
+            echo "JS bundle not embedded — this APK would stick on the splash icon"
+            exit 1
+          fi
+          ls -lh "$APK"
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ inputs.app }}-debug-apk
-          path: artifacts/${{ inputs.app }}/android/app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ inputs.app }}-release-apk
+          path: artifacts/${{ inputs.app }}/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14

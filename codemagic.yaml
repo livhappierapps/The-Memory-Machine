@@ -31,13 +31,18 @@ workflows:
           cd ../..
           pnpm install --no-frozen-lockfile
 
-      - name: Build debug APK
+      - name: Patch packaging and sign release with debug keystore
+        script: |
+          cd artifacts/leo-app
+          python3 ../../scripts/patch-android-packaging.py
+
+      - name: Build release APK (embeds JS bundle)
         script: |
           cd artifacts/leo-app/android
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
 
     artifacts:
-      - artifacts/leo-app/android/app/build/outputs/apk/debug/app-debug.apk
+      - artifacts/leo-app/android/app/build/outputs/apk/release/app-release.apk
 
     publishing:
       email:
@@ -56,7 +61,8 @@ workflows:
       vars:
         CI: "1"
         EXPO_NO_TELEMETRY: "1"
-        EXPO_PUBLIC_DOMAIN: https://the-memory-machine.replit.app
+        EXPO_PUBLIC_DOMAIN: the-memory-machine.replit.app
+        EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA
       groups:
         - memory_machine
     cache:
@@ -80,13 +86,18 @@ workflows:
           cd ../..
           pnpm install --no-frozen-lockfile
 
-      - name: Build debug APK
+      - name: Patch packaging and sign release with debug keystore
+        script: |
+          cd artifacts/memory-machine-mobile
+          python3 ../../scripts/patch-android-packaging.py
+
+      - name: Build release APK (embeds JS bundle)
         script: |
           cd artifacts/memory-machine-mobile/android
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
 
     artifacts:
-      - artifacts/memory-machine-mobile/android/app/build/outputs/apk/debug/app-debug.apk
+      - artifacts/memory-machine-mobile/android/app/build/outputs/apk/release/app-release.apk
 
     publishing:
       email:

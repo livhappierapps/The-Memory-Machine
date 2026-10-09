@@ -47,7 +47,13 @@ const tokenCache = {
   },
 };
 
-setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"]}`);
+function resolveApiBase(): string {
+  const raw = (process.env["EXPO_PUBLIC_DOMAIN"] ?? "the-memory-machine.replit.app").trim();
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw.replace(/\/$/, "");
+  return `https://${raw}`;
+}
+
+setBaseUrl(resolveApiBase());
 
 SplashScreen.preventAutoHideAsync();
 

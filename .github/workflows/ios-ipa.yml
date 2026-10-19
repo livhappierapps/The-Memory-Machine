@@ -1,0 +1,72 @@
+name: iOS IPA (EAS)
+
+# Manual only. Requires EXPO_TOKEN secret on the repository.
+# Produces an internal-distribution IPA via EAS ios-device profile.
+# Does not submit to App Store — that requires a separate Apple Developer
+# account step outside this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App folder under artifacts/
+        required: true
+        default: memory-machine-mobile
+        type: choice
+        options:
+          - memory-machine-mobile
+          - leo-app
+      profile:
+        description: EAS build profile
+        required: true
+        default: ios-device
+        type: choice
+        options:
+          - ios-device
+          - preview
+          - production
+
+jobs:
+  ipa:
+    name: EAS build ${{ inputs.app }} (${{ inputs.profile }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install workspace
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Trigger EAS build
+        working-directory: artifacts/${{ inputs.app }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN secret is not set on this repository."
+            echo "Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          npx eas-cli build \
+            --platform ios \
+            --profile ${{ inputs.profile }} \
+            --non-interactive \
+            --no-wait \
+            --json > /tmp/eas-build.json
+          cat /tmp/eas-build.json
+          echo "EAS build triggered. Check the URL in the JSON above."
+          echo "The IPA will be available for download from the EAS dashboard once the build completes."

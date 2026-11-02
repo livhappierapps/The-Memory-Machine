@@ -17,6 +17,9 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thememorymachinemobile.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {

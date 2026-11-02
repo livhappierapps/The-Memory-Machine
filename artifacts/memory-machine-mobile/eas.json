@@ -41,6 +41,8 @@
         "buildType": "apk"
       },
       "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "SENTRY_CLI_EXECUTABLE": "/usr/bin/true",
         "EXPO_PUBLIC_DOMAIN": "https://the-memory-machine.replit.app",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA"
       }

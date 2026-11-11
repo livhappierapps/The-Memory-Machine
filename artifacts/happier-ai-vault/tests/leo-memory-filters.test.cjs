@@ -77,6 +77,9 @@ function harness(mobile, initialNotes = []) {
         useIncomingShareContext: () => ({ incomingFile: null, clearIncoming() {} }),
       };
       if (name.includes("ImportContext")) return { useImport: () => ({ phase: "idle", result: null }) };
+      if (name === "@/utils/api-origin") return {
+        apiOriginOrEmpty: () => "", resolveApiOrigin: () => "", DEFAULT_PUBLIC_ORIGIN: "",
+      };
       if (name === "@tanstack/react-query") return { useQueryClient: () => ({ invalidateQueries() {} }) };
       if (name === "wouter") return {
         useSearch: () => search,

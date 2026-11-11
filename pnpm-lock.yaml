@@ -195,6 +195,9 @@ importers:
       thread-stream:
         specifier: 3.1.0
         version: 3.1.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.47.1)(tsx@4.21.0)(yaml@2.9.1)
@@ -16405,7 +16408,7 @@ snapshots:
   tsx@4.21.0:
     dependencies:
       esbuild: 0.27.3
-      get-tsconfig: 4.13.6
+      get-tsconfig: 4.14.3
     optionalDependencies:
       fsevents: 2.3.3
 

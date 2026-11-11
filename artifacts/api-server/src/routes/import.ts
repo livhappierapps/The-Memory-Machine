@@ -8,6 +8,7 @@ import { createHash } from "crypto";
 import { requireAuth } from "../middlewares/auth";
 import { decryptField } from "../lib/field-crypto";
 import { streamImportFile } from "../lib/import-stream";
+import { resolveEmbeddingKey } from "../lib/embedding-config";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { settingsTable, profilesTable } from "@workspace/db";
@@ -181,7 +182,7 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     // Fetch all profiles so we can both validate the client-supplied profileId
     // and fall back to the first profile when none is provided.
     const userProfiles = await db
-      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
+      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey, openAiApiKey: profilesTable.openAiApiKey, embeddingProvider: profilesTable.embeddingProvider })
       .from(profilesTable)
       .where(eq(profilesTable.userId, userId));
 
@@ -192,10 +193,11 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
         ? userProfiles.find((p) => p.id === clientProfileId)
         : undefined) ?? userProfiles[0];
 
-    const rawApiKey = resolvedProfile?.apiKey || settings?.apiKey || null;
-    const apiKey = rawApiKey ? decryptField(userId, rawApiKey) : undefined;
     const profileId = resolvedProfile?.id ?? null;
-    const embeddingProvider = resolvedProfile?.embeddingProvider ?? "xai";
+    // Provider-aware key (profile → settings → server key).
+    const emb = resolveEmbeddingKey(userId, resolvedProfile ?? null, { settingsApiKey: settings?.apiKey ?? null });
+    const apiKey = emb?.apiKey;
+    const embeddingProvider = emb?.provider ?? "xai";
 
     await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey, embeddingProvider });
   } catch (err) {

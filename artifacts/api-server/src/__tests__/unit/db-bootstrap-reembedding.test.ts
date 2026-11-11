@@ -58,13 +58,15 @@ describe("startup recovery of missing embeddings", () => {
     expect(text).toContain("FROM messages m");
     expect(text).toContain("LEFT JOIN embeddings e ON e.message_id = m.id");
     expect(text).toContain("WHERE e.id IS NULL");
-    expect(text).toContain("AND a.message_id IS NULL");
+    // Failure markers only exclude a message for the *current* model config.
+    expect(text).toContain("NOT EXISTS ( SELECT 1 FROM embed_attempts a WHERE a.message_id = m.id AND a.model_key IN");
     expect(text).toContain("AND t.deleted_at IS NULL");
-    expect(text).toContain("LIMIT 200");
+    expect(text).toMatch(/LIMIT \$\d+/);
+    expect(query.params).toContain(200);
 
     expect(mocks.generateEmbeddingResult.mock.calls).toEqual([
-      ["First missing memory.", "fake-xai-key", "xai"],
-      ["Second missing memory.", "fake-openai-key", "openai"],
+      ["First missing memory.", "fake-xai-key", "xai", "passage"],
+      ["Second missing memory.", "fake-openai-key", "openai", "passage"],
     ]);
     expect(mocks.storeEmbedding.mock.calls).toEqual([
       [11, 21, 31, vector],

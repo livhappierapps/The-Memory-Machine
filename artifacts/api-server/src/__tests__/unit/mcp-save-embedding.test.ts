@@ -115,6 +115,7 @@ describe("save_memory embedding persistence", () => {
           "[Tags: work]\n\nRemember this.",
           provider === "openai" ? "fake-openai-key" : "fake-xai-key",
           provider,
+          "passage",
         );
         expect(mocks.storeEmbedding).toHaveBeenCalledWith(202, 101, 303, vector);
       } finally {

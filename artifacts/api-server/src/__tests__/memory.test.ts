@@ -270,6 +270,7 @@ describe("retrieveMemories — semantic mode (smartRetrieval=true)", () => {
       "unique query string for memory retrieval",
       FAKE_API_KEY,
       "xai",
+      "query",
     );
   });
 

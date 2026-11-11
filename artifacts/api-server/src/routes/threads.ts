@@ -5,6 +5,7 @@ import { eq, and, desc, count, ilike, gte, lte, isNull, inArray, asc, sql } from
 import { retrieveMemories } from "../lib/memory";
 import { isPgvectorAvailable } from "../lib/db-bootstrap";
 import { generateEmbedding } from "../lib/embeddings";
+import { resolveEmbeddingKey } from "../lib/embedding-config";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -116,36 +117,25 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
                 .limit(1);
 
           const profile = profileRows[0];
+          const [settingsRow] = await db
+            .select({ apiKey: settingsTable.apiKey })
+            .from(settingsTable)
+            .where(eq(settingsTable.userId, userId))
+            .limit(1);
+          // Provider-aware key resolution shared with retrieval/MCP: profile key →
+          // settings key → server-level key. Works even if the user has no profile.
+          const emb = resolveEmbeddingKey(userId, profile ?? null, {
+            settingsApiKey: settingsRow?.apiKey ?? null,
+          });
 
-          if (profile) {
-            const provider = profile.embeddingProvider ?? "xai";
-
-            // Mirror the provider-aware key resolution used by memory-preview and
-            // memory retrieval: for xAI, use the profile key then fall back to the
-            // global settings API key (so users without a per-profile key still get
-            // semantic search if their embeddings were created with the settings key).
-            const xaiProfileKey = profile.apiKey ? decryptField(userId, profile.apiKey) : null;
-            let xaiSettingsFallback: string | null = null;
-            if (!xaiProfileKey) {
-              const [settings] = await db
-                .select({ apiKey: settingsTable.apiKey })
-                .from(settingsTable)
-                .where(eq(settingsTable.userId, userId))
-                .limit(1);
-              xaiSettingsFallback = settings?.apiKey ? decryptField(userId, settings.apiKey) : null;
-            }
-            const xaiKey = xaiProfileKey ?? xaiSettingsFallback;
-
-            const apiKey =
-              provider === "openai" && profile.openAiApiKey
-                ? decryptField(userId, profile.openAiApiKey)
-                : xaiKey;
-
+          {
+            const apiKey = emb?.apiKey ?? null;
+            const provider = emb?.provider ?? "xai";
             if (apiKey) {
               // Time-bound the embedding API call: a slow or rate-limited provider
               // must not hang the thread-list response. Timeout → keyword-only fallback.
               const queryVec = await Promise.race([
-                generateEmbedding(searchTerm, apiKey, provider),
+                generateEmbedding(searchTerm, apiKey, provider, "query"),
                 new Promise<null>((resolve) =>
                   setTimeout(() => resolve(null), SEMANTIC_SEARCH_TIMEOUT_MS),
                 ),
@@ -550,15 +540,10 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    // profile.apiKey / openAiApiKey are encrypted at rest — decrypt before use.
-    const embeddingProvider = profile.embeddingProvider ?? "xai";
-    const xaiApiKey =
-      (profile.apiKey ? decryptField(userId, profile.apiKey) : null) ||
-      (settings?.apiKey ? decryptField(userId, settings.apiKey) : null);
-    const embeddingApiKey =
-      (embeddingProvider === "openai" && profile.openAiApiKey
-        ? decryptField(userId, profile.openAiApiKey)
-        : null) ?? xaiApiKey;
+    // Shared provider-aware resolution (profile → settings → server key).
+    const emb = resolveEmbeddingKey(userId, profile, { settingsApiKey: settings?.apiKey ?? null });
+    const embeddingApiKey = emb?.apiKey ?? null;
+    const embeddingProvider = emb?.provider ?? "xai";
 
     if (!embeddingApiKey) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval, pgvectorAvailable: isPgvectorAvailable() });

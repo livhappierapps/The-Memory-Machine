@@ -133,7 +133,7 @@ export async function retrieveMemories(
 
   // ── 3. Semantic similarity search via pgvector ────────────────────────────
   if (smartRetrieval && topN > 0) {
-    const queryVec = await generateEmbedding(query, apiKey, embeddingProvider);
+    const queryVec = await generateEmbedding(query, apiKey, embeddingProvider, "query");
 
     if (queryVec) {
       const vecLiteral = `[${queryVec.join(",")}]`;

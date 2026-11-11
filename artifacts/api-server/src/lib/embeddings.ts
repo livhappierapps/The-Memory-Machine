@@ -3,13 +3,18 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  buildEmbeddingRequest,
+  getEmbeddingConfig,
+  type EmbeddingKind,
+} from "./embedding-config";
 
-const EMBEDDING_MODEL = "text-embedding-3-small";
-const EMBEDDING_DIM = 1536;
-const PROVIDER_ENDPOINTS: Record<string, string> = {
-  xai: "https://api.x.ai/v1/embeddings",
-  openai: "https://api.openai.com/v1/embeddings",
-};
+export {
+  getEmbeddingConfig,
+  getEmbeddingDim,
+  resolveEmbeddingKey,
+  type EmbeddingKind,
+} from "./embedding-config";
 
 /** Maximum simultaneous embedding API calls. */
 const MAX_CONCURRENCY = 4;
@@ -44,9 +49,31 @@ function _enqueue(job: EmbedJob): void {
 /** Detailed outcome for callers that need to persist permanent failures. */
 export interface EmbeddingResult {
   vector: number[] | null;
-  /** HTTP 4xx, except retryable timeouts (408), too-early (425), and limits (429). */
+  /**
+   * HTTP 4xx that is specific to this message (e.g. 400/413/422 on the input),
+   * except retryable timeouts (408), too-early (425), and limits (429).
+   * Auth/config errors (401/403/404) and dimension mismatches are reported as
+   * `configError` instead so they never get persisted per-message.
+   */
   permanentFailure: boolean;
+  /** Key/model/config problem — affects every message; do not mark messages. */
+  configError?: boolean;
   status?: number;
+  /** embed_attempts key for the config used (provider:model:dim). */
+  modelKey?: string;
+}
+
+const CONFIG_ERROR_STATUSES = new Set([401, 402, 403, 404]);
+
+/** Classify an HTTP status from the embeddings API. Exported for tests. */
+export function classifyEmbeddingStatus(status: number): {
+  permanentFailure: boolean;
+  configError: boolean;
+} {
+  if (CONFIG_ERROR_STATUSES.has(status)) return { permanentFailure: false, configError: true };
+  const permanentFailure =
+    status >= 400 && status < 500 && status !== 408 && status !== 425 && status !== 429;
+  return { permanentFailure, configError: false };
 }
 
 /** Result from a single embedding API call. */
@@ -59,56 +86,54 @@ async function _callEmbeddingApi(
   text: string,
   apiKey: string,
   provider: string,
+  kind: EmbeddingKind,
 ): Promise<EmbedResult> {
+  const cfg = getEmbeddingConfig(provider);
+  const base = { modelKey: cfg.modelKey };
   const input = text.slice(0, 8_000).trim();
-  if (!input) return { vector: null, rateLimited: false, permanentFailure: false };
-
-  const endpointUrl = PROVIDER_ENDPOINTS[provider] ?? PROVIDER_ENDPOINTS["xai"]!;
+  if (!input) return { ...base, vector: null, rateLimited: false, permanentFailure: false };
 
   try {
-    const response = await fetch(endpointUrl, {
+    const response = await fetch(cfg.endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model: EMBEDDING_MODEL, input }),
+      body: JSON.stringify(buildEmbeddingRequest(cfg, input, kind)),
     });
 
     if (response.status === 429) {
-      return { vector: null, rateLimited: true, permanentFailure: false, status: 429 };
+      return { ...base, vector: null, rateLimited: true, permanentFailure: false, status: 429 };
     }
 
     if (!response.ok) {
+      const cls = classifyEmbeddingStatus(response.status);
       logger.warn(
-        { status: response.status },
-        "Embedding API error — skipping this message",
+        { status: response.status, provider: cfg.provider, model: cfg.model, configError: cls.configError },
+        cls.configError
+          ? "Embedding API rejected key/model — check embedding configuration"
+          : "Embedding API error — skipping this message",
       );
-      return {
-        vector: null,
-        rateLimited: false,
-        permanentFailure:
-          response.status >= 400 &&
-          response.status < 500 &&
-          response.status !== 408 &&
-          response.status !== 425,
-        status: response.status,
-      };
+      return { ...base, vector: null, rateLimited: false, ...cls, status: response.status };
     }
 
     const data = (await response.json()) as {
       data?: Array<{ embedding?: number[] }>;
     };
     const vec = data.data?.[0]?.embedding;
-    if (!Array.isArray(vec) || vec.length !== EMBEDDING_DIM) {
-      logger.warn({ vecLen: vec?.length }, "Unexpected embedding dimension — skipping");
-      return { vector: null, rateLimited: false, permanentFailure: false };
+    if (!Array.isArray(vec) || vec.length !== cfg.dimensions) {
+      logger.warn(
+        { vecLen: vec?.length, expected: cfg.dimensions, provider: cfg.provider, model: cfg.model },
+        "Unexpected embedding dimension — set EMBEDDING_DIM to the model's native size (empty table is migrated at boot)",
+      );
+      return { ...base, vector: null, rateLimited: false, permanentFailure: false, configError: true };
     }
 
-    return { vector: vec, rateLimited: false, permanentFailure: false };
+    return { ...base, vector: vec, rateLimited: false, permanentFailure: false };
   } catch (err) {
     logger.warn({ err }, "Failed to call embeddings API — skipping");
-    return { vector: null, rateLimited: false, permanentFailure: false };
+    return { ...base, vector: null, rateLimited: false, permanentFailure: false };
   }
 }
 
@@ -117,8 +142,9 @@ export async function generateEmbedding(
   text: string,
   apiKey: string,
   provider = "xai",
+  kind: EmbeddingKind = "passage",
 ): Promise<number[] | null> {
-  return (await generateEmbeddingResult(text, apiKey, provider)).vector;
+  return (await generateEmbeddingResult(text, apiKey, provider, kind)).vector;
 }
 
 /** Preserve failure classification without changing the vector-only public API. */
@@ -126,9 +152,10 @@ export async function generateEmbeddingResult(
   text: string,
   apiKey: string,
   provider = "xai",
+  kind: EmbeddingKind = "passage",
 ): Promise<EmbeddingResult> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const { rateLimited, ...result } = await _callEmbeddingApi(text, apiKey, provider);
+    const { rateLimited, ...result } = await _callEmbeddingApi(text, apiKey, provider, kind);
     if (result.vector || !rateLimited) return result;
 
     const delay = BASE_BACKOFF_MS * Math.pow(2, attempt);
@@ -136,7 +163,12 @@ export async function generateEmbeddingResult(
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   logger.warn("Embedding retries exhausted — skipping");
-  return { vector: null, permanentFailure: false, status: 429 };
+  return {
+    vector: null,
+    permanentFailure: false,
+    status: 429,
+    modelKey: getEmbeddingConfig(provider).modelKey,
+  };
 }
 
 // ── Storage ──────────────────────────────────────────────────────────────────

@@ -199,15 +199,35 @@ describe("generateEmbedding — null / skip cases", () => {
 });
 
 describe("generateEmbeddingResult — permanent failure classification", () => {
-  it.each([400, 401, 403, 404, 422, 499])(
-    "classifies HTTP %i as permanent without retrying",
+  it.each([400, 413, 422, 499])(
+    "classifies HTTP %i as permanent (per-message) without retrying",
     async (status) => {
       const mockFetch = vi.fn().mockResolvedValue(makeFetchResponse(status, "provider error"));
       vi.stubGlobal("fetch", mockFetch);
 
-      expect(await generateEmbeddingResult("content", "fake-key")).toEqual({
+      expect(await generateEmbeddingResult("content", "fake-key")).toMatchObject({
         vector: null,
         permanentFailure: true,
+        configError: false,
+        status,
+        modelKey: "xai:v1:1536",
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  // Auth / wrong-model errors affect every message; they must never be
+  // persisted per-message in embed_attempts.
+  it.each([401, 402, 403, 404])(
+    "classifies HTTP %i as a config error (not permanent) without retrying",
+    async (status) => {
+      const mockFetch = vi.fn().mockResolvedValue(makeFetchResponse(status, "provider error"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      expect(await generateEmbeddingResult("content", "fake-key")).toMatchObject({
+        vector: null,
+        permanentFailure: false,
+        configError: true,
         status,
       });
       expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -216,7 +236,7 @@ describe("generateEmbeddingResult — permanent failure classification", () => {
 
   it.each([408, 425, 429, 500, 503])("does not mark HTTP %i as permanent", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeFetchResponse(status, "")));
-    expect(await generateEmbeddingResult("content", "fake-key")).toEqual({
+    expect(await generateEmbeddingResult("content", "fake-key")).toMatchObject({
       vector: null,
       permanentFailure: false,
       status,
@@ -225,7 +245,7 @@ describe("generateEmbeddingResult — permanent failure classification", () => {
 
   it("does not mark network errors as permanent", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNRESET")));
-    expect(await generateEmbeddingResult("content", "fake-key")).toEqual({
+    expect(await generateEmbeddingResult("content", "fake-key")).toMatchObject({
       vector: null,
       permanentFailure: false,
     });
@@ -235,7 +255,7 @@ describe("generateEmbeddingResult — permanent failure classification", () => {
     "does not mark malformed successful responses as permanent: %s",
     async (body) => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeFetchResponse(200, body)));
-      expect(await generateEmbeddingResult("content", "fake-key")).toEqual({
+      expect(await generateEmbeddingResult("content", "fake-key")).toMatchObject({
         vector: null,
         permanentFailure: false,
       });

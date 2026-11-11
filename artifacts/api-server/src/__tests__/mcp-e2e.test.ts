@@ -520,6 +520,7 @@ describe("MCP save_memory — embedding branch coverage", () => {
       expect.stringContaining(EMBED_CONTENT),
       FAKE_API_KEY,
       expect.any(String),
+      "passage",
     );
 
     expect(vi.mocked(storeEmbedding)).toHaveBeenCalledTimes(1);

@@ -189,7 +189,7 @@ describe("reembedOrphanedMessages — startup sweep", () => {
         expect(callsForFixture()).toHaveLength(1);
         expect(warn).toHaveBeenCalledWith(
           expect.objectContaining({ count: expect.any(Number) }),
-          "Startup re-embed sweep: skipping messages with recorded permanent embedding failures",
+          "Startup re-embed sweep: skipping messages with recorded permanent embedding failures for the current model",
         );
         const vectors = await db.execute(sql`
           SELECT message_id FROM embeddings WHERE message_id = ${testMessageId}

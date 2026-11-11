@@ -45,6 +45,7 @@ import { sha256Hex, encryptField, decryptField } from "../lib/field-crypto";
 import { generateEmbedding, storeEmbedding } from "../lib/embeddings";
 import { resolveEmbeddingKey } from "../lib/embedding-config";
 import { MCP_RESOURCE_METADATA } from "../lib/mcp-oauth-config";
+import { getDefaultProfile } from "../lib/default-profile";
 import { keywordSearchThreads } from "../lib/keyword-search";
 import { searchThreadEmbeddings, embedThreadAsync } from "../lib/thread-embeddings";
 
@@ -92,33 +93,8 @@ function extractBearerToken(req: Request): string | null {
 
 // ── Profile helpers ───────────────────────────────────────────────────────────
 
-interface ProfileInfo {
-  id: number;
-  /** Raw (possibly encrypted) xAI API key — use resolveEmbeddingKey, not this directly. */
-  apiKey: string | null;
-  /** Raw (possibly encrypted) OpenAI API key — use resolveEmbeddingKey, not this directly. */
-  openAiApiKey: string | null;
-  embeddingProvider: string;
-}
-
-/**
- * Load the user's first profile (lowest id = default created on sign-up).
- * Used to obtain the API key for embedding generation in MCP tools.
- */
-async function getDefaultProfile(userId: string): Promise<ProfileInfo | null> {
-  const [profile] = await db
-    .select({
-      id: profilesTable.id,
-      apiKey: profilesTable.apiKey,
-      openAiApiKey: profilesTable.openAiApiKey,
-      embeddingProvider: profilesTable.embeddingProvider,
-    })
-    .from(profilesTable)
-    .where(eq(profilesTable.userId, userId))
-    .orderBy(asc(profilesTable.id))
-    .limit(1);
-  return profile ?? null;
-}
+// Default profile comes from the shared helper (lib/default-profile.ts) so MCP,
+// settings, import and retrieval agree. MCP search spans ALL profiles.
 
 // ── Tool helpers ──────────────────────────────────────────────────────────────
 

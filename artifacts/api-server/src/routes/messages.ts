@@ -18,6 +18,7 @@ import { streamCompletion, resolveChatKey, type ChatProvider } from "../lib/ai-p
 import { embedMessageAsync } from "../lib/embeddings";
 import { resolveEmbeddingKey } from "../lib/embedding-config";
 import { loadEmbeddingKeyForThread } from "../lib/embedding-keys";
+import { getDefaultProfile } from "../lib/default-profile";
 import { retrieveMemories } from "../lib/memory";
 import { maybeSummarizeAsync } from "../lib/summarizer";
 import { encryptField, decryptField } from "../lib/field-crypto";
@@ -192,6 +193,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
         .from(profilesTable)
         .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
       if (p) profile = p;
+    } else {
+      // Legacy threads without a profile use the user's default profile for
+      // chat settings and memory retrieval (shared helper).
+      profile = await getDefaultProfile(userId);
     }
 
     const [settings] = await db

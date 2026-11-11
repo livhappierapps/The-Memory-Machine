@@ -6,6 +6,7 @@ import { retrieveMemories } from "../lib/memory";
 import { isPgvectorAvailable } from "../lib/db-bootstrap";
 import { generateEmbedding } from "../lib/embeddings";
 import { resolveEmbeddingKey } from "../lib/embedding-config";
+import { DEFAULT_PROFILE_ORDER, getDefaultProfile } from "../lib/default-profile";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -113,7 +114,7 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
                 })
                 .from(profilesTable)
                 .where(eq(profilesTable.userId, userId))
-                .orderBy(asc(profilesTable.id))
+                .orderBy(...DEFAULT_PROFILE_ORDER)
                 .limit(1);
 
           const profile = profileRows[0];
@@ -519,15 +520,15 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       return;
     }
 
-    if (!thread.profileId) {
-      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });
-      return;
-    }
-
-    const [profile] = await db
-      .select()
-      .from(profilesTable)
-      .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
+    // Threads without a profile (legacy rows) use the user's default profile.
+    const profile = thread.profileId
+      ? (
+          await db
+            .select()
+            .from(profilesTable)
+            .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)))
+        )[0]
+      : await getDefaultProfile(userId);
 
     if (!profile) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });

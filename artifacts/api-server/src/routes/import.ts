@@ -9,6 +9,7 @@ import { requireAuth } from "../middlewares/auth";
 import { decryptField } from "../lib/field-crypto";
 import { streamImportFile } from "../lib/import-stream";
 import { resolveEmbeddingKey } from "../lib/embedding-config";
+import { listProfiles, pickProfile } from "../lib/default-profile";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { settingsTable, profilesTable } from "@workspace/db";
@@ -181,17 +182,11 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
 
     // Fetch all profiles so we can both validate the client-supplied profileId
     // and fall back to the first profile when none is provided.
-    const userProfiles = await db
-      .select({ id: profilesTable.id, apiKey: profilesTable.apiKey, openAiApiKey: profilesTable.openAiApiKey, embeddingProvider: profilesTable.embeddingProvider })
-      .from(profilesTable)
-      .where(eq(profilesTable.userId, userId));
+    const userProfiles = await listProfiles(userId);
 
     // Use the client-supplied profileId if it belongs to this user; otherwise
-    // fall back to the user's first profile.
-    const resolvedProfile =
-      (clientProfileId != null
-        ? userProfiles.find((p) => p.id === clientProfileId)
-        : undefined) ?? userProfiles[0];
+    // fall back to the user's default profile (shared helper, ordered).
+    const resolvedProfile = pickProfile(userProfiles, clientProfileId);
 
     const profileId = resolvedProfile?.id ?? null;
     // Provider-aware key (profile → settings → server key).

@@ -1,22 +1,19 @@
 import { useAuth } from "@clerk/expo";
 import { BlurView } from "expo-blur";
-import { Redirect, Tabs } from "expo-router";
+import { Redirect, Tabs, router } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
-import React from "react";
+import React, { useEffect } from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 import { DeletionWarningBanner } from "@/components/DeletionWarningBanner";
 
 import { useColors } from "@/hooks/useColors";
+import { useIncomingShareContext } from "@/contexts/IncomingShareContext";
 
 function NativeTabLayout() {
   return (
     <NativeTabs>
-      <NativeTabs.Trigger name="phone">
-        <Icon sf={{ default: "iphone", selected: "iphone" }} />
-        <Label>Phone</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="vault">
         <Icon sf={{ default: "archivebox", selected: "archivebox.fill" }} />
         <Label>Vault</Label>
@@ -65,18 +62,6 @@ function ClassicTabLayout() {
       }}
     >
       <Tabs.Screen
-        name="phone"
-        options={{
-          title: "Phone",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="iphone" tintColor={color} size={24} />
-            ) : (
-              <Feather name="smartphone" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
         name="vault"
         options={{
           title: "Vault",
@@ -107,6 +92,17 @@ function ClassicTabLayout() {
 export default function TabLayout() {
   const { isSignedIn, isLoaded } = useAuth();
   const baseUrl = `https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? "localhost"}`;
+
+  const { incomingFile, clearIncoming } = useIncomingShareContext();
+
+  // When a ZIP is shared while any tab is active, navigate to the Vault tab
+  // so the ImportSheet can open.  VaultScreen reads incomingFile from context
+  // and opens the sheet once it's mounted.
+  useEffect(() => {
+    if (incomingFile) {
+      router.navigate("/(tabs)/vault");
+    }
+  }, [incomingFile]);
 
   if (!isLoaded) return null;
   if (!isSignedIn) return <Redirect href="/sign-in" />;

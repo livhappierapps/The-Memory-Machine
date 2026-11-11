@@ -13,6 +13,7 @@ import {
   StreamMessageBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { requireMcpOrAuth } from "../middlewares/mcp-auth";
 import { streamCompletion, resolveChatKey, type ChatProvider } from "../lib/ai-provider";
 import { embedMessageAsync } from "../lib/embeddings";
 import { retrieveMemories } from "../lib/memory";
@@ -25,8 +26,9 @@ const RecentMessagesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(40),
 });
 
-// GET /messages/recent — flat cross-thread history for 2WAI session-start context
-router.get("/messages/recent", requireAuth, async (req: Request, res: Response) => {
+// GET /messages/recent — flat cross-thread history for session-start context.
+// Accepts both Clerk sessions (web dashboard) and MCP bearer tokens (Leo mobile app).
+router.get("/messages/recent", requireMcpOrAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
     const parsed = RecentMessagesQuery.safeParse(req.query);

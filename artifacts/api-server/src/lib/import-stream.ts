@@ -11,6 +11,9 @@
  */
 
 import fs from "fs";
+import os from "os";
+import path from "path";
+import { createHash } from "crypto";
 import JSZip from "jszip";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable } from "@workspace/db";
@@ -24,6 +27,31 @@ export type ImportEvent =
   | { type: "progress"; processed: number; imported: number; skipped: number }
   | { type: "done"; imported: number; skipped: number; errors: number }
   | { type: "error"; message: string };
+
+async function resolveImportFilePath(filePath: string, userId: string): Promise<string> {
+  const userScope = createHash("sha256").update(userId).digest("hex");
+  const userRoot = await fs.promises.realpath(
+    path.join(os.tmpdir(), "memory-machine-imports", userScope),
+  );
+  const canonicalPath = await fs.promises.realpath(filePath);
+  const relativePath = path.relative(userRoot, canonicalPath);
+
+  if (
+    !relativePath ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error("Import file is outside the authenticated user's upload directory");
+  }
+
+  const fileStat = await fs.promises.stat(canonicalPath);
+  if (!fileStat.isFile()) {
+    throw new Error("Import path is not a regular file");
+  }
+
+  return canonicalPath;
+}
 
 // ── Conversation parsing ──────────────────────────────────────────────────────
 // Mirrors the logic in the browser's lib/parse-zip.ts so both paths
@@ -339,11 +367,13 @@ export async function streamImportFile(
   onEvent: (event: ImportEvent) => void,
   opts?: { profileId?: number | null; apiKey?: string; embeddingProvider?: string },
 ): Promise<void> {
+  const safeFilePath = await resolveImportFilePath(filePath, userId);
+
   // ── 1. Read & extract ───────────────────────────────────────────────────
   let jsonText: string;
 
   if (isZip) {
-    const zipData = await fs.promises.readFile(filePath);
+    const zipData = await fs.promises.readFile(safeFilePath);
     let zip: JSZip;
     try {
       zip = await JSZip.loadAsync(zipData);
@@ -358,7 +388,13 @@ export async function streamImportFile(
     );
 
     if (jsonEntries.length === 0) {
-      onEvent({ type: "error", message: "No JSON files found inside the ZIP archive." });
+      onEvent({
+        type: "error",
+        message:
+          "No JSON files found inside this ZIP. " +
+          "This doesn't look like a Grok export — photo archives, WhatsApp backups, and other ZIPs won't work here. " +
+          "Export your conversations from Grok's settings and try again.",
+      });
       return;
     }
 
@@ -372,7 +408,7 @@ export async function streamImportFile(
 
     jsonText = await bestEntry.async("string");
   } else {
-    jsonText = await fs.promises.readFile(filePath, "utf8");
+    jsonText = await fs.promises.readFile(safeFilePath, "utf8");
   }
 
   // ── 2. Parse JSON ───────────────────────────────────────────────────────
@@ -394,7 +430,7 @@ export async function streamImportFile(
       type: "error",
       message:
         "No conversations found in this file. " +
-        "Make sure you are using a Grok export ZIP or a conversations JSON file.",
+        "This doesn't look like a Grok export — make sure you're using the ZIP or JSON file downloaded from Grok's settings.",
     });
     return;
   }

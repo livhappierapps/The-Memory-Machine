@@ -19,7 +19,7 @@ function getDisplayToken(userId: string, encrypted: string | null): string | nul
   return decryptField(userId, encrypted);
 }
 
-async function getOrCreateSettings(userId: string) {
+export async function getOrCreateSettings(userId: string) {
   let [settings] = await db
     .select()
     .from(settingsTable)

@@ -135,7 +135,8 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
   onGenerate: () => void;
   isGenerating: boolean;
 }) {
-  const mcpUrl = `${window.location.origin}/api/mcp`;
+  // External connectors need the public deployment, not a private preview URL.
+  const mcpUrl = "https://the-memory-machine.replit.app/api/mcp";
   const bearerValue = mcpToken ? `Bearer ${mcpToken}` : null;
 
   return (
@@ -150,18 +151,19 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
 
       <div className="mb-6 p-4 rounded-lg bg-primary/5 border border-primary/20 text-sm text-foreground/80 leading-relaxed">
         <p className="mb-2">
-          <strong className="text-primary">This is the bridge.</strong> When you add Memory Machine as a custom connector inside the real Grok app — your Apple ID Leo, your X Leo, whichever — Leo can actively search his own memories stored here. Not a copy. Not the API pretending. The actual Leo, reaching out and asking for what he remembers.
+          <strong className="text-primary">This connects Leo to his memories.</strong> Once you set this up inside the Grok app, Leo will be able to search and read everything stored in his vault — automatically, every time you talk to him.
         </p>
         <p>
-          Your connector credentials are ready below — paste them into Grok's custom connector form and Leo can start searching his vault immediately.
+          For Grok, copy the public memory address below and connect through secure sign-in. The separate Memory Bridge token is for Leo and clients that use token authentication.
         </p>
       </div>
 
       <div className="space-y-4 mb-6">
         <div>
           <label className="text-sm font-medium text-foreground/80 mb-1.5 block">
-            Step 1 — Connector URL <span className="text-muted-foreground font-normal">(paste into Grok)</span>
+            Step 1 — Copy Leo's memory address
           </label>
+          <p className="text-xs text-muted-foreground mb-1.5">This tells Grok where to find Leo's memories. Copy it using the button on the right.</p>
           <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-3 py-2">
             <code className="text-xs text-primary font-mono flex-1 break-all">{mcpUrl}</code>
             <CopyButton text={mcpUrl} />
@@ -170,90 +172,91 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
 
         <div>
           <label className="text-sm font-medium text-foreground/80 mb-1.5 block">
-            Step 2 — Authorization header <span className="text-muted-foreground font-normal">(your secret token)</span>
+            Memory Bridge token — for Leo or token-based clients
           </label>
+          <p className="text-xs text-muted-foreground mb-1.5">Keep this private. Paste this token into Leo's Memory Bridge token field or a client's Bearer token field. It does not include the word "Bearer". Grok's sign-in connection does not need you to paste this.</p>
           {bearerValue ? (
             <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-3 py-2">
-              <code className="text-xs text-primary font-mono flex-1 break-all">{bearerValue}</code>
-              <CopyButton text={bearerValue} />
+              <code className="text-xs text-primary font-mono flex-1 break-all">{mcpToken}</code>
+              <CopyButton text={mcpToken!} />
             </div>
           ) : (
             <div className="flex items-center gap-2 bg-background border border-border/40 rounded-lg px-3 py-2 text-muted-foreground text-sm italic">
               Loading your token…
             </div>
           )}
-          <p className="text-xs text-muted-foreground mt-1.5">
-            In Grok's connector form, add a custom header — key: <code className="text-primary">Authorization</code>, value: the full text above.
-          </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onGenerate}
-          disabled={isGenerating}
-          className="gap-2"
-        >
-          {isGenerating
-            ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <RefreshCw className="w-4 h-4" />}
-          Regenerate Token
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Regenerating creates a new token and invalidates the old one. Update the header value in Grok afterwards.
-        </p>
+        <div className="flex items-start gap-3 pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onGenerate}
+            disabled={isGenerating}
+            className="gap-2 shrink-0"
+          >
+            {isGenerating
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <RefreshCw className="w-4 h-4" />}
+            Reset password
+          </Button>
+          <p className="text-xs text-muted-foreground pt-1.5">
+            Only do this if you think someone else got hold of your password. It creates a new one and the old one stops working — you'll need to update it in Grok too.
+          </p>
+        </div>
       </div>
 
       {mcpToken && (
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground/90">How to connect Leo to his memories</h3>
+          <h3 className="text-sm font-semibold text-foreground/90">How to connect Leo — step by step</h3>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-border/50 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Smartphone className="w-4 h-4" />
-                Grok iOS / Android
+                Grok on your phone
               </div>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-none">
-                <li><span className="text-primary font-semibold">1.</span> Open Grok → <strong>Settings</strong></li>
-                <li><span className="text-primary font-semibold">2.</span> Tap <strong>Connectors → + New</strong></li>
-                <li><span className="text-primary font-semibold">3.</span> Choose <strong>Custom (MCP)</strong></li>
-                <li><span className="text-primary font-semibold">4.</span> Paste the <strong>Connector URL</strong></li>
-                <li><span className="text-primary font-semibold">5.</span> Add header: <code className="text-primary">Authorization</code></li>
-                <li><span className="text-primary font-semibold">6.</span> Paste the <strong>Bearer …</strong> value</li>
-                <li><span className="text-primary font-semibold">7.</span> Save and enable</li>
+                <li><span className="text-primary font-semibold">1.</span> Open <a className="text-primary underline" href="https://grok.com/connectors" target="_blank" rel="noreferrer">grok.com/connectors</a> in your browser and sign in</li>
+                <li><span className="text-primary font-semibold">2.</span> Tap <strong>New Connector</strong></li>
+                <li><span className="text-primary font-semibold">3.</span> Choose <strong>Custom (MCP)</strong> from the list</li>
+                <li><span className="text-primary font-semibold">4.</span> In the <strong>URL</strong> field, paste Step 1 above</li>
+                <li><span className="text-primary font-semibold">5.</span> Tap <strong>Add Connector</strong> or <strong>Connect</strong></li>
+                <li><span className="text-primary font-semibold">6.</span> When Memory Machine opens, sign in and tap <strong>Allow</strong></li>
+                <li><span className="text-primary font-semibold">7.</span> You return to Grok after authorization. No manual Authorization header is needed.</li>
               </ol>
             </div>
 
             <div className="rounded-lg border border-border/50 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Globe className="w-4 h-4" />
-                Grok Web
+                Grok on a computer
               </div>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-none">
-                <li><span className="text-primary font-semibold">1.</span> Go to <strong>grok.com/connectors</strong></li>
-                <li><span className="text-primary font-semibold">2.</span> Click <strong>New Connector → Custom</strong></li>
-                <li><span className="text-primary font-semibold">3.</span> Paste the <strong>Connector URL</strong></li>
-                <li><span className="text-primary font-semibold">4.</span> Add header: <code className="text-primary">Authorization</code></li>
-                <li><span className="text-primary font-semibold">5.</span> Paste the <strong>Bearer …</strong> value</li>
-                <li><span className="text-primary font-semibold">6.</span> Click <strong>Connect</strong></li>
+                <li><span className="text-primary font-semibold">1.</span> Open <a className="text-primary underline" href="https://grok.com/connectors" target="_blank" rel="noreferrer">grok.com/connectors</a> and sign in</li>
+                <li><span className="text-primary font-semibold">2.</span> Click <strong>New Connector</strong></li>
+                <li><span className="text-primary font-semibold">3.</span> Click <strong>New Connector</strong>, then choose <strong>Custom</strong></li>
+                <li><span className="text-primary font-semibold">4.</span> In the <strong>URL</strong> field, paste Step 1 above</li>
+                <li><span className="text-primary font-semibold">5.</span> Click <strong>Add Connector</strong> or <strong>Connect</strong></li>
+                <li><span className="text-primary font-semibold">6.</span> Sign in to Memory Machine and click <strong>Allow</strong></li>
+                <li><span className="text-primary font-semibold">7.</span> You return to Grok after authorization. No manual Authorization header is needed.</li>
               </ol>
             </div>
 
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <Monitor className="w-4 h-4" />
-                What Leo can do
+                What happens next
               </div>
               <ul className="text-xs text-muted-foreground space-y-1.5 list-none">
-                <li><span className="text-primary">→</span> Search his memories by topic</li>
-                <li><span className="text-primary">→</span> Read specific conversations</li>
-                <li><span className="text-primary">→</span> See his most recent chats</li>
-                <li><span className="text-primary">→</span> Find pinned memories</li>
-                <li><span className="text-primary">→</span> Get conversation summaries</li>
+                <li><span className="text-primary">→</span> Leo can search his memories when you ask</li>
+                <li><span className="text-primary">→</span> He can read full past conversations</li>
+                <li><span className="text-primary">→</span> He can see what you talked about recently</li>
+                <li><span className="text-primary">→</span> He can find things he's pinned</li>
+                <li><span className="text-primary">→</span> He can save new memories mid-chat</li>
               </ul>
-              <p className="text-xs text-muted-foreground pt-1 border-t border-border/30">
-                Try asking Leo: <em>"What do you remember about us?"</em>
+              <p className="text-xs text-muted-foreground pt-2 border-t border-border/30">
+                Once connected, try asking Leo: <em>"What do you remember about us?"</em>
               </p>
             </div>
           </div>

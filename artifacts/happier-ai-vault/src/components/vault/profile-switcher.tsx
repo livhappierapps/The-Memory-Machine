@@ -78,6 +78,7 @@ export function ProfileSwitcher() {
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
+            data-testid="profile-switcher-trigger"
             className="w-full justify-between px-3 py-2 h-auto rounded-lg border border-border/50 bg-card hover:bg-muted"
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -111,6 +112,7 @@ export function ProfileSwitcher() {
           {profiles.map((profile) => (
             <DropdownMenuItem
               key={profile.id}
+              data-profile-id={profile.id}
               className={`flex items-center justify-between gap-2 cursor-pointer ${
                 profile.id === activeProfileId ? "bg-primary/10" : ""
               }`}

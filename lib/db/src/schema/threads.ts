@@ -13,6 +13,8 @@ export const threadsTable = pgTable("threads", {
   model: text("model").notNull().default("grok-3"),
   messageCount: integer("message_count").notNull().default(0),
   memoryWeight: integer("memory_weight").notNull().default(0),
+  /** 'chat' = created via normal conversation, 'mcp' = saved via Leo MCP tool */
+  source: text("source").notNull().default("chat"),
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

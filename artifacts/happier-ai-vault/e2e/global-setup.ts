@@ -8,12 +8,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEST_USER_FILE = join(__dirname, "..", "test-results", "test-user.json");
 
 export default async function globalSetup() {
-  await clerkSetup();
-
   const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("CLERK_SECRET_KEY env var is required to create test users");
+  if (!secretKey?.startsWith("sk_test_")) {
+    throw new Error("Browser fixtures require a Clerk development key; refusing to create test users in production.");
   }
+  await clerkSetup();
 
   const clerk = createClerkClient({ secretKey });
 
@@ -37,5 +36,5 @@ export default async function globalSetup() {
     "utf-8",
   );
 
-  console.log(`[global-setup] Test user created: ${emailAddress} (${user.id})`);
+  console.log("[global-setup] Test user created");
 }

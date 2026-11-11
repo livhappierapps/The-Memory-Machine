@@ -13,7 +13,7 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
 
 /** Maximum simultaneous embedding API calls. */
 const MAX_CONCURRENCY = 4;
-/** Maximum retry attempts per job (on 429 / transient network errors). */
+/** Maximum retry attempts per job (on 429). */
 const MAX_RETRIES = 3;
 /** Base backoff in ms; actual delay = BASE_BACKOFF * 2^attempt. */
 const BASE_BACKOFF_MS = 2_000;
@@ -41,9 +41,16 @@ function _enqueue(job: EmbedJob): void {
   _drain();
 }
 
-/** Result from a single embedding API call. */
-interface EmbedResult {
+/** Detailed outcome for callers that need to persist permanent failures. */
+export interface EmbeddingResult {
   vector: number[] | null;
+  /** HTTP 4xx, except retryable timeouts (408), too-early (425), and limits (429). */
+  permanentFailure: boolean;
+  status?: number;
+}
+
+/** Result from a single embedding API call. */
+interface EmbedResult extends EmbeddingResult {
   /** True when the server returned 429 — caller should retry with backoff. */
   rateLimited: boolean;
 }
@@ -54,7 +61,7 @@ async function _callEmbeddingApi(
   provider: string,
 ): Promise<EmbedResult> {
   const input = text.slice(0, 8_000).trim();
-  if (!input) return { vector: null, rateLimited: false };
+  if (!input) return { vector: null, rateLimited: false, permanentFailure: false };
 
   const endpointUrl = PROVIDER_ENDPOINTS[provider] ?? PROVIDER_ENDPOINTS["xai"]!;
 
@@ -69,16 +76,24 @@ async function _callEmbeddingApi(
     });
 
     if (response.status === 429) {
-      return { vector: null, rateLimited: true };
+      return { vector: null, rateLimited: true, permanentFailure: false, status: 429 };
     }
 
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
       logger.warn(
-        { status: response.status, body: body.slice(0, 200) },
+        { status: response.status },
         "Embedding API error — skipping this message",
       );
-      return { vector: null, rateLimited: false };
+      return {
+        vector: null,
+        rateLimited: false,
+        permanentFailure:
+          response.status >= 400 &&
+          response.status < 500 &&
+          response.status !== 408 &&
+          response.status !== 425,
+        status: response.status,
+      };
     }
 
     const data = (await response.json()) as {
@@ -87,13 +102,13 @@ async function _callEmbeddingApi(
     const vec = data.data?.[0]?.embedding;
     if (!Array.isArray(vec) || vec.length !== EMBEDDING_DIM) {
       logger.warn({ vecLen: vec?.length }, "Unexpected embedding dimension — skipping");
-      return { vector: null, rateLimited: false };
+      return { vector: null, rateLimited: false, permanentFailure: false };
     }
 
-    return { vector: vec, rateLimited: false };
+    return { vector: vec, rateLimited: false, permanentFailure: false };
   } catch (err) {
     logger.warn({ err }, "Failed to call embeddings API — skipping");
-    return { vector: null, rateLimited: false };
+    return { vector: null, rateLimited: false, permanentFailure: false };
   }
 }
 
@@ -103,17 +118,25 @@ export async function generateEmbedding(
   apiKey: string,
   provider = "xai",
 ): Promise<number[] | null> {
+  return (await generateEmbeddingResult(text, apiKey, provider)).vector;
+}
+
+/** Preserve failure classification without changing the vector-only public API. */
+export async function generateEmbeddingResult(
+  text: string,
+  apiKey: string,
+  provider = "xai",
+): Promise<EmbeddingResult> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const { vector, rateLimited } = await _callEmbeddingApi(text, apiKey, provider);
-    if (vector) return vector;
-    if (!rateLimited) return null; // permanent error — don't retry
+    const { rateLimited, ...result } = await _callEmbeddingApi(text, apiKey, provider);
+    if (result.vector || !rateLimited) return result;
 
     const delay = BASE_BACKOFF_MS * Math.pow(2, attempt);
     logger.warn({ attempt, delay }, "Rate-limited by embedding API — backing off");
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
-  logger.warn({ text: text.slice(0, 60) }, "Embedding retries exhausted — skipping");
-  return null;
+  logger.warn("Embedding retries exhausted — skipping");
+  return { vector: null, permanentFailure: false, status: 429 };
 }
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -122,13 +145,17 @@ export async function generateEmbedding(
  * Persist an embedding vector to the DB.
  * Uses ON CONFLICT (message_id) which requires the UNIQUE constraint on that
  * column (created by db-bootstrap.ts).
+ *
+ * Returns true if the row was written, false if the DB write failed.
+ * Errors are logged but not re-thrown so callers can branch on the result
+ * without wrapping in try/catch.
  */
 export async function storeEmbedding(
   messageId: number,
   threadId: number,
   profileId: number | null,
   vector: number[],
-): Promise<void> {
+): Promise<boolean> {
   try {
     const vecLiteral = `[${vector.join(",")}]`;
     await db.execute(
@@ -138,8 +165,10 @@ export async function storeEmbedding(
         ON CONFLICT (message_id) DO UPDATE SET embedding = EXCLUDED.embedding
       `,
     );
+    return true;
   } catch (err) {
     logger.warn({ err, messageId }, "Failed to store embedding — continuing without it");
+    return false;
   }
 }
 

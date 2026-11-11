@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Memory Machine — Private Archive Upload</title>
+<style>
+:root{
+  --bg:#1c1d21;--panel:#25272c;--panel2:#2d2f35;--line:#3a3d44;
+  --text:#e9e7ef;--muted:#a3a2ad;
+  --cyan:#5fd6e0;--pink:#f08cc0;--purple:#a78bfa;--gold:#e8c26a;
+  --red:#ff6b6b;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.5}
+body{min-height:100dvh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:560px;margin:0 auto;padding:28px 18px 48px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--cyan) 0 50%,var(--pink) 50% 100%)}
+h1{font-size:28px;line-height:1.15;margin:18px 0 8px;font-weight:650;letter-spacing:-.01em}
+h1 span{color:var(--gold)}
+.lede{color:var(--muted);margin:0 0 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.card h2{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--purple);margin:0 0 10px;font-weight:600}
+ul.notes{margin:0;padding-left:18px;color:var(--muted);font-size:14px}
+ul.notes li{margin:4px 0}
+ul.notes b{color:var(--text);font-weight:600}
+label.pick{display:block;border:1.5px dashed var(--line);border-radius:12px;padding:20px 14px;text-align:center;cursor:pointer;background:var(--panel2)}
+label.pick:focus-within{border-color:var(--cyan)}
+label.pick strong{display:block;color:var(--cyan);font-size:16px}
+label.pick small{color:var(--muted)}
+input[type=file]{display:block;margin:12px auto 0;max-width:100%;color:var(--muted);font-size:13px}
+.file{margin-top:14px;display:none}
+.file.show{display:block}
+.fname{font-family:var(--mono);font-size:14px;word-break:break-all;color:var(--text)}
+.fmeta{font-size:13px;color:var(--muted);margin-top:2px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;margin-top:8px;border:1px solid var(--gold);color:var(--gold)}
+.bar{height:10px;border-radius:99px;background:var(--panel2);overflow:hidden;margin:14px 0 8px;border:1px solid var(--line)}
+.fill{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--pink));transition:width .25s ease}
+.fill.done{background:linear-gradient(90deg,var(--purple),var(--gold))}
+.stats{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted)}
+button{appearance:none;border:0;border-radius:12px;width:100%;padding:15px;font-size:16px;font-weight:650;margin-top:14px;cursor:pointer;background:var(--cyan);color:#10262a}
+button.resume{background:var(--gold);color:#2a210c}
+button:disabled{background:var(--panel2);color:var(--muted);cursor:not-allowed}
+button:focus-visible{outline:2px solid var(--pink);outline-offset:3px}
+.status{margin-top:14px;font-size:14px;padding:12px 14px;border-radius:10px;background:var(--panel2);border-left:3px solid var(--purple);display:none}
+.status.show{display:block}
+.status.ok{border-left-color:var(--gold)}
+.status.err{border-left-color:var(--red);color:var(--red)}
+.status a{color:var(--cyan)}
+footer{font-size:12px;color:var(--muted);text-align:center;margin-top:24px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><div class="mark" aria-hidden="true"></div>Memory Machine · Private</div>
+  <h1>Preserve your archive, <span>safely</span>.</h1>
+  <p class="lede">Upload the original ZIP export of your conversations, images included. It is sent in small pieces so nothing is lost if you get interrupted.</p>
+
+  <section class="card">
+    <h2>Before you start</h2>
+    <ul class="notes">
+      <li><b>Keep this page open</b> and your <b>phone unlocked</b> until it finishes.</li>
+      <li>If anything interrupts it, come back and <b>select the same ZIP again</b>. It resumes where it stopped.</li>
+      <li>Use the original, unmodified ZIP. Maximum size 3 GiB.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Your archive</h2>
+    <label class="pick">
+      <strong>Choose ZIP file</strong>
+      <small>Nothing uploads until you press start.</small>
+      <input id="file" type="file" accept=".zip,application/zip,application/x-zip-compressed">
+    </label>
+    <div class="file" id="fileBox">
+      <div class="fname" id="fname"></div>
+      <div class="fmeta" id="fmeta"></div>
+      <span class="tag" id="tag" hidden></span>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><div class="fill" id="fill"></div></div>
+      <div class="stats"><span id="pct">0%</span><span id="parts"></span></div>
+    </div>
+    <button id="go" disabled>Start upload</button>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <footer>Uploads are private to your signed-in account.</footer>
+</main>
+<script>
+(function(){
+"use strict";
+var MAX=3*1024*1024*1024, PART=8*1024*1024, EDGE=64*1024, TIMEOUT=120000, RETRIES=4;
+var LS="mm-archive-upload:";
+var $=function(id){return document.getElementById(id)};
+var input=$("file"),btn=$("go"),st=$("status");
+var file=null,fp=null,session=null,busy=false,checking=false,needsSignin=false;
+
+function fmt(n){var u=["B","KiB","MiB","GiB"],i=0;while(n>=1024&&i<3){n/=1024;i++}return n.toFixed(i?1:0)+" "+u[i]}
+function say(msg,kind,signin){st.className="status show"+(kind?" "+kind:"");st.textContent=msg;
+  if(signin){st.appendChild(document.createTextNode(" "));var a=document.createElement("a");a.href=location.href;a.textContent="Reopen this page";st.appendChild(a)}}
+function save(){if(fp&&session)try{localStorage.setItem(LS+fp,JSON.stringify(session))}catch(e){}}
+function load(k){try{return JSON.parse(localStorage.getItem(LS+k)||"null")}catch(e){return null}}
+function total(){return file?Math.ceil(file.size/PART)||1:0}
+function doneBytes(extra){if(!session||!file)return 0;var b=0;(session.parts||[]).forEach(function(p){var s=(p.partNumber-1)*PART;b+=Math.min(PART,file.size-s)});return Math.min(file.size,b+(extra||0))}
+function render(extra){if(!file)return;var d=session&&session.completed?file.size:doneBytes(extra);var p=file.size?d/file.size*100:0;
+  if(!(session&&session.completed))p=Math.min(99.9,p);
+  $("fill").style.width=p.toFixed(1)+"%";$("bar").setAttribute("aria-valuenow",Math.floor(p));
+  $("pct").textContent=p.toFixed(1)+"% · "+fmt(d)+" of "+fmt(file.size);
+  $("parts").textContent=(session&&session.completed?total():session?(session.parts||[]).length:0)+"/"+total()+" pieces";
+  $("fill").classList.toggle("done",!!(session&&session.completed))}
+
+function AuthErr(){var e=new Error("auth");e.auth=true;return e}
+function isHtml(ct){return /text\/html/i.test(ct||"")}
+
+async function api(method,url,body){
+  var r=await fetch(url,{method:method,credentials:"same-origin",redirect:"manual",cache:"no-store",
+    headers:body?{"Content-Type":"application/json","Accept":"application/json"}:{"Accept":"application/json"},
+    body:body?JSON.stringify(body):undefined});
+  if(r.type==="opaqueredirect"||r.status===401||r.status===403||(r.status>=300&&r.status<400))throw AuthErr();
+  var ct=r.headers.get("content-type");
+  if(isHtml(ct))throw AuthErr();
+  if(!r.ok){var t="";try{t=(await r.text()).slice(0,200)}catch(e){}var er=new Error("Server responded "+r.status+(t?": "+t:""));er.status=r.status;throw er}
+  return r.json();
+}
+
+async function fingerprint(f){
+  var head=await f.slice(0,Math.min(EDGE,f.size)).arrayBuffer();
+  var tail=await f.slice(Math.max(0,f.size-EDGE)).arrayBuffer();
+  var meta=new TextEncoder().encode("|"+f.size+"|"+f.name+"|"+f.lastModified);
+  var all=new Uint8Array(head.byteLength+tail.byteLength+meta.byteLength);
+  all.set(new Uint8Array(head),0);all.set(new Uint8Array(tail),head.byteLength);all.set(meta,head.byteLength+tail.byteLength);
+  var h=await crypto.subtle.digest("SHA-256",all);
+  return Array.from(new Uint8Array(h)).map(function(b){return b.toString(16).padStart(2,"0")}).join("");
+}
+
+function setBtn(){
+  if(needsSignin){btn.disabled=true;btn.textContent="Sign-in required";btn.className="";return}
+  if(!file||busy||checking){btn.disabled=true;return}
+  btn.disabled=false;
+  if(session&&session.completed){btn.disabled=true;btn.textContent="Upload complete";btn.className="";return}
+  var resume=session&&session.uploadId;
+  btn.textContent=resume?"Resume upload":"Start upload";btn.className=resume?"resume":"";
+}
+
+input.addEventListener("change",async function(){
+  if(busy||checking)return;
+  checking=true;input.disabled=true;
+  try {
+  file=null;fp=null;session=null;needsSignin=false;st.className="status";
+  var f=input.files&&input.files[0];$("fileBox").classList.remove("show");setBtn();
+  if(!f)return;
+  if(!/\.zip$/i.test(f.name)){say("Please choose the original .zip archive.","err");return}
+  if(f.size>MAX){say("This file is "+fmt(f.size)+". The maximum is 3 GiB.","err");return}
+  if(f.size===0){say("This file is empty.","err");return}
+  if(!window.crypto||!crypto.subtle){say("This browser cannot verify files securely. Please use an up-to-date browser over HTTPS.","err");return}
+  file=f;$("fname").textContent=f.name;$("fmeta").textContent=fmt(f.size)+" · "+total()+" pieces";
+  $("fileBox").classList.add("show");$("tag").hidden=true;
+  say("Checking file…");
+  try{fp=await fingerprint(f)}catch(e){file=null;say("Could not read this file. Try selecting it again.","err");return}
+  var saved=load(fp);
+  if(saved&&saved.key&&saved.uploadId){
+    session=Object.assign({},saved,{completed:false});render();
+    try{
+      var s=await api("GET","/api/uploads/status?key="+encodeURIComponent(saved.key)+"&uploadId="+encodeURIComponent(saved.uploadId));
+      session.parts=s.parts||[];session.completed=!!s.completed;save();
+    }catch(e){
+      if(e.auth){needsSignin=true;say("Your sign-in has expired. Reopen this page to sign in, then select the same ZIP again.","err",true);render();setBtn();return}
+      say("Could not reach the server to check progress. You can still try resuming.","err");render();setBtn();return;
+    }
+    $("tag").hidden=false;
+    if(session.completed){$("tag").textContent="Already uploaded";say("This archive was already uploaded in full. No need to send it again.","ok")}
+    else{$("tag").textContent="Previous upload found";say("Found your earlier upload. "+session.parts.length+" of "+total()+" pieces are safely stored. Press resume to continue.")}
+  }else{say("Ready. Press start when you are set — keep this page open until it finishes.")}
+  render();setBtn();
+  } finally {
+    checking=false;input.disabled=busy;setBtn();
+  }
+});
+
+function putPart(n,blob){
+  return new Promise(function(res,rej){
+    var x=new XMLHttpRequest();
+    x.open("PUT","/api/uploads/part?key="+encodeURIComponent(session.key)+"&uploadId="+encodeURIComponent(session.uploadId)+"&partNumber="+n);
+    x.timeout=TIMEOUT;x.withCredentials=true;x.setRequestHeader("Accept","application/json");
+    x.upload.onprogress=function(e){if(e.lengthComputable)render(e.loaded)};
+    x.onload=function(){
+      var ct=x.getResponseHeader("content-type");
+      if(x.status===401||x.status===403||isHtml(ct)||(x.responseURL&&new URL(x.responseURL).origin!==location.origin))return rej(AuthErr());
+      if(x.status<200||x.status>=300){var e=new Error("Server responded "+x.status);e.status=x.status;return rej(e)}
+      try{var j=JSON.parse(x.responseText);if(j.partNumber!==n||!j.etag)throw 0;res(j)}catch(_){rej(new Error("Unexpected server response"))}
+    };
+    x.onerror=function(){rej(new Error("Network connection lost"))};
+    x.ontimeout=function(){rej(new Error("Timed out"))};
+    x.send(blob);
+  });
+}
+function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
+
+btn.addEventListener("click",async function(){
+  if(!file||!fp||busy)return;
+  busy=true;input.disabled=true;setBtn();
+  var lock=null;try{if(navigator.wakeLock)lock=await navigator.wakeLock.request("screen")}catch(e){}
+  try{
+    if(!session||!session.uploadId){
+      say("Preparing upload…");
+      var c=await api("POST","/api/uploads",{name:file.name,size:file.size,lastModified:file.lastModified,fingerprint:fp});
+      if(!c.key||!c.uploadId)throw new Error("Unexpected server response");
+      if(c.partSize&&c.partSize!==PART)throw new Error("Server piece size does not match");
+      session={key:c.key,uploadId:c.uploadId,name:file.name,size:file.size,parts:c.parts||[],completed:!!c.completed};
+      save();
+    }
+    var have={};(session.parts||[]).forEach(function(p){have[p.partNumber]=p.etag});
+    var n=total();
+    for(var i=1;i<=n&&!session.completed;i++){
+      if(have[i])continue;
+      var blob=file.slice((i-1)*PART,Math.min(file.size,i*PART));
+      var tries=0,r;
+      for(;;){
+        say("Uploading piece "+i+" of "+n+(tries?" (retry "+tries+")":"")+". Keep this page open.");
+        try{r=await putPart(i,blob);break}
+        catch(e){if(e.auth||(e.status&&e.status>=400&&e.status<500&&e.status!==408&&e.status!==429)||++tries>RETRIES)throw e;await wait(1500*Math.pow(2,tries-1))}
+      }
+      have[i]=r.etag;session.parts=session.parts.filter(function(p){return p.partNumber!==i});
+      session.parts.push({partNumber:i,etag:r.etag});save();render();
+    }
+    if(!session.completed){
+      say("Finalising…");
+      var d=await api("POST","/api/uploads/complete",{key:session.key,uploadId:session.uploadId});
+      if(!d||d.completed!==true||Number(d.size)!==file.size)throw new Error("The server could not confirm the full file size. Your progress is saved; select the same ZIP to try again.");
+      session.completed=true;session.etag=d.etag;save();
+    }
+    render();$("tag").hidden=false;$("tag").textContent="Uploaded";
+    say("Upload complete. All "+fmt(file.size)+" were received and verified by size. Importing happens separately — this does not mean it has been imported yet.","ok");
+  }catch(e){
+    render();
+    if(e.auth){needsSignin=true;session&&(session.completed=false);say("Your sign-in has expired or was interrupted. Your original ZIP is unchanged. Reopen this page to sign in, then select the same ZIP to resume.","err",true)}
+    else say("Upload paused: "+(e.message||"unknown error")+". Your progress is saved. Select the same ZIP again (or press resume) to continue.","err");
+  }finally{
+    busy=false;input.disabled=false;try{lock&&lock.release()}catch(e){}setBtn();
+  }
+});
+
+window.addEventListener("beforeunload",function(e){if(busy){e.preventDefault();e.returnValue=""}});
+})();
+</script>
+</body>
+</html>

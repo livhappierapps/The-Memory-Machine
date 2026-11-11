@@ -1,15 +1,8 @@
 import { useState, useCallback, useRef } from "react";
-import { Message } from "@workspace/api-client-react";
+import { Message, MemorySource, getGetThreadMessagesQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getGetThreadMessagesQueryKey } from "@workspace/api-client-react";
 
-export interface MemorySource {
-  threadId: number;
-  title: string;
-  reason: "pinned" | "semantic" | "recent";
-  relevanceScore: number | null;
-  messageCount: number;
-}
+export type { MemorySource };
 
 type StreamEvent =
   | { type: "user_message"; message: Message }

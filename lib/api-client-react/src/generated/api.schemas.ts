@@ -35,6 +35,16 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes
+ */
+export type ThreadSource = (typeof ThreadSource)[keyof typeof ThreadSource];
+
+export const ThreadSource = {
+  chat: "chat",
+  mcp: "mcp",
+} as const;
+
 export interface Thread {
   id: number;
   userId: string;
@@ -46,6 +56,8 @@ export interface Thread {
   model: string;
   messageCount: number;
   memoryWeight: number;
+  /** Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes */
+  source: ThreadSource;
   /** @nullable */
   lastMessageAt?: string | null;
   createdAt: string;
@@ -148,6 +160,8 @@ export interface Settings {
   maxContextMessages: number;
   /** @nullable */
   mcpToken: string | null;
+  /** Account payment status. Any value other than active displays a payment warning. */
+  paymentStatus: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -156,6 +170,15 @@ export interface UpdateSettingsBody {
   apiKey?: string;
   defaultModel?: string;
   maxContextMessages?: number;
+}
+
+export interface ProfileStats {
+  id: number;
+  name: string;
+  emoji: string;
+  color: string;
+  threadCount: number;
+  messageCount: number;
 }
 
 export interface VaultStats {
@@ -169,6 +192,7 @@ export interface VaultStats {
   oldestThreadAt?: string | null;
   /** @nullable */
   newestThreadAt?: string | null;
+  profiles?: ProfileStats[];
 }
 
 export type ProfileChatProvider =
@@ -311,7 +335,19 @@ export type ListThreadsParams = {
    * Filter threads by profile ID
    */
   profileId?: number;
+  /**
+   * Filter threads by source ('chat' or 'mcp')
+   */
+  source?: ListThreadsSource;
 };
+
+export type ListThreadsSource =
+  (typeof ListThreadsSource)[keyof typeof ListThreadsSource];
+
+export const ListThreadsSource = {
+  chat: "chat",
+  mcp: "mcp",
+} as const;
 
 export type ExportThreadParams = {
   format?: ExportThreadFormat;
@@ -339,4 +375,11 @@ export type GetMemoryPreviewParams = {
    * Query text to use for semantic search
    */
   q?: string;
+};
+
+export type GetStatsParams = {
+  /**
+   * Scope stats to a single profile ID
+   */
+  profileId?: number;
 };

@@ -41,8 +41,14 @@ export async function deviceTrustMiddleware(
   req.deviceTokenRaw = raw;
   req.deviceTrusted = false;
 
-  // getAuth resolves Clerk session without depending on requireAuth having run first
-  const userId = getAuth(req).userId ?? req.userId ?? null;
+  // If Clerk context cannot be resolved, keep this device untrusted. Protected
+  // routes still pass through requireAuth, which returns 401 for that request.
+  let userId: string | null = req.userId ?? null;
+  try {
+    userId = getAuth(req).userId ?? userId;
+  } catch {
+    userId = null;
+  }
 
   if (raw && userId) {
     try {

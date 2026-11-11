@@ -17,28 +17,36 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thememorymachinemobile.app",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
           },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
-            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1"
+            ]
           },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
-            "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "35F9.1"
+            ]
           },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
-            "NSPrivacyAccessedAPITypeReasons": ["E174.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "E174.1"
+            ]
           }
         ]
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -58,11 +66,27 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      ["expo-router", { "origin": "https://replit.com/" }],
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "packagingOptions": {
+              "pickFirst": [
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+              ]
+            }
+          }
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       "expo-document-picker",
-      "./plugins/withGoogleModularHeaders",
       [
         "expo-notifications",
         {
@@ -72,14 +96,18 @@
         }
       ],
       [
-        "@sentry/react-native/expo",
+        "expo-share-intent",
         {
-          "url": "https://sentry.io/",
-          "organization": "livhappierapps",
-          "project": "memory-machine",
-          "note": "Set SENTRY_AUTH_TOKEN in CodeMagic/EAS for source map upload. DSN is EXPO_PUBLIC_SENTRY_DSN."
+          "iosShareExtensionName": "MemoryMachineShare",
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsFileWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "*/*"
+          ]
         }
-      ]
+      ],
+      "./plugins/withGoogleModularHeaders"
     ],
     "experiments": {
       "typedRoutes": true,

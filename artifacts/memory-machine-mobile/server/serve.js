@@ -46,9 +46,14 @@ function getAppName() {
 }
 
 function serveManifest(platform, res) {
-  const manifestPath = path.join(STATIC_ROOT, platform, "manifest.json");
+  if (platform !== "ios" && platform !== "android") {
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid platform" }));
+    return;
+  }
 
-  if (!fs.existsSync(manifestPath)) {
+  const resolvedManifest = resolveStaticPath(`/${platform}/manifest.json`);
+  if (!resolvedManifest.ok) {
     res.writeHead(404, { "content-type": "application/json" });
     res.end(
       JSON.stringify({ error: `Manifest not found for platform: ${platform}` }),
@@ -56,13 +61,55 @@ function serveManifest(platform, res) {
     return;
   }
 
-  const manifest = fs.readFileSync(manifestPath, "utf-8");
+  const manifest = fs.readFileSync(resolvedManifest.path, "utf-8");
   res.writeHead(200, {
     "content-type": "application/json",
     "expo-protocol-version": "1",
     "expo-sfv-version": "0",
   });
   res.end(manifest);
+}
+
+function resolveStaticPath(urlPath) {
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(urlPath);
+  } catch {
+    return { ok: false, status: 403 };
+  }
+
+  if (decodedPath.includes("\0") || decodedPath.includes("\\")) {
+    return { ok: false, status: 403 };
+  }
+
+  try {
+    const root = fs.realpathSync(STATIC_ROOT);
+    const candidate = path.resolve(root, decodedPath.replace(/^\/+/, ""));
+    const relative = path.relative(root, candidate);
+    if (
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      return { ok: false, status: 403 };
+    }
+
+    const actualPath = fs.realpathSync(candidate);
+    const actualRelative = path.relative(root, actualPath);
+    if (
+      actualRelative === ".." ||
+      actualRelative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(actualRelative)
+    ) {
+      return { ok: false, status: 403 };
+    }
+    return { ok: true, path: actualPath };
+  } catch (error) {
+    if (error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+      return { ok: false, status: 404 };
+    }
+    return { ok: false, status: 403 };
+  }
 }
 
 function serveLandingPage(req, res, template, appName) {
@@ -88,16 +135,15 @@ function serveLandingPage(req, res, template, appName) {
 }
 
 function serveStaticFile(urlPath, res) {
-  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = path.join(STATIC_ROOT, safePath);
-
-  if (!filePath.startsWith(STATIC_ROOT)) {
-    res.writeHead(403);
-    res.end("Forbidden");
+  const resolved = resolveStaticPath(urlPath);
+  if (!resolved.ok) {
+    res.writeHead(resolved.status);
+    res.end(resolved.status === 403 ? "Forbidden" : "Not Found");
     return;
   }
 
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+  const filePath = resolved.path;
+  if (fs.statSync(filePath).isDirectory()) {
     res.writeHead(404);
     res.end("Not Found");
     return;

@@ -2,6 +2,7 @@
 
 # compiled output
 dist
+**/static-build/
 tmp
 out-tsc
 *.tsbuildinfo
@@ -46,4 +47,6 @@ Thumbs.db
 
 # Replit
 .cache/
+/generated-artifacts/
+/handoffs/
 .local/

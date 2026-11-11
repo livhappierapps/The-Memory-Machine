@@ -5,6 +5,7 @@ export default defineConfig({
     environment: "node",
     pool: "forks",
     include: ["src/__tests__/**/*.test.ts"],
+    globalSetup: ["./src/__tests__/global-setup.ts"],
     globals: false,
     env: {
       ENCRYPTION_ROOT_SECRET: "test-encryption-root-secret-for-vitest-only-32ch",

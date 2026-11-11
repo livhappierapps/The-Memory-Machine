@@ -44,6 +44,7 @@ import {
 import { logger } from "../lib/logger";
 import { sha256Hex, encryptField, decryptField } from "../lib/field-crypto";
 import { generateEmbedding, storeEmbedding } from "../lib/embeddings";
+import { MCP_RESOURCE_METADATA } from "../lib/mcp-oauth-config";
 
 const router: IRouter = Router();
 
@@ -80,7 +81,10 @@ function extractBearerToken(req: Request): string | null {
 
 interface ProfileInfo {
   id: number;
+  /** Raw (possibly encrypted) xAI API key — use resolveEmbeddingKey, not this directly. */
   apiKey: string | null;
+  /** Raw (possibly encrypted) OpenAI API key — use resolveEmbeddingKey, not this directly. */
+  openAiApiKey: string | null;
   embeddingProvider: string;
 }
 
@@ -93,6 +97,7 @@ async function getDefaultProfile(userId: string): Promise<ProfileInfo | null> {
     .select({
       id: profilesTable.id,
       apiKey: profilesTable.apiKey,
+      openAiApiKey: profilesTable.openAiApiKey,
       embeddingProvider: profilesTable.embeddingProvider,
     })
     .from(profilesTable)
@@ -100,6 +105,22 @@ async function getDefaultProfile(userId: string): Promise<ProfileInfo | null> {
     .orderBy(asc(profilesTable.id))
     .limit(1);
   return profile ?? null;
+}
+
+/**
+ * Resolve the effective (decrypted) embedding API key for a profile+user pair.
+ * API keys are encrypted at rest with per-user AES-256-GCM keys; decryptField
+ * returns the plaintext if the value starts with "enc:v1:", or the raw value
+ * if it is pre-migration plaintext (safe for both).
+ *
+ * Mirrors the provider-aware key resolution logic in threads.ts.
+ */
+function resolveEmbeddingKey(userId: string, profile: ProfileInfo): string | null {
+  const provider = profile.embeddingProvider ?? "xai";
+  if (provider === "openai" && profile.openAiApiKey) {
+    return decryptField(userId, profile.openAiApiKey);
+  }
+  return profile.apiKey ? decryptField(userId, profile.apiKey) : null;
 }
 
 // ── Tool helpers ──────────────────────────────────────────────────────────────
@@ -176,8 +197,12 @@ function buildMcpServer(userId: string): McpServer {
 
         // Look up the default profile so we can generate an embedding
         const profile = await getDefaultProfile(userId);
+        // Decrypt the API key that matches the profile's embedding provider.
+        // Keys are stored as AES-256-GCM ciphertext; resolveEmbeddingKey handles
+        // both the encrypted (enc:v1:…) and legacy plaintext formats safely.
+        const embeddingKey = profile ? resolveEmbeddingKey(userId, profile) : null;
 
-        // Create the thread
+        // Create the thread tagged as MCP-sourced
         const [thread] = await db
           .insert(threadsTable)
           .values({
@@ -188,6 +213,7 @@ function buildMcpServer(userId: string): McpServer {
             archived: false,
             model: "grok-3",
             messageCount: 0,
+            source: "mcp",
           })
           .returning({ id: threadsTable.id });
 
@@ -220,20 +246,33 @@ function buildMcpServer(userId: string): McpServer {
           WHERE id = ${threadId}
         `);
 
-        // Generate and store an embedding in the background (needs API key)
-        if (message && profile?.apiKey) {
-          generateEmbedding(fullContent, profile.apiKey, profile.embeddingProvider)
-            .then((vec) => vec ? storeEmbedding(message.id, threadId, profile.id, vec) : undefined)
-            .catch((err) => logger.warn({ err }, "MCP save_memory: embedding failed"));
+        // Generate and store an embedding synchronously so it survives a server restart.
+        // Fire-and-forget would lose the embedding if the process exits before the promise resolves.
+        let embeddingStored = false;
+        if (message && profile && embeddingKey) {
+          try {
+            const vec = await generateEmbedding(fullContent, embeddingKey, profile.embeddingProvider);
+            if (vec) {
+              embeddingStored = await storeEmbedding(message.id, threadId, profile.id, vec);
+              if (!embeddingStored) {
+                logger.warn({ messageId: message.id }, "MCP save_memory: embedding DB write failed — memory saved but semantic search may miss it");
+              }
+            }
+          } catch (err) {
+            logger.warn({ err }, "MCP save_memory: embedding failed — memory saved but won't appear in semantic search");
+          }
         }
 
         const pinNote = (pin ?? true) ? " (pinned)" : "";
+        const embeddingNote = embeddingKey && !embeddingStored
+          ? "\n⚠️ Memory saved, but embedding could not be persisted — keyword search will find it, semantic similarity search may not."
+          : "";
         return {
           content: [
             {
               type: "text",
               text: [
-                `✅ Memory saved${pinNote}: "${title}" (ID: #${threadId})`,
+                `✅ Memory saved${pinNote}: "${title}" (ID: #${threadId})${embeddingNote}`,
                 "",
                 "You can retrieve it later with: get_conversation(thread_id: " + threadId + ")",
                 "Or search for it with: search_memories(query: \"" + title.slice(0, 50) + "\")",
@@ -276,8 +315,9 @@ function buildMcpServer(userId: string): McpServer {
 
         // ── Path 1: semantic search via pgvector ─────────────────────────────
         const profile = await getDefaultProfile(userId);
-        if (profile?.apiKey) {
-          const queryVec = await generateEmbedding(query, profile.apiKey, profile.embeddingProvider);
+        const embeddingKey = profile ? resolveEmbeddingKey(userId, profile) : null;
+        if (embeddingKey) {
+          const queryVec = await generateEmbedding(query, embeddingKey, profile!.embeddingProvider);
           if (queryVec) {
             const vecLiteral = `[${queryVec.join(",")}]`;
 
@@ -581,7 +621,7 @@ function buildMcpServer(userId: string): McpServer {
         const [thread] = await db
           .select()
           .from(threadsTable)
-          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId)))
+          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
           .limit(1);
 
         if (!thread) {
@@ -687,7 +727,7 @@ function buildMcpServer(userId: string): McpServer {
         const [thread] = await db
           .select()
           .from(threadsTable)
-          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId)))
+          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
           .limit(1);
 
         if (!thread) {
@@ -741,12 +781,22 @@ function buildMcpServer(userId: string): McpServer {
 async function handleMcpRequest(req: Request, res: Response) {
   const token = extractBearerToken(req);
   if (!token) {
+    res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${MCP_RESOURCE_METADATA}"`);
     res.status(401).json({ error: "Missing Authorization: Bearer <token> header." });
     return;
   }
 
-  const userId = await getUserIdByToken(token).catch(() => null);
+  let userId: string | null;
+  try {
+    userId = await getUserIdByToken(token);
+  } catch {
+    // Do not mislabel a database outage as bad credentials or log bearer values.
+    req.log?.error("MCP authentication lookup unavailable");
+    res.status(503).json({ error: "Memory service temporarily unavailable. Try again shortly." });
+    return;
+  }
   if (!userId) {
+    res.setHeader("WWW-Authenticate", `Bearer error="invalid_token", resource_metadata="${MCP_RESOURCE_METADATA}"`);
     res.status(401).json({ error: "Invalid or unknown Memory Machine token." });
     return;
   }

@@ -4,6 +4,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
+import { createHash } from "crypto";
 import { requireAuth } from "../middlewares/auth";
 import { decryptField } from "../lib/field-crypto";
 import { streamImportFile } from "../lib/import-stream";
@@ -17,6 +18,16 @@ const router = Router();
 // Validate uploadId is a proper UUID (prevents path traversal)
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function getImportPaths(userId: string, uploadId: string) {
+  const userScope = createHash("sha256").update(userId).digest("hex");
+  const root = path.join(os.tmpdir(), "memory-machine-imports", userScope);
+  const normalizedUploadId = uploadId.toLowerCase();
+  return {
+    chunkDir: path.join(root, normalizedUploadId),
+    assembledPath: path.join(root, `${normalizedUploadId}.assembled`),
+  };
+}
 
 // Each chunk is ≤ 10 MB on the client; 12 MB cap gives a safe margin
 const chunkUpload = multer({
@@ -42,6 +53,7 @@ router.post(
     const { uploadId, chunkIndex, totalChunks } = req.body as Record<string, string>;
 
     if (!uploadId || !UUID_RE.test(uploadId)) {
+      if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
       res.status(400).json({ error: "Invalid uploadId" });
       return;
     }
@@ -53,13 +65,27 @@ router.post(
     const idx = Number(chunkIndex);
     const total = Number(totalChunks);
 
-    if (!Number.isFinite(idx) || idx < 0 || !Number.isFinite(total) || total < 1) {
+    if (
+      !Number.isSafeInteger(idx) ||
+      idx < 0 ||
+      !Number.isSafeInteger(total) ||
+      total < 1 ||
+      total > 10_000 ||
+      idx >= total
+    ) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
       res.status(400).json({ error: "Invalid chunk metadata" });
       return;
     }
 
-    const chunkDir = path.join(os.tmpdir(), `vault-chunks-${uploadId}`);
-    await fs.promises.mkdir(chunkDir, { recursive: true });
+    if (!req.userId) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const { chunkDir } = getImportPaths(req.userId, uploadId);
+    await fs.promises.mkdir(chunkDir, { recursive: true, mode: 0o700 });
     const destPath = path.join(chunkDir, `chunk-${String(idx).padStart(8, "0")}`);
 
     try {
@@ -83,10 +109,11 @@ router.post(
 // Body (JSON): { uploadId: string, totalChunks: number, isZip: boolean }
 
 router.post("/import/finalize", requireAuth, async (req: Request, res: Response) => {
-  const { uploadId, totalChunks, isZip } = req.body as {
+  const { uploadId, totalChunks, isZip, profileId: clientProfileId } = req.body as {
     uploadId?: string;
     totalChunks?: number;
     isZip?: boolean;
+    profileId?: number | null;
   };
 
   if (!uploadId || !UUID_RE.test(uploadId)) {
@@ -95,8 +122,12 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
   }
 
   const total = Number(totalChunks);
-  if (!Number.isFinite(total) || total < 1 || total > 10_000) {
+  if (!Number.isSafeInteger(total) || total < 1 || total > 10_000) {
     res.status(400).json({ error: "Invalid totalChunks" });
+    return;
+  }
+  if (!req.userId) {
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
@@ -119,12 +150,12 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
   // Tell the client immediately so it knows things are happening
   sendEvent({ type: "status", message: "Assembling your file…" });
 
-  const chunkDir = path.join(os.tmpdir(), `vault-chunks-${uploadId}`);
-  const assembledPath = path.join(os.tmpdir(), `vault-assembled-${uploadId}`);
+  const { chunkDir, assembledPath } = getImportPaths(req.userId, uploadId);
 
   try {
+    await fs.promises.mkdir(path.dirname(assembledPath), { recursive: true, mode: 0o700 });
     // Stream all chunks into one assembled file without loading them all into RAM
-    const writeStream = fs.createWriteStream(assembledPath);
+    const writeStream = fs.createWriteStream(assembledPath, { flags: "wx", mode: 0o600 });
     for (let i = 0; i < total; i++) {
       const chunkPath = path.join(chunkDir, `chunk-${String(i).padStart(8, "0")}`);
       const readStream = fs.createReadStream(chunkPath);
@@ -143,18 +174,28 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
       "Chunks assembled, starting import",
     );
 
-    // Resolve the user's API key and default profile for embedding generation
+    // Resolve the user's API key and target profile for embedding generation
     const userId = req.userId!;
     const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
-    const [firstProfile] = await db
+
+    // Fetch all profiles so we can both validate the client-supplied profileId
+    // and fall back to the first profile when none is provided.
+    const userProfiles = await db
       .select({ id: profilesTable.id, apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider })
       .from(profilesTable)
-      .where(eq(profilesTable.userId, userId))
-      .limit(1);
-    const rawApiKey = firstProfile?.apiKey || settings?.apiKey || null;
+      .where(eq(profilesTable.userId, userId));
+
+    // Use the client-supplied profileId if it belongs to this user; otherwise
+    // fall back to the user's first profile.
+    const resolvedProfile =
+      (clientProfileId != null
+        ? userProfiles.find((p) => p.id === clientProfileId)
+        : undefined) ?? userProfiles[0];
+
+    const rawApiKey = resolvedProfile?.apiKey || settings?.apiKey || null;
     const apiKey = rawApiKey ? decryptField(userId, rawApiKey) : undefined;
-    const profileId = firstProfile?.id ?? null;
-    const embeddingProvider = firstProfile?.embeddingProvider ?? "xai";
+    const profileId = resolvedProfile?.id ?? null;
+    const embeddingProvider = resolvedProfile?.embeddingProvider ?? "xai";
 
     await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey, embeddingProvider });
   } catch (err) {

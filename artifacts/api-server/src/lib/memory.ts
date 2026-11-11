@@ -292,7 +292,7 @@ export async function retrieveMemories(
       db.execute(sql`
         UPDATE threads
         SET memory_weight = memory_weight + 1
-        WHERE id = ANY(${retrievedIds}::int[])
+        WHERE id IN (${sql.join(retrievedIds.map((id) => sql`${id}`), sql`, `)})
       `).catch((err) => logger.warn({ err }, "Failed to update memoryWeight"));
     }
   }

@@ -1,4 +1,4 @@
-import { useClerk, useSignIn } from "@clerk/expo";
+import { useAuth, useClerk, useSignIn } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -15,11 +15,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { OAuthButtons } from "@/components/OAuthButtons";
+import { useIncomingShareContext } from "@/contexts/IncomingShareContext";
 import { useColors } from "@/hooks/useColors";
 
 export default function SignInScreen() {
   const { signIn } = useSignIn();
   const { setActive } = useClerk();
+  const { isSignedIn } = useAuth();
+  const { incomingFile } = useIncomingShareContext();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -80,6 +83,11 @@ export default function SignInScreen() {
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
             Sign in to your vault
           </Text>
+          {incomingFile && !isSignedIn ? (
+            <Text accessibilityLiveRegion="polite" style={[styles.subtitle, { color: colors.primary }]}>
+              A ZIP is ready to import — sign in to continue.
+            </Text>
+          ) : null}
         </View>
 
         <OAuthButtons />

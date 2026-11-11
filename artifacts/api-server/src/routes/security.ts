@@ -15,7 +15,7 @@ import bcrypt from "bcryptjs";
 import { sha256Hex } from "../lib/field-crypto";
 import { sensitiveEndpointLimiter, recordAuthFailure } from "../lib/rate-limiter";
 import { createSnapshot, restoreSnapshot } from "../lib/snapshot";
-import { randomUUID } from "crypto";
+import { randomUUID, randomInt } from "crypto";
 import { lt } from "drizzle-orm";
 import { recordAuditEvent } from "../lib/audit";
 
@@ -31,7 +31,7 @@ interface DeviceChallenge {
 const pendingChallenges = new Map<string, DeviceChallenge>();
 
 function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 }
 
 async function hasMfaEnabled(userId: string): Promise<boolean> {
@@ -205,13 +205,22 @@ router.get("/security/devices", requireAuth, async (req: Request, res: Response)
 /**
  * Issue a device OTP challenge.
  * Generates a device token and a 6-digit OTP.
- * If RESEND_API_KEY is configured, emails the OTP; otherwise returns it in the response
- * (development / no-email mode).
+ * Delivery must be out-of-band in production. Inline codes are restricted to
+ * explicitly configured development/test runtimes.
  */
 router.post("/security/devices/challenge", requireAuth, sensitiveEndpointLimiter("device-challenge"), async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
     const { label = "New Device" } = req.body as { label?: string };
+
+    const localTesting = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+    if (!process.env.RESEND_API_KEY && !localTesting) {
+      pendingChallenges.delete(userId);
+      res.status(503).json({
+        error: "Device verification is unavailable because email delivery is not configured.",
+      });
+      return;
+    }
 
     const deviceToken = randomUUID();
     const tokenHash = sha256Hex(deviceToken);
@@ -231,18 +240,24 @@ router.post("/security/devices/challenge", requireAuth, sensitiveEndpointLimiter
       }
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
+      const delivery = await resend.emails.send({
         from: "Memory Machine <noreply@memorymachine.app>",
         to: email,
         subject: "Device verification code",
         text: `Your verification code is: ${otp}\n\nThis code expires in 15 minutes. If you did not request this, ignore this email.`,
       });
+      if (delivery.error) {
+        pendingChallenges.delete(userId);
+        res.status(502).json({ error: "The verification code could not be sent. Please try again later." });
+        return;
+      }
       res.json({ deviceToken, sent: true, label });
     } else {
       // No email configured — dev mode only. OTP returned in response for local testing.
       res.json({ deviceToken, otp, sent: false, label });
     }
   } catch (err) {
+    if (req.userId) pendingChallenges.delete(req.userId);
     req.log.error({ err }, "Failed to issue device challenge");
     res.status(500).json({ error: "Internal server error" });
   }

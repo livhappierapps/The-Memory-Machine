@@ -8,3 +8,4 @@ export * from "./user-keyphrases";
 export * from "./trusted-devices";
 export * from "./snapshots";
 export * from "./audit-events";
+export * from "./oauth-authorization-codes";

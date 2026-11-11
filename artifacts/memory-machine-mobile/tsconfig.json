@@ -33,5 +33,6 @@
     {
       "path": "../../lib/api-client-react"
     }
-  ]
+  ],
+  "extends": "expo/tsconfig.base"
 }

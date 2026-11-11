@@ -68,6 +68,12 @@ paths:
           description: Filter threads by profile ID
           schema:
             type: integer
+        - name: source
+          in: query
+          description: Filter threads by source ('chat' or 'mcp')
+          schema:
+            type: string
+            enum: [chat, mcp]
       responses:
         "200":
           description: List of threads
@@ -367,6 +373,12 @@ paths:
       operationId: getStats
       tags: [stats]
       summary: Get overall vault stats
+      parameters:
+        - name: profileId
+          in: query
+          description: Scope stats to a single profile ID
+          schema:
+            type: integer
       responses:
         "200":
           description: Stats
@@ -540,6 +552,10 @@ components:
           type: integer
         memoryWeight:
           type: integer
+        source:
+          type: string
+          enum: [chat, mcp]
+          description: "Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes"
         lastMessageAt:
           type: ["string", "null"]
         createdAt:
@@ -555,6 +571,7 @@ components:
         - model
         - messageCount
         - memoryWeight
+        - source
         - createdAt
         - updatedAt
 
@@ -714,6 +731,9 @@ components:
           type: integer
         mcpToken:
           type: ["string", "null"]
+        paymentStatus:
+          type: string
+          description: Account payment status. Any value other than active displays a payment warning.
         createdAt:
           type: string
         updatedAt:
@@ -724,6 +744,7 @@ components:
         - defaultModel
         - maxContextMessages
         - mcpToken
+        - paymentStatus
         - createdAt
         - updatedAt
 
@@ -736,6 +757,29 @@ components:
           type: string
         maxContextMessages:
           type: integer
+
+    ProfileStats:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        emoji:
+          type: string
+        color:
+          type: string
+        threadCount:
+          type: integer
+        messageCount:
+          type: integer
+      required:
+        - id
+        - name
+        - emoji
+        - color
+        - threadCount
+        - messageCount
 
     VaultStats:
       type: object
@@ -756,6 +800,10 @@ components:
           type: ["string", "null"]
         newestThreadAt:
           type: ["string", "null"]
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfileStats"
       required:
         - totalThreads
         - activeThreads

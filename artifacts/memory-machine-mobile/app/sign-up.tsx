@@ -1,4 +1,4 @@
-import { useClerk, useSignUp } from "@clerk/expo";
+import { useAuth, useClerk, useSignUp } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useState } from "react";
@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { OAuthButtons } from "@/components/OAuthButtons";
+import { useIncomingShareContext } from "@/contexts/IncomingShareContext";
 import { useColors } from "@/hooks/useColors";
 
 type Step = "details" | "verify";
@@ -22,6 +23,8 @@ type Step = "details" | "verify";
 export default function SignUpScreen() {
   const { signUp } = useSignUp();
   const { setActive } = useClerk();
+  const { isSignedIn } = useAuth();
+  const { incomingFile } = useIncomingShareContext();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -112,6 +115,11 @@ export default function SignUpScreen() {
               ? "Start preserving your AI conversations"
               : `Enter the code sent to ${email}`}
           </Text>
+          {incomingFile && !isSignedIn ? (
+            <Text accessibilityLiveRegion="polite" style={[styles.subtitle, { color: colors.primary }]}>
+              A ZIP is ready to import — finish creating your account to continue.
+            </Text>
+          ) : null}
         </View>
 
         {step === "details" ? <OAuthButtons /> : null}

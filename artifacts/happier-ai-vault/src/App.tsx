@@ -4,20 +4,26 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
+import { publishableKeyFromHost } from "@clerk/react/internal";
 import { Component, useEffect, useRef, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { clerkAppearance, stripBase, basePath } from "@/lib/clerk-config";
+import { getConsentReturnUrl } from "@/lib/auth-return";
 
 import Home from "@/pages/home";
 import Vault from "@/pages/vault";
 import Settings from "@/pages/settings";
+import OAuthConsent from "@/pages/OAuthConsent";
 import DeletionConfirm from "@/pages/deletion-confirm";
 import Privacy from "@/pages/privacy";
 import Terms from "@/pages/terms";
 import NotFound from "@/pages/not-found";
 import { ProfileProvider } from "@/contexts/profile-context";
 
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 
 if (!clerkPubKey) {
@@ -25,17 +31,21 @@ if (!clerkPubKey) {
 }
 
 function SignInPage() {
+  const returnUrl = getConsentReturnUrl(window.location.search, window.location.origin, basePath);
+  const signUpUrl = `${basePath}/sign-up${returnUrl ? `?redirect_url=${encodeURIComponent(returnUrl)}` : ""}`;
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
+      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={signUpUrl} forceRedirectUrl={returnUrl} />
     </div>
   );
 }
 
 function SignUpPage() {
+  const returnUrl = getConsentReturnUrl(window.location.search, window.location.origin, basePath);
+  const signInUrl = `${basePath}/sign-in${returnUrl ? `?redirect_url=${encodeURIComponent(returnUrl)}` : ""}`;
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
+      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={signInUrl} forceRedirectUrl={returnUrl} />
     </div>
   );
 }
@@ -81,6 +91,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/vault" component={Vault} />
             <Route path="/settings" component={Settings} />
+            <Route path="/oauth/authorize" component={OAuthConsent} />
             <Route path="/deletion-confirm" component={DeletionConfirm} />
             <Route path="/privacy" component={Privacy} />
             <Route path="/terms" component={Terms} />

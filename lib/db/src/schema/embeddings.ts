@@ -19,6 +19,16 @@
  *   CREATE INDEX ON embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
  *   CREATE INDEX ON embeddings (thread_id);
  *   CREATE INDEX ON embeddings (profile_id);
+ *
+ * Startup sweep failure markers (also provisioned by db-bootstrap.ts):
+ *   CREATE TABLE embed_attempts (
+ *     message_id integer PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+ *     embed_failed_at timestamptz NOT NULL DEFAULT now(),
+ *     http_status integer NOT NULL CHECK (
+ *       http_status >= 400 AND http_status < 500 AND http_status <> 429
+ *     )
+ *   );
+ * No dummy vectors are stored for permanent failures.
  */
 
 // Re-exported so the schema index stays consistent; no Drizzle table object

@@ -26,6 +26,7 @@
  *   --limit <n>            stop after n messages (default: all)
  *   --start-after <id>     resume after this message id (default 0)
  *   --user <userId>        only this user's messages
+ *   --no-threads           skip thread title/summary embeddings
  *   --no-reindex           skip REINDEX of the ivfflat index at the end
  *   --price-per-mtok <usd> price used for the dry-run estimate (default 0.10)
  */
@@ -36,6 +37,7 @@ import { decryptField } from "../lib/field-crypto";
 import { generateEmbeddingResult, storeEmbedding } from "../lib/embeddings";
 import { getEmbeddingConfig, resolveEmbeddingKey, type ResolvedEmbeddingKey } from "../lib/embedding-config";
 import { ensureVectorSchema } from "../lib/db-bootstrap";
+import { backfillThreadEmbeddings } from "../lib/thread-embeddings";
 
 export interface BackfillOptions {
   dryRun: boolean;
@@ -46,13 +48,14 @@ export interface BackfillOptions {
   startAfter: number;
   userId: string | null;
   reindex: boolean;
+  threads: boolean;
   pricePerMTok: number;
 }
 
 export function parseArgs(argv: string[]): BackfillOptions {
   const o: BackfillOptions = {
     dryRun: false, batchSize: 100, rps: 5, concurrency: 4, limit: null, startAfter: 0,
-    userId: null, reindex: true, pricePerMTok: 0.1,
+    userId: null, reindex: true, threads: true, pricePerMTok: 0.1,
   };
   const num = (v: string | undefined, name: string) => {
     const n = Number(v);
@@ -71,6 +74,7 @@ export function parseArgs(argv: string[]): BackfillOptions {
       case "--start-after": o.startAfter = Math.floor(num(argv[++i], a)); break;
       case "--user": o.userId = argv[++i] ?? null; break;
       case "--no-reindex": o.reindex = false; break;
+      case "--no-threads": o.threads = false; break;
       case "--price-per-mtok": o.pricePerMTok = num(argv[++i], a); break;
       default: throw new Error(`Unknown flag: ${a}`);
     }
@@ -140,6 +144,11 @@ async function attemptsSchemaReady(): Promise<boolean> {
       SELECT 1 FROM information_schema.columns
       WHERE table_name = 'embed_attempts' AND column_name = 'model_key'
     ) AS ok`);
+  return !!r.rows[0]?.ok;
+}
+
+async function threadTableExists(): Promise<boolean> {
+  const r = await db.execute<{ ok: boolean }>(sql`SELECT to_regclass('thread_embeddings') IS NOT NULL AS ok`);
   return !!r.rows[0]?.ok;
 }
 
@@ -248,6 +257,16 @@ export async function runBackfill(opts: BackfillOptions): Promise<number> {
       pricePerMTokUsd: opts.pricePerMTok,
       estMinutesAtRps: Number(((seen - skippedNoKey - skippedEmpty) / opts.rps / 60).toFixed(1)),
     });
+  }
+
+  if (!aborted && opts.threads) {
+    if (opts.dryRun && !(await threadTableExists())) {
+      log("threads", { note: "thread_embeddings not created yet (deploy first)" });
+    } else {
+      const t = await backfillThreadEmbeddings({ dryRun: opts.dryRun, userId: opts.userId, limiter });
+      log("threads", t);
+      if (t.aborted) aborted = true;
+    }
   }
 
   if (!opts.dryRun && !aborted && opts.reindex && ok > 0) {

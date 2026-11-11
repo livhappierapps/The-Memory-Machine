@@ -384,6 +384,33 @@ describe("MCP search_memories — keyword fallback after save", () => {
   });
 });
 
+describe("MCP search_memories / search_by_date — message-content keyword fallback", () => {
+  it("search_memories finds a memory by a word that is only in the (encrypted) content", async () => {
+    expect(savedThreadId).not.toBeNull();
+    const res = await request(buildMcpApp())
+      .post("/mcp")
+      .set("Authorization", `Bearer ${TEST_MCP_TOKEN}`)
+      .set("Accept", "application/json, text/event-stream")
+      .send(mcpCallBody("search_memories", { query: "verification", limit: 5 }, 11));
+    const parsed = parseMcpResponse(res.text, res.headers["content-type"] ?? "");
+    const text = parsed!.result!.content[0]?.text ?? "";
+    expect(text).toContain(`#${savedThreadId}`);
+    expect(text).toContain("MCP e2e verification");
+  });
+
+  it("search_by_date keyword matches message content, not only titles", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await request(buildMcpApp())
+      .post("/mcp")
+      .set("Authorization", `Bearer ${TEST_MCP_TOKEN}`)
+      .set("Accept", "application/json, text/event-stream")
+      .send(mcpCallBody("search_by_date", { from: "2000-01-01", to: today, keyword: "verification" }, 12));
+    const parsed = parseMcpResponse(res.text, res.headers["content-type"] ?? "");
+    const text = parsed!.result!.content[0]?.text ?? "";
+    expect(text).toContain(`#${savedThreadId}`);
+  });
+});
+
 // ── Tests: embedding branch coverage ─────────────────────────────────────────
 //
 // These tests verify the guard at mcp.ts line 225:

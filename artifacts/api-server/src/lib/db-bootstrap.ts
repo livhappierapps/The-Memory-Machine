@@ -13,6 +13,7 @@ import {
 } from "./embedding-config";
 import { decryptField } from "./field-crypto";
 import { ensureOAuthCodeSchema } from "./oauth-code-store";
+import { ensureThreadEmbeddingSchema } from "./thread-embeddings";
 
 async function applyRequiredSchema(): Promise<void> {
   // Shared, single-use OAuth codes must survive autoscaling and restarts.
@@ -211,6 +212,10 @@ async function applyVectorSchema(): Promise<void> {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS embeddings_profile_id_idx ON embeddings (profile_id)
   `);
+
+  // Thread-level (title + summary) embeddings for search_memories.
+  await ensureThreadEmbeddingSchema();
+  await migrateVectorDimension("thread_embeddings", "thread_embeddings_embedding_idx");
 }
 
 /** Ensure the pgvector schema exists without running the startup re-embedding sweep. */

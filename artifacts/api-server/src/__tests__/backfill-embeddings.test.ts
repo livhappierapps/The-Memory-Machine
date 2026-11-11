@@ -20,7 +20,7 @@ const vector = Array.from({ length: 1536 }, () => 1 / Math.sqrt(1536));
 let threadId: number;
 let deletedThreadId: number;
 let messageIds: number[] = [];
-const base = parseArgs(["--user", USER, "--rps", "1000", "--no-reindex"]);
+const base = parseArgs(["--user", USER, "--rps", "1000", "--no-reindex", "--no-threads"]);
 const prevKey = process.env.XAI_API_KEY;
 
 beforeAll(async () => {
@@ -123,6 +123,21 @@ describe("backfill:embeddings", () => {
     delete process.env.XAI_API_KEY;
     delete process.env.EMBEDDING_API_KEY;
     await runBackfill(base);
+    expect(generateEmbeddingResult).not.toHaveBeenCalled();
+  });
+});
+
+describe("backfill:embeddings — thread title/summary embeddings", () => {
+  it("embeds non-deleted threads once (content-hash idempotent)", async () => {
+    await db.execute(sql`DELETE FROM thread_embeddings WHERE user_id = ${USER}`);
+    vi.mocked(generateEmbeddingResult).mockResolvedValue({ vector, permanentFailure: false });
+    await runBackfill({ ...base, threads: true });
+    const rows = await db.execute<{ thread_id: number }>(sql`SELECT thread_id FROM thread_embeddings WHERE user_id = ${USER}`);
+    expect(rows.rows.map((r) => Number(r.thread_id))).toEqual([threadId]);
+    const threadCalls = vi.mocked(generateEmbeddingResult).mock.calls.filter((c) => c[0] === "backfill thread");
+    expect(threadCalls).toHaveLength(1);
+    vi.mocked(generateEmbeddingResult).mockClear();
+    await runBackfill({ ...base, threads: true });
     expect(generateEmbeddingResult).not.toHaveBeenCalled();
   });
 });

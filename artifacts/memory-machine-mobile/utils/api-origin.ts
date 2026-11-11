@@ -18,3 +18,19 @@ export function resolveApiOrigin(domain: string | undefined): string {
   }
   return url.origin;
 }
+
+/**
+ * Like resolveApiOrigin, but returns "" (relative URLs) instead of throwing
+ * when the build has no / an invalid API address. For UI code paths that
+ * historically used `https://${EXPO_PUBLIC_DOMAIN}` with a "" fallback.
+ */
+export function apiOriginOrEmpty(domain: string | undefined): string {
+  try {
+    return resolveApiOrigin(domain);
+  } catch {
+    return "";
+  }
+}
+
+/** Public site used for legal links when the build has no API address. */
+export const DEFAULT_PUBLIC_ORIGIN = "https://the-memory-machine.replit.app";

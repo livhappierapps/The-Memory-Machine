@@ -27,6 +27,7 @@ import type { Profile } from "@workspace/api-client-react";
 
 import { useProfile } from "@/contexts/ProfileContext";
 import { useColors } from "@/hooks/useColors";
+import { apiOriginOrEmpty, DEFAULT_PUBLIC_ORIGIN } from "@/utils/api-origin";
 
 const MODELS: Record<string, string[]> = {
   xai: ["grok-3", "grok-3-mini", "grok-2", "grok-2-mini"],
@@ -296,8 +297,7 @@ export default function SettingsScreen() {
 
       {/* Legal */}
       {(() => {
-        const rawDomain = process.env.EXPO_PUBLIC_DOMAIN ?? "memory-machine.replit.app";
-        const legalBase = rawDomain.startsWith("http") ? rawDomain : `https://${rawDomain}`;
+        const legalBase = apiOriginOrEmpty(process.env.EXPO_PUBLIC_DOMAIN) || DEFAULT_PUBLIC_ORIGIN;
         return (
           <View style={[styles.card, { marginTop: 4 }]}>
             <View style={styles.cardHeader}>
@@ -421,9 +421,7 @@ function formatMobileBytes(bytes: number): string {
 
 function SecuritySection({ colors }: { colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
   const { getToken } = useAuth();
-  const domain = process.env.EXPO_PUBLIC_DOMAIN
-    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-    : "";
+  const domain = apiOriginOrEmpty(process.env.EXPO_PUBLIC_DOMAIN);
 
   const [devices, setDevices] = useState<{ id: number; label: string; lastSeen: string; expiresAt: string }[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(true);
@@ -763,7 +761,7 @@ function SecuritySection({ colors }: { colors: ReturnType<typeof import("@/hooks
 
 function AuditLogSection({ colors }: { colors: ReturnType<typeof import("@/hooks/useColors").useColors> }) {
   const { getToken } = useAuth();
-  const domain = process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : "";
+  const domain = apiOriginOrEmpty(process.env.EXPO_PUBLIC_DOMAIN);
   const [events, setEvents] = useState<
     { id: number; action: string; metadata: Record<string, unknown> | null; ip: string | null; createdAt: string }[]
   >([]);

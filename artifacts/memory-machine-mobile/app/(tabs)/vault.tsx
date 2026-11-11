@@ -34,6 +34,7 @@ import { useImport } from "@/contexts/ImportContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useIncomingShareContext } from "@/contexts/IncomingShareContext";
 import { useColors } from "@/hooks/useColors";
+import { apiOriginOrEmpty } from "@/utils/api-origin";
 
 export default function VaultScreen() {
   const colors = useColors();
@@ -170,9 +171,7 @@ export default function VaultScreen() {
   const createThread = useCreateThread();
   const updateThread = useUpdateThread();
   const { getToken } = useAuth();
-  const domain = process.env.EXPO_PUBLIC_DOMAIN
-    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-    : "";
+  const domain = apiOriginOrEmpty(process.env.EXPO_PUBLIC_DOMAIN);
 
   // Deletion flow state
   const [deletionThread, setDeletionThread] = useState<Thread | null>(null);

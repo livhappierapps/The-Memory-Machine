@@ -10,6 +10,7 @@ import { DeletionWarningBanner } from "@/components/DeletionWarningBanner";
 
 import { useColors } from "@/hooks/useColors";
 import { useIncomingShareContext } from "@/contexts/IncomingShareContext";
+import { apiOriginOrEmpty } from "@/utils/api-origin";
 
 function NativeTabLayout() {
   return (
@@ -91,7 +92,7 @@ function ClassicTabLayout() {
 
 export default function TabLayout() {
   const { isSignedIn, isLoaded } = useAuth();
-  const baseUrl = `https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? "localhost"}`;
+  const baseUrl = apiOriginOrEmpty(process.env["EXPO_PUBLIC_DOMAIN"]) || "https://localhost";
 
   const { incomingFile, clearIncoming } = useIncomingShareContext();
 

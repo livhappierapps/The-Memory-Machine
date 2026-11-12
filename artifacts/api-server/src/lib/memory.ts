@@ -133,7 +133,7 @@ export async function retrieveMemories(
 
   // ── 3. Semantic similarity search via pgvector ────────────────────────────
   if (smartRetrieval && topN > 0) {
-    const queryVec = await generateEmbedding(query, apiKey, embeddingProvider);
+    const queryVec = await generateEmbedding(query, apiKey, embeddingProvider, "query");
 
     if (queryVec) {
       const vecLiteral = `[${queryVec.join(",")}]`;
@@ -292,7 +292,7 @@ export async function retrieveMemories(
       db.execute(sql`
         UPDATE threads
         SET memory_weight = memory_weight + 1
-        WHERE id = ANY(${retrievedIds}::int[])
+        WHERE id IN (${sql.join(retrievedIds.map((id) => sql`${id}`), sql`, `)})
       `).catch((err) => logger.warn({ err }, "Failed to update memoryWeight"));
     }
   }

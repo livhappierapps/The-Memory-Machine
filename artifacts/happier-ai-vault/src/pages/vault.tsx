@@ -5,11 +5,21 @@ import { Sidebar } from "@/components/vault/sidebar";
 import { ChatArea } from "@/components/vault/chat-area";
 import { useProfile } from "@/contexts/profile-context";
 import { useEffect, useState } from "react";
+import { getGetSettingsQueryKey, useGetSettings } from "@workspace/api-client-react";
+import { PaymentWarningBanner } from "@/components/vault/deletion-warning-banner";
 
 function VaultContent() {
   const { activeProfileId } = useProfile();
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
   const [mobileChatVisible, setMobileChatVisible] = useState(false);
+  const { data: settings } = useGetSettings({
+    query: {
+      queryKey: getGetSettingsQueryKey(),
+      staleTime: 0,
+      refetchInterval: 60_000,
+      refetchOnWindowFocus: true,
+    },
+  });
 
   // Reset selected thread whenever the active profile changes
   useEffect(() => {
@@ -32,7 +42,11 @@ function VaultContent() {
   };
 
   return (
-    <AppLayout>
+    <AppLayout
+      warningBanner={settings && settings.paymentStatus !== "active" ? (
+        <PaymentWarningBanner key={settings.paymentStatus} paymentStatus={settings.paymentStatus} />
+      ) : null}
+    >
       <div className="flex h-full w-full overflow-hidden">
 
         {/* Sidebar: full-screen on mobile, fixed w-80 on md+ */}

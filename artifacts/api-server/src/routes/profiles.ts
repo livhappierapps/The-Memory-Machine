@@ -12,6 +12,8 @@ import {
 import { requireAuth } from "../middlewares/auth";
 import { encryptField, isEncrypted } from "../lib/field-crypto";
 
+import { listProfiles } from "../lib/default-profile";
+
 const router: IRouter = Router();
 
 function formatProfile(profile: typeof profilesTable.$inferSelect) {
@@ -42,10 +44,7 @@ function formatProfile(profile: typeof profilesTable.$inferSelect) {
 }
 
 async function ensureDefaultProfile(userId: string) {
-  const existing = await db
-    .select()
-    .from(profilesTable)
-    .where(eq(profilesTable.userId, userId));
+  const existing = await listProfiles(userId);
 
   if (existing.length > 0) return existing;
 

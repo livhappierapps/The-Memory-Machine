@@ -12,7 +12,6 @@ import { ImportDialog } from "./import-dialog";
 import { ExportDialog } from "./export-dialog";
 import { DeletionFlowDialog } from "./deletion-flow-dialog";
 
-import type { MemorySource as StreamMemorySource } from "@/hooks/use-chat-stream";
 
 function MemoryReasonIcon({ reason }: { reason: string }) {
   if (reason === "pinned") return <Pin className="w-3 h-3 text-primary" />;
@@ -81,13 +80,15 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
   // During/after streaming, SSE sources take precedence (more targeted to last message).
   // Before first send, show the session-start preview sources.
   const memorySources: MemorySource[] = streamMemorySources.length > 0
-    ? (streamMemorySources as unknown as MemorySource[])
+    ? streamMemorySources
     : (memoryPreview?.sources ?? []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const updateThread = useUpdateThread();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  // Must be declared here (before any early returns) to satisfy the Rules of Hooks.
+  const [deletionFlowOpen, setDeletionFlowOpen] = useState(false);
 
   // Auto-scroll
   useEffect(() => {
@@ -142,8 +143,6 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
     });
   };
 
-  const [deletionFlowOpen, setDeletionFlowOpen] = useState(false);
-
   const handleDelete = () => {
     setDeletionFlowOpen(true);
   };
@@ -183,7 +182,7 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
                 <MoreVertical className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuItem onClick={() => setIsImportOpen(true)}>
                 <Upload className="w-4 h-4 mr-2" /> Import Messages
               </DropdownMenuItem>
@@ -196,11 +195,14 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
                 {thread.archived ? "Unarchive" : "Archive"}
               </DropdownMenuItem>
               {isThreadLocked ? (
-                <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
-                  <Lock className="w-4 h-4 mr-2" />
-                  Delete Vault
-                  <span className="ml-auto text-xs text-muted-foreground">{daysLeft}d</span>
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
+                    <Lock className="w-4 h-4 mr-2" /> Delete Vault
+                  </DropdownMenuItem>
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    Conversations are protected from deletion for 30 days. Available in {daysLeft} {daysLeft === 1 ? "day" : "days"}.
+                  </p>
+                </>
               ) : (
                 <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:bg-destructive/10">
                   <Trash2 className="w-4 h-4 mr-2" /> Delete Vault
@@ -213,6 +215,22 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
 
       {/* What Leo knows — memory sources panel */}
       <WhatLeoKnows sources={memorySources} />
+
+      {/* MCP memory banner — shown for Leo memories synced via MCP */}
+      {thread.source === "mcp" && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/5 border-b border-primary/20 text-xs text-muted-foreground">
+          <Zap className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span className="flex-1">
+            <span className="font-medium text-primary">Leo memory</span>
+            {" — synced live from your Grok session. Edit in Leo to update."}
+          </span>
+          {/* Live indicator */}
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-green-500">live</span>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div 
@@ -280,9 +298,15 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={thread.archived ? "This vault is archived." : "Message Grok..."}
+            placeholder={
+              thread.source === "mcp"
+                ? "This is a Leo memory — edit in Leo to update."
+                : thread.archived
+                  ? "This vault is archived."
+                  : "Message Grok..."
+            }
             className="min-h-[50px] max-h-[200px] resize-none border-0 focus-visible:ring-0 shadow-none bg-transparent py-3 text-base"
-            disabled={thread.archived || isStreaming}
+            disabled={thread.archived || isStreaming || thread.source === "mcp"}
           />
           <div className="shrink-0 mb-1">
             {isStreaming ? (
@@ -294,7 +318,7 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
                 type="submit" 
                 size="icon" 
                 className="rounded-lg h-10 w-10 bg-primary hover:bg-primary/90 text-primary-foreground"
-                disabled={!input.trim() || thread.archived}
+                disabled={!input.trim() || thread.archived || thread.source === "mcp"}
               >
                 <Send className="w-5 h-5" />
               </Button>
@@ -308,12 +332,19 @@ export function ChatArea({ threadId, onBack, onDeleted }: { threadId: number; on
 
       <ImportDialog threadId={threadId} open={isImportOpen} onOpenChange={setIsImportOpen} />
       <ExportDialog threadId={threadId} title={thread.title} open={isExportOpen} onOpenChange={setIsExportOpen} />
-      <DeletionFlowDialog
-        open={deletionFlowOpen}
-        onOpenChange={setDeletionFlowOpen}
-        targetType="thread"
-        targetIds={[threadId]}
-      />
+      {deletionFlowOpen && (
+        <DeletionFlowDialog
+          key={threadId}
+          open={deletionFlowOpen}
+          onOpenChange={setDeletionFlowOpen}
+          targetType="thread"
+          targetIds={[threadId]}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: getListThreadsQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
+          }}
+        />
+      )}
     </div>
   );
 }

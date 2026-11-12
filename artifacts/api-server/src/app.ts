@@ -16,6 +16,7 @@ import { purgeExpiredSoftDeletes, sendReadyDeletionLinkEmails } from "./routes/d
 import { cleanupRateLimiter } from "./lib/rate-limiter";
 import { purgeExpiredSnapshots, runWeeklySnapshots } from "./lib/snapshot";
 import { deviceTrustMiddleware } from "./middlewares/device-trust";
+import oauthDiscoveryRouter from "./routes/oauth-discovery";
 
 const app: Express = express();
 
@@ -53,6 +54,7 @@ app.use(
 );
 
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+app.use(oauthDiscoveryRouter);
 
 // CORS — explicit allowlist of Replit-hosted origins only
 const replitDomains: string[] = (process.env.REPLIT_DOMAINS ?? "")
@@ -67,10 +69,13 @@ const allowedOrigins = new Set<string>([
   "http://localhost",
   "http://localhost:80",
   "http://localhost:5173",
+  "https://grok.com",
+  "https://console.x.ai",
 ]);
 app.use(
   cors({
     credentials: true,
+    exposedHeaders: ["WWW-Authenticate", "Mcp-Session-Id", "MCP-Protocol-Version"],
     origin(origin, callback) {
       // Allow same-origin / no-origin requests and the explicit allowlist only
       if (!origin || allowedOrigins.has(origin)) {

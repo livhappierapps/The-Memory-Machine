@@ -37,13 +37,28 @@ import {
   lte,
   isNull,
   inArray,
-  ilike,
   asc,
   sql,
 } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sha256Hex, encryptField, decryptField } from "../lib/field-crypto";
 import { generateEmbedding, storeEmbedding } from "../lib/embeddings";
+import { resolveEmbeddingKey } from "../lib/embedding-config";
+import { MCP_RESOURCE_METADATA } from "../lib/mcp-oauth-config";
+import { getDefaultProfile } from "../lib/default-profile";
+import { keywordSearchThreads } from "../lib/keyword-search";
+import { searchThreadEmbeddings, embedThreadAsync } from "../lib/thread-embeddings";
+
+/** Reciprocal-rank fusion of several ranked id lists (k=60). Exported for tests. */
+export function fuseRankings(lists: number[][], k = 60): Array<{ id: number; score: number }> {
+  const scores = new Map<number, number>();
+  for (const list of lists) {
+    list.forEach((id, rank) => scores.set(id, (scores.get(id) ?? 0) + 1 / (k + rank + 1)));
+  }
+  return [...scores.entries()]
+    .map(([id, score]) => ({ id, score }))
+    .sort((a, b) => b.score - a.score);
+}
 
 const router: IRouter = Router();
 
@@ -78,29 +93,8 @@ function extractBearerToken(req: Request): string | null {
 
 // ── Profile helpers ───────────────────────────────────────────────────────────
 
-interface ProfileInfo {
-  id: number;
-  apiKey: string | null;
-  embeddingProvider: string;
-}
-
-/**
- * Load the user's first profile (lowest id = default created on sign-up).
- * Used to obtain the API key for embedding generation in MCP tools.
- */
-async function getDefaultProfile(userId: string): Promise<ProfileInfo | null> {
-  const [profile] = await db
-    .select({
-      id: profilesTable.id,
-      apiKey: profilesTable.apiKey,
-      embeddingProvider: profilesTable.embeddingProvider,
-    })
-    .from(profilesTable)
-    .where(eq(profilesTable.userId, userId))
-    .orderBy(asc(profilesTable.id))
-    .limit(1);
-  return profile ?? null;
-}
+// Default profile comes from the shared helper (lib/default-profile.ts) so MCP,
+// settings, import and retrieval agree. MCP search spans ALL profiles.
 
 // ── Tool helpers ──────────────────────────────────────────────────────────────
 
@@ -176,8 +170,11 @@ function buildMcpServer(userId: string): McpServer {
 
         // Look up the default profile so we can generate an embedding
         const profile = await getDefaultProfile(userId);
+        // Provider-aware key (profile → server key); decrypts enc:v1: keys.
+        const emb = resolveEmbeddingKey(userId, profile);
+        const embeddingKey = emb?.apiKey ?? null;
 
-        // Create the thread
+        // Create the thread tagged as MCP-sourced
         const [thread] = await db
           .insert(threadsTable)
           .values({
@@ -188,6 +185,7 @@ function buildMcpServer(userId: string): McpServer {
             archived: false,
             model: "grok-3",
             messageCount: 0,
+            source: "mcp",
           })
           .returning({ id: threadsTable.id });
 
@@ -220,20 +218,36 @@ function buildMcpServer(userId: string): McpServer {
           WHERE id = ${threadId}
         `);
 
-        // Generate and store an embedding in the background (needs API key)
-        if (message && profile?.apiKey) {
-          generateEmbedding(fullContent, profile.apiKey, profile.embeddingProvider)
-            .then((vec) => vec ? storeEmbedding(message.id, threadId, profile.id, vec) : undefined)
-            .catch((err) => logger.warn({ err }, "MCP save_memory: embedding failed"));
+        // Generate and store an embedding synchronously so it survives a server restart.
+        // Fire-and-forget would lose the embedding if the process exits before the promise resolves.
+        let embeddingStored = false;
+        if (message && emb) {
+          try {
+            const vec = await generateEmbedding(fullContent, emb.apiKey, emb.provider, "passage");
+            if (vec) {
+              embeddingStored = await storeEmbedding(message.id, threadId, profile?.id ?? null, vec);
+              if (!embeddingStored) {
+                logger.warn({ messageId: message.id }, "MCP save_memory: embedding DB write failed — memory saved but semantic search may miss it");
+              }
+            }
+          } catch (err) {
+            logger.warn({ err }, "MCP save_memory: embedding failed — memory saved but won't appear in semantic search");
+          }
         }
 
+        // Thread-level (title) embedding for search_memories; best-effort.
+        if (emb) embedThreadAsync(userId, threadId, emb);
+
         const pinNote = (pin ?? true) ? " (pinned)" : "";
+        const embeddingNote = embeddingKey && !embeddingStored
+          ? "\n⚠️ Memory saved, but embedding could not be persisted — keyword search will find it, semantic similarity search may not."
+          : "";
         return {
           content: [
             {
               type: "text",
               text: [
-                `✅ Memory saved${pinNote}: "${title}" (ID: #${threadId})`,
+                `✅ Memory saved${pinNote}: "${title}" (ID: #${threadId})${embeddingNote}`,
                 "",
                 "You can retrieve it later with: get_conversation(thread_id: " + threadId + ")",
                 "Or search for it with: search_memories(query: \"" + title.slice(0, 50) + "\")",
@@ -253,8 +267,8 @@ function buildMcpServer(userId: string): McpServer {
     "search_memories",
     [
       "Search through all stored conversation memories.",
-      "Uses semantic (vector) search when possible for meaning-aware results,",
-      "falling back to keyword search on conversation titles.",
+      "Combines semantic (vector) search over messages and conversation summaries",
+      "with keyword search over conversation titles and message text.",
       "Supports keywords, phrases, names, emotions, topics — anything.",
       "Returns matching excerpts grouped by conversation.",
       "Use this when you want to recall something specific from the past.",
@@ -271,13 +285,20 @@ function buildMcpServer(userId: string): McpServer {
     async ({ query, limit, role }) => {
       try {
         const maxResults = limit ?? 5;
-        const resultThreadIds = new Set<number>();
-        const threadScores = new Map<number, number>(); // threadId → best similarity score
+        // Hybrid search across ALL of the user's profiles (MCP is user-scoped):
+        //   1. semantic over message embeddings
+        //   2. semantic over thread title+summary embeddings
+        //   3. keyword over thread titles + message content (plaintext via SQL,
+        //      enc:v1: rows decrypted and scanned)
+        // Lists are merged with reciprocal-rank fusion so a strong keyword hit
+        // still surfaces when embeddings are missing or the provider is down.
+        const semanticScores = new Map<number, number>(); // threadId → best similarity
+        const lists: number[][] = [];
 
-        // ── Path 1: semantic search via pgvector ─────────────────────────────
         const profile = await getDefaultProfile(userId);
-        if (profile?.apiKey) {
-          const queryVec = await generateEmbedding(query, profile.apiKey, profile.embeddingProvider);
+        const emb = resolveEmbeddingKey(userId, profile);
+        if (emb) {
+          const queryVec = await generateEmbedding(query, emb.apiKey, emb.provider, "query");
           if (queryVec) {
             const vecLiteral = `[${queryVec.join(",")}]`;
 
@@ -298,38 +319,38 @@ function buildMcpServer(userId: string): McpServer {
               ORDER BY score DESC
               LIMIT ${maxResults * 2}
             `);
-
+            const msgList: number[] = [];
             for (const row of semRows.rows) {
-              resultThreadIds.add(row.thread_id);
-              threadScores.set(row.thread_id, row.score);
+              const id = Number(row.thread_id);
+              msgList.push(id);
+              semanticScores.set(id, Math.max(semanticScores.get(id) ?? 0, Number(row.score)));
+            }
+            lists.push(msgList);
+
+            try {
+              const threadRows = await searchThreadEmbeddings(userId, queryVec, maxResults * 2);
+              lists.push(threadRows.map((r) => r.thread_id));
+              for (const r of threadRows) {
+                semanticScores.set(r.thread_id, Math.max(semanticScores.get(r.thread_id) ?? 0, r.score));
+              }
+            } catch (err) {
+              logger.warn({ err }, "MCP search_memories: thread embedding search failed — continuing");
             }
           }
         }
 
-        // ── Path 2: keyword search on thread titles (always runs as fallback/supplement) ──
-        const terms = query.trim().split(/\s+/).filter(Boolean);
-        if (terms.length > 0) {
-          const titleThreads = await db
-            .select({ id: threadsTable.id })
-            .from(threadsTable)
-            .where(
-              and(
-                eq(threadsTable.userId, userId),
-                isNull(threadsTable.deletedAt),
-                or(
-                  ...terms.map((t) => ilike(threadsTable.title, `%${t}%`)),
-                ),
-              ),
-            )
-            .limit(maxResults);
+        const keywordHits = await keywordSearchThreads({
+          userId,
+          query,
+          role: role ?? "all",
+          limit: maxResults * 3,
+        });
+        lists.push(keywordHits.map((h) => h.threadId));
+        const snippets = new Map(keywordHits.map((h) => [h.threadId, h.snippet]));
 
-          for (const t of titleThreads) {
-            if (!resultThreadIds.has(t.id)) {
-              resultThreadIds.add(t.id);
-              threadScores.set(t.id, 0); // keyword match, no vector score
-            }
-          }
-        }
+        const fused = fuseRankings(lists);
+        const resultThreadIds = new Set<number>(fused.map((f) => f.id));
+        const threadScores = new Map<number, number>(fused.map((f) => [f.id, f.score]));
 
         if (resultThreadIds.size === 0) {
           return {
@@ -353,7 +374,7 @@ function buildMcpServer(userId: string): McpServer {
             createdAt: threadsTable.createdAt,
           })
           .from(threadsTable)
-          .where(inArray(threadsTable.id, ids));
+          .where(and(inArray(threadsTable.id, ids), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)));
 
         const threadMap = new Map(threads.map((t) => [t.id, t]));
 
@@ -375,18 +396,23 @@ function buildMcpServer(userId: string): McpServer {
           const t = threadMap.get(threadId);
           if (!t) continue;
 
-          const msgs = await db
-            .select({ role: messagesTable.role, content: messagesTable.content })
-            .from(messagesTable)
-            .where(and(eq(messagesTable.threadId, threadId), roleCondition))
-            .orderBy(desc(messagesTable.createdAt))
-            .limit(3);
+          const snippet = snippets.get(threadId);
+          let excerpts: string[];
+          if (snippet) {
+            excerpts = [fmtMsg({ role: snippet.role, content: snippet.text }, 400)];
+          } else {
+            const msgs = await db
+              .select({ role: messagesTable.role, content: messagesTable.content })
+              .from(messagesTable)
+              .where(and(eq(messagesTable.threadId, threadId), roleCondition))
+              .orderBy(desc(messagesTable.createdAt))
+              .limit(3);
+            excerpts = msgs.map((m) =>
+              fmtMsg({ role: m.role, content: decryptField(userId, m.content) }),
+            );
+          }
 
-          const excerpts = msgs.map((m) =>
-            fmtMsg({ role: m.role, content: decryptField(userId, m.content) }),
-          );
-
-          const score = threadScores.get(threadId);
+          const score = semanticScores.get(threadId);
           const scoreNote =
             score && score > 0
               ? ` (similarity: ${Math.round(score * 100)}%)`
@@ -464,7 +490,22 @@ function buildMcpServer(userId: string): McpServer {
         ];
         if (fromDate) conditions.push(gte(threadsTable.createdAt, fromDate));
         if (toDate) conditions.push(lte(threadsTable.createdAt, toDate));
-        if (keyword) conditions.push(ilike(threadsTable.title, `%${keyword}%`));
+        if (keyword) {
+          // Match titles AND message content (plaintext + decrypted enc:v1:).
+          const hits = await keywordSearchThreads({
+            userId,
+            query: keyword,
+            from: fromDate,
+            to: toDate,
+            limit: 500,
+          });
+          if (hits.length === 0) {
+            return {
+              content: [{ type: "text", text: `No conversations in that date range mention "${keyword}".` }],
+            };
+          }
+          conditions.push(inArray(threadsTable.id, hits.map((h) => h.threadId)));
+        }
 
         const threads = await db
           .select({
@@ -581,7 +622,7 @@ function buildMcpServer(userId: string): McpServer {
         const [thread] = await db
           .select()
           .from(threadsTable)
-          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId)))
+          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
           .limit(1);
 
         if (!thread) {
@@ -687,7 +728,7 @@ function buildMcpServer(userId: string): McpServer {
         const [thread] = await db
           .select()
           .from(threadsTable)
-          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId)))
+          .where(and(eq(threadsTable.id, thread_id), eq(threadsTable.userId, userId), isNull(threadsTable.deletedAt)))
           .limit(1);
 
         if (!thread) {
@@ -741,12 +782,22 @@ function buildMcpServer(userId: string): McpServer {
 async function handleMcpRequest(req: Request, res: Response) {
   const token = extractBearerToken(req);
   if (!token) {
+    res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${MCP_RESOURCE_METADATA}"`);
     res.status(401).json({ error: "Missing Authorization: Bearer <token> header." });
     return;
   }
 
-  const userId = await getUserIdByToken(token).catch(() => null);
+  let userId: string | null;
+  try {
+    userId = await getUserIdByToken(token);
+  } catch {
+    // Do not mislabel a database outage as bad credentials or log bearer values.
+    req.log?.error("MCP authentication lookup unavailable");
+    res.status(503).json({ error: "Memory service temporarily unavailable. Try again shortly." });
+    return;
+  }
   if (!userId) {
+    res.setHeader("WWW-Authenticate", `Bearer error="invalid_token", resource_metadata="${MCP_RESOURCE_METADATA}"`);
     res.status(401).json({ error: "Invalid or unknown Memory Machine token." });
     return;
   }

@@ -74,8 +74,12 @@ export function DeletionFlowDialog({
         }
         if (data.error === "two_factor_required") {
           setError("You must enable two-factor authentication on your account before deleting data. Go to your account settings to enable it.");
-        } else if (data.error === "recency_lock") {
-          setError(data.message);
+        } else if (res.status === 423 || data.error === "recency_lock") {
+          setError(
+            typeof data.message === "string" && data.message.trim()
+              ? data.message
+              : "Conversations created within the last 30 days cannot be deleted. This lock protects your recent data.",
+          );
         } else {
           setError(data.error ?? "Failed to initiate deletion request");
         }
@@ -248,7 +252,7 @@ export function DeletionFlowDialog({
                 )}
               </DialogDescription>
             </DialogHeader>
-            {error && <p className="text-sm text-red-400 bg-red-950/30 p-3 rounded-lg">{error}</p>}
+            {error && <p role="alert" className="text-sm text-red-400 bg-red-950/30 p-3 rounded-lg">{error}</p>}
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                 Cancel

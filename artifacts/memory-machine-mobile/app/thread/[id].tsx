@@ -150,6 +150,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.titleBtn}
             onLongPress={() => {
+              if (thread?.source === "mcp") return; // read-only
               setNewTitle(thread?.title ?? "");
               setRenaming(true);
             }}
@@ -160,35 +161,51 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          onPress={() => {
-            Alert.alert(thread?.title ?? "Options", undefined, [
-              {
-                text: "Rename",
-                onPress: () => {
-                  setNewTitle(thread?.title ?? "");
-                  setRenaming(true);
+        {/* Only show options menu for non-MCP threads */}
+        {thread?.source !== "mcp" && (
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(thread?.title ?? "Options", undefined, [
+                {
+                  text: "Rename",
+                  onPress: () => {
+                    setNewTitle(thread?.title ?? "");
+                    setRenaming(true);
+                  },
                 },
-              },
-              {
-                text: thread?.pinned ? "Unpin" : "Pin",
-                onPress: async () => {
-                  await updateThread.mutateAsync({
-                    threadId,
-                    data: { pinned: !thread?.pinned },
-                  });
-                  refetchThread();
+                {
+                  text: thread?.pinned ? "Unpin" : "Pin",
+                  onPress: async () => {
+                    await updateThread.mutateAsync({
+                      threadId,
+                      data: { pinned: !thread?.pinned },
+                    });
+                    refetchThread();
+                  },
                 },
-              },
-              { text: "Delete", style: "destructive", onPress: handleDelete },
-              { text: "Cancel", style: "cancel" },
-            ]);
-          }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Feather name="more-horizontal" size={22} color={colors.mutedForeground} />
-        </TouchableOpacity>
+                { text: "Delete", style: "destructive", onPress: handleDelete },
+                { text: "Cancel", style: "cancel" },
+              ]);
+            }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Feather name="more-horizontal" size={22} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Leo memory read-only banner — shown for MCP-sourced threads */}
+      {thread?.source === "mcp" && (
+        <View style={[styles.noteBanner, { backgroundColor: `${colors.primary}14`, borderBottomColor: `${colors.primary}30` }]}>
+          <Feather name="zap" size={13} color={colors.primary} />
+          <Text style={[styles.noteBannerText, { color: colors.mutedForeground }]}>
+            <Text style={{ color: colors.primary, fontFamily: "Inter_600SemiBold" }}>Leo memory</Text>
+            {" — synced live from your Grok session. Edit in Leo to update."}
+          </Text>
+          {/* Live sync dot */}
+          <View style={[styles.noteBannerLiveDot, { backgroundColor: "#22c55e" }]} />
+        </View>
+      )}
 
       {/* Messages + Input */}
       <KeyboardAvoidingView
@@ -216,48 +233,50 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Input bar */}
-        <View
-          style={[
-            styles.inputBar,
-            {
-              backgroundColor: colors.background,
-              borderTopColor: colors.border,
-              paddingBottom: bottomPad + 8,
-            },
-          ]}
-        >
-          <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <TextInput
-              style={[styles.input, { color: colors.foreground }]}
-              value={input}
-              onChangeText={setInput}
-              placeholder="Message…"
-              placeholderTextColor={colors.mutedForeground}
-              multiline
-              maxLength={4000}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                { backgroundColor: (input.trim() && !streaming) ? colors.primary : colors.muted },
-              ]}
-              onPress={streaming ? abort : handleSend}
-              activeOpacity={0.8}
-              disabled={!streaming && !input.trim()}
-            >
-              {streaming ? (
-                <Feather name="square" size={14} color={colors.foreground} />
-              ) : (
-                <Feather
-                  name="arrow-up"
-                  size={16}
-                  color={input.trim() ? colors.primaryForeground : colors.mutedForeground}
-                />
-              )}
-            </TouchableOpacity>
+        {/* Input bar — hidden for MCP notes */}
+        {thread?.source !== "mcp" && (
+          <View
+            style={[
+              styles.inputBar,
+              {
+                backgroundColor: colors.background,
+                borderTopColor: colors.border,
+                paddingBottom: bottomPad + 8,
+              },
+            ]}
+          >
+            <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TextInput
+                style={[styles.input, { color: colors.foreground }]}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Message…"
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                maxLength={4000}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendBtn,
+                  { backgroundColor: (input.trim() && !streaming) ? colors.primary : colors.muted },
+                ]}
+                onPress={streaming ? abort : handleSend}
+                activeOpacity={0.8}
+                disabled={!streaming && !input.trim()}
+              >
+                {streaming ? (
+                  <Feather name="square" size={14} color={colors.foreground} />
+                ) : (
+                  <Feather
+                    name="arrow-up"
+                    size={16}
+                    color={input.trim() ? colors.primaryForeground : colors.mutedForeground}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -357,6 +376,16 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     lineHeight: 22,
   },
+  noteBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  noteBannerText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1, lineHeight: 18 },
+  noteBannerLiveDot: { width: 7, height: 7, borderRadius: 3.5, flexShrink: 0 },
   errorBubble: {
     marginHorizontal: 16,
     marginVertical: 8,

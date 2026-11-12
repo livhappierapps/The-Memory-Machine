@@ -1,214 +1,69 @@
-# Memory Machine — Project Documentation
+# The Memory Machine
 
-## Overview
+## Scope and working rules
 
-Full-stack dark-mode Grok AI conversation vault. Users sign in, create threads, chat with Grok (real-time SSE streaming), and have every message persisted to PostgreSQL. Available on **web** (React + Vite) and **mobile** (Expo React Native), sharing the same Express backend and PostgreSQL database.
+- This workspace is for the **public Memory Machine**: web app, public iOS/Android app, shared API, storage and cross-app memory connections.
+- Freeze new features while resolving release blockers. No new project tasks or follow-up task proposals.
+- Minimize cost: targeted searches, batched checks, reuse signing and existing infrastructure. Do not start paid builds, subscriptions or paid AI processing without approval.
+- Preserve user memories, original uploads, existing encryption keys and signing identities. Never claim historical backups have been erased by source cleanup.
+- Give the user one unavoidable action at a time, with the exact URL and button.
+- Do not claim device testing, store submission, approval, or independence from Replit without evidence.
 
-## Architecture
+## Active source
 
-pnpm monorepo, TypeScript throughout.
+| Directory | Purpose |
+| --- | --- |
+| `artifacts/api-server` | Express API, Clerk authentication, memory import/retrieval, MCP and OAuth |
+| `artifacts/happier-ai-vault` | Public React/Vite web app; keep this folder name until a deliberate coordinated rename |
+| `artifacts/memory-machine-mobile` | Public Expo iOS/Android app |
+| `artifacts/mockup-sandbox` | Development-only component previews |
+| `lib/db` | PostgreSQL/Drizzle schema and database client |
+| `lib/api-spec` | OpenAPI contract and Orval code generation |
+| `lib/api-zod`, `lib/api-client-react` | Generated validation/client packages |
+| `tools/archive-upload` | Private archive transfer utility; not evidence of completed memory import |
 
-```
-artifacts/
-  api-server/            — Express 5 backend (port 8080, path /api)
-  happier-ai-vault/      — React + Vite web frontend (port 5173, path /)
-  memory-machine-mobile/ — Expo React Native mobile app (iOS + Android)
-  mockup-sandbox/        — Component preview server (port 8081, path /__mockup)
-lib/
-  db/                    — Drizzle ORM schema + PostgreSQL client
-  api-spec/              — OpenAPI spec + Orval codegen config
-  api-zod/               — Generated Zod schemas
-  api-client-react/      — Generated TanStack Query hooks
-scripts/                 — Workspace utility scripts
-```
+The private companion app has been archived outside active source. Do not rebuild it here.
 
-## Stack
+## Commands
 
-| Layer | Technology |
-|---|---|
-| Monorepo | pnpm workspaces |
-| Node.js | v24 |
-| TypeScript | 5.9 |
-| Web Frontend | React 19, Vite 7, Tailwind CSS v4, shadcn/ui |
-| Mobile | Expo SDK 54, React Native 0.81, Expo Router v4 |
-| Routing (web) | wouter |
-| Server state | TanStack Query v5 |
-| Backend | Express 5 |
-| Database | PostgreSQL + Drizzle ORM + pgvector |
-| Auth | Clerk (`@clerk/react`, `@clerk/express`, `@clerk/expo`) |
-| Validation | Zod v4, drizzle-zod |
-| API contract | OpenAPI → Orval codegen |
-| Build | esbuild (API server) |
-| Logging | pino + pino-http |
-
-## Key Commands
-
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks + Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-
-## Key Files
-
-### Web (`artifacts/happier-ai-vault/src/`)
-- `pages/` — home, vault (sidebar + chat), settings, not-found
-- `components/vault/sidebar.tsx` — thread list, per-thread archive/delete dropdown (⋯), import, stats
-- `components/vault/chat-area.tsx` — messages, SSE streaming, thread dropdown (import/export/archive/delete)
-- `components/vault/bulk-import-dialog.tsx` — ZIP/JSON chunked upload + SSE progress
-- `hooks/use-chat-stream.ts` — SSE streaming hook
-- `contexts/profile-context.tsx` — active profile state + localStorage persistence
-
-### Mobile (`artifacts/memory-machine-mobile/`)
-- `app/_layout.tsx` — Clerk + SecureStore token cache + push notifications
-- `app/(tabs)/_layout.tsx` — tab bar with auth guard → /sign-in
-- `app/thread/[id].tsx` — full-screen chat with SSE, haptics, keyboard avoidance
-- `components/ImportSheet.tsx` — chunked ZIP import (5 MB slices, expo-file-system/legacy)
-- `components/OAuthButtons.tsx` — Google + Apple SSO via `useSSO()` + AntDesign brand icons
-- `contexts/ProfileContext.tsx` — active profile + AsyncStorage persistence
-
-### Backend (`artifacts/api-server/src/`)
-- `routes/` — threads, messages, settings, stats, health, import, profiles, mcp
-- `lib/grok.ts` — `streamGrokCompletion()` — xAI SSE streaming
-- `lib/memory.ts` — `retrieveMemories()` — pinned + semantic (pgvector) + recent context
-- `lib/import-stream.ts` — ZIP/JSON parser, batch DB insert, SSE progress
-- `routes/mcp.ts` — Model Context Protocol server (6 tools, Bearer token auth)
-
-## Database Schema
-
-### threads
-`id`, `userId` (Clerk), `profileId` FK, `title`, `model`, `archived`, `pinned`, `messageCount`, `memoryWeight`, `lastMessageAt`, `createdAt`, `updatedAt`
-
-### messages
-`id`, `threadId` FK (cascade delete), `role` (user|assistant|system), `content`, `isSummary`, `createdAt`
-
-### settings
-`id`, `userId` (unique), `mcpToken` (UUID, auto-generated), `defaultModel`, `maxContextMessages`
-
-### profiles
-`id`, `userId`, `name`, `emoji`, `color`, `chatProvider`, `apiKey` (per-provider keys), `defaultModel`, `maxContextMessages`, `smartRetrieval`, `topNMemories`, `alwaysIncludeLastN`, `embeddingProvider`, `memoryDateFrom/To`
-
-### embeddings
-`id`, `threadId` FK, `messageId`, `embedding` (vector), `content`
-
-## API Routes (all under /api, all require Clerk auth)
-
-| Method | Path | Description |
-|---|---|---|
-| GET | /api/threads | List threads (query: search, archived, profileId, from, to) |
-| POST | /api/threads | Create thread |
-| PATCH | /api/threads/:id | Update thread (title, archived, pinned, model) |
-| DELETE | /api/threads/:id | Delete thread + cascade messages |
-| GET | /api/threads/:id/messages | Get messages |
-| POST | /api/threads/:id/stream | Stream Grok response via SSE |
-| GET | /api/threads/:id/export | Export thread (json or markdown) |
-| POST | /api/threads/:id/import | Import messages |
-| GET | /api/messages/recent | Flat cross-thread recent messages (limit 1–200, default 40) |
-| GET/POST | /api/settings | Get / update user settings |
-| GET | /api/stats | Thread + message counts |
-| GET/POST/PATCH/DELETE | /api/profiles | Profile CRUD (auto-creates default for new users) |
-| POST | /api/import/chunk | Upload one chunk (multipart, field: "chunk") |
-| POST | /api/import/finalize | Assemble + parse + insert — streams SSE progress |
-| POST/GET | /api/mcp | MCP server (Bearer mcpToken auth, not Clerk) |
-| GET | /api/healthz | Health check |
-
-## 2WAI Integration
-
-`GET /api/messages/recent?limit=40` — the integration seam for 2WAI.
-- Auth: `Authorization: Bearer <clerk_token>` — userId from token, never from query params
-- Returns: `[{ id, threadId, role, content, createdAt, isSummary }]` newest-first, isSummary excluded
-- One-time fetch at session start; 2WAI bakes it into the Grok Voice `session.update` system prompt
-- Dev base URL: `https://27a2975e-d350-49c7-9548-409b9119a837-00-377a3utwljfz0.spock.replit.dev`
-- Zero changes needed on this side once Clerk lands on 2WAI (same tenant = same userId)
-
-## MCP Connector (Memory Bridge)
-
-Endpoint: `POST /api/mcp` — auth via `Authorization: Bearer <mcpToken>` (from Settings → Memory Bridge).
-
-Tools: `search_memories`, `search_by_date`, `list_recent_conversations`, `get_conversation`, `get_pinned_memories`, `get_memory_summary`
-
-Used by Leo (real Grok app) to actively query the vault via Grok's custom connector UI.
-
-## Grok Streaming
-
-`POST /api/threads/:id/stream` — saves user message first, then streams via SSE:
-- `{ type: "token", content }` — per-token delta
-- `{ type: "done", message }` — final saved assistant message
-- `{ type: "error", message }` — on failure (user message still saved)
-
-`maxContextMessages` setting: `0` = full history, `1–1000` = last N messages.
-
-## Bulk Import
-
-Chunked upload: client slices file (10 MB web / 5 MB mobile) → `POST /api/import/chunk` per slice → `POST /api/import/finalize` reassembles + parses + inserts in batches of 20, streaming SSE progress. Handles ZIP archives and plain JSON; supports Grok, ChatGPT, Claude export formats.
-
-## Design System
-
-- **Theme**: `#2f2f37` background, white text, `#1ad4be` neon aqua accent
-- **Neon CSS classes**: `neon-text`, `neon-text-pulse`, `neon-border`, `neon-box-pulse`, `neon-glow` (in `index.css`)
-- **Mobile**: Full-screen panel toggle on mobile (<md) — sidebar and chat each take 100vw, toggled on thread select
-
-## Auth — Social Sign-In
-
-Google and Apple sign-in are enabled on both web and mobile.
-- **Web**: Clerk prebuilt `<SignIn>`/`<SignUp>` auto-renders provider buttons — no code changes needed when toggling providers.
-- **Mobile**: `components/OAuthButtons.tsx` — uses `useSSO({ strategy })` hook with `expo-web-browser` + `expo-auth-session`. Rendered above the email/password form on both `app/sign-in.tsx` and `app/sign-up.tsx`.
-- Apple Guideline 4.8 compliant: Sign in with Apple is offered alongside Google.
-
-## EAS Build (Android APK / iOS IPA)
-
-EAS project: `@livhappierapps/the-memory-machine` (projectId: `50517425-e4fe-4baf-8967-11881ece7adb`)
-
-**Required command** (run from `artifacts/memory-machine-mobile`):
-```bash
-EXPO_TOKEN=$(printenv EXPO_TOKEN) \
-EAS_SKIP_AUTO_FINGERPRINT=1 \
-EAS_NO_VCS=1 \
-npx eas-cli build --platform android --profile preview --non-interactive --no-wait
+```sh
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm --filter @workspace/api-server test
+pnpm --filter @workspace/api-server test:unit
+pnpm --filter @workspace/api-spec codegen
+node --test tools/archive-upload/*.test.mjs scripts/tests/*.test.cjs
+pnpm --filter @workspace/memory-machine-mobile exec tsx --test utils/api-origin.test.ts
 ```
 
-Both flags are **required** in Replit's sandbox:
-- `EAS_SKIP_AUTO_FINGERPRINT=1` — prevents a post-fingerprint git write that Replit blocks
-- `EAS_NO_VCS=1` — stops EAS acquiring a git index lock (also blocked by sandbox)
+The default API tests use the configured development database and temporary fixtures. Do not point them at production. API deployment builds currently run these tests before bundling.
 
-Profiles: `development` (simulator), `preview` (internal APK/IPA), `production` (store build).
-Free Expo plan: limited monthly builds — resets 1st of each month. Upgrade at expo.dev/accounts/livhappier/settings/billing.
+Use the existing managed workflows to run previews. Never start a second Metro server for the same app. Do not directly edit artifact manifests.
 
-## Environment Secrets
+## Configuration and persistence
 
-| Secret | Used by | Notes |
-|---|---|---|
-| `SESSION_SECRET` | API server | Session signing |
-| `CLERK_PUBLISHABLE_KEY` | API server + web frontend | Web: exposed via `vite.config.ts` define. Do NOT use `publishableKeyFromHost()` — generates `clerk.localhost` URLs |
-| `CLERK_SECRET_KEY` | API server | Server-side verification |
-| `DATABASE_URL` / `PG*` | lib/db | PostgreSQL |
-| `ENCRYPTION_ROOT_SECRET` | API server | Root key for HKDF per-user AES-256-GCM field encryption. Must be in Replit **Secrets** vault (not Env tab). |
-| `EXPO_TOKEN` | EAS builds | Expo access token — generate at expo.dev → Account → Access Tokens |
+Environment **names only**:
 
-Mobile dev workflow auto-injects `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_PUBLIC_DOMAIN`.
+- API: `DATABASE_URL`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `SESSION_SECRET`, `ENCRYPTION_ROOT_SECRET`, optional `CLERK_WEBHOOK_SECRET`.
+- Web build: `VITE_CLERK_PUBLISHABLE_KEY` or `CLERK_PUBLISHABLE_KEY`, `PORT`, `BASE_PATH`.
+- Mobile build: `EXPO_PUBLIC_DOMAIN`, `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`.
 
-## Expo Package Versions (SDK 54)
-- `expo-document-picker` ~14.0.8
-- `expo-file-system` ~19.0.22 (import from `expo-file-system/legacy`)
-- `expo-notifications` ~0.32.17
+Never rotate `ENCRYPTION_ROOT_SECRET` casually: existing memories depend on it. Database backups without the correct key are insufficient.
 
-## Last Verified (July 16 2026)
-- Typecheck: 0 errors across all 5 packages ✓
-- Unit tests: 30/30 passing (api-server vitest) ✓
-- Security scan: 0 critical/high in production code ✓
-  - SAST: all findings are in `.agents/skills/` third-party scripts only — production code is clean
-  - HoundDog: 0 vulnerabilities
-  - Deps: 4 high vulns patched: `http-proxy-middleware→3.0.7`, `multer→2.2.0`, `vite→7.3.5`, `undici→6.27.0`
-- All 5 workflows running: API server, web, mobile (Metro), mockup sandbox ✓
-- `ENCRYPTION_ROOT_SECRET` confirmed in Replit Secrets vault ✓
-- Google + Apple sign-in live on web and mobile ✓
-- MCP memory bridge live at `/api/mcp` — responds 401 for missing auth (correct) ✓
-- **Expo account**: switched to `livhappierapps@gmail.com` (new account, same username). projectId `50517425-e4fe-4baf-8967-11881ece7adb` + Android keystore `JGHvHUO8uj` carried over. Update `EXPO_TOKEN` in Replit Secrets vault with the new token.
-- **APK build**: Build `fcb1b9ec` triggered Jul 16 2026 — `newArchEnabled: true`, `expo-glass-effect` removed. Track at https://expo.dev/accounts/livhappierapps/projects/the-memory-machine/builds/fcb1b9ec-bc08-4fa3-9b35-29687958aa66
+Mobile API addresses accept bare hosts or HTTPS origins, normalized centrally. Native credentials belong in secure device storage, not source or chat.
 
-## Workflows
+## Connections
 
-| Name | Command | Port |
-|---|---|---|
-| API Server | `pnpm --filter @workspace/api-server run dev` | 8080 |
-| Web (The Memory Machine) | `pnpm --filter @workspace/happier-ai-vault run dev` | 5173 |
-| Mobile (Memory Machine) | `pnpm --filter @workspace/memory-machine-mobile run dev` | Expo QR |
-| Component Preview | `pnpm --filter @workspace/mockup-sandbox run dev` | 8081 |
+The public MCP endpoint is `/api/mcp`; OAuth discovery is served under `/.well-known/`. OAuth currently validates Grok/xAI client metadata and callbacks, not arbitrary AI applications. Bearer authentication is also supported.
+
+Do not equate connecting a tool with automatic cross-app recall. The AI host must retrieve relevant memories and include them in its model context. Never promise access to a consumer chat account without a supported, authorized source.
+
+See `docs/CONNECTING-AI-APPS.md` for research and compatibility gaps, and `docs/RELEASE-READINESS.md` for current evidence and blockers. Re-check live deployment metadata before giving a production URL.
+
+## Release safety
+
+- Keep the existing mobile bundle IDs, Expo project and signing identities.
+- Local JavaScript exports do not prove native launch or successful sign-in on physical devices.
+- APKs and IPAs still depend on their backend unless offline behavior is implemented. A custom URL alone does not remove a Replit hosting dependency.
+- Native-store payments, privacy declarations, account deletion and actual device journeys require release verification.
+- Keep handoff ZIPs, original uploads, old exports and research out of deployments. Audit tracked history before open-sourcing; ignoring a file does not remove old copies.

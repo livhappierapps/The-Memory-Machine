@@ -1,9 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { threadsTable, messagesTable, profilesTable, settingsTable } from "@workspace/db";
-import { eq, and, desc, count, ilike, gte, lte, isNull } from "drizzle-orm";
+import { eq, and, desc, count, ilike, gte, lte, isNull, inArray, asc, sql } from "drizzle-orm";
 import { retrieveMemories } from "../lib/memory";
 import { isPgvectorAvailable } from "../lib/db-bootstrap";
+import { generateEmbedding } from "../lib/embeddings";
+import { resolveEmbeddingKey } from "../lib/embedding-config";
+import { DEFAULT_PROFILE_ORDER, getDefaultProfile } from "../lib/default-profile";
 import {
   CreateThreadBody,
   UpdateThreadBody,
@@ -45,29 +48,174 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
       conditions.push(eq(threadsTable.archived, query.archived));
     }
 
-    if (query.search) {
-      conditions.push(ilike(threadsTable.title, `%${query.search}%`));
-    }
+    // ── Extract filter values — used in both Drizzle conditions and vector SQL ─
+    // Parsing once here lets the vector candidate query apply the same active
+    // filters before its LIMIT, preventing valid results from being crowded out
+    // by high-scoring threads that would be excluded by an active filter anyway.
 
-    // Profile filter
     const rawProfileId = req.query.profileId as string | undefined;
-    if (rawProfileId) {
-      const pid = parseInt(rawProfileId, 10);
-      if (!isNaN(pid)) {
-        conditions.push(eq(threadsTable.profileId, pid));
-      }
+    const requestedProfileId = rawProfileId ? parseInt(rawProfileId, 10) : NaN;
+    if (!isNaN(requestedProfileId)) {
+      conditions.push(eq(threadsTable.profileId, requestedProfileId));
     }
 
-    // Date range filter
     const rawFrom = req.query.from as string | undefined;
     const rawTo = req.query.to as string | undefined;
-    if (rawFrom) {
-      const d = new Date(rawFrom);
-      if (!isNaN(d.getTime())) conditions.push(gte(threadsTable.createdAt, d));
-    }
-    if (rawTo) {
-      const d = new Date(rawTo + "T23:59:59Z");
-      if (!isNaN(d.getTime())) conditions.push(lte(threadsTable.createdAt, d));
+    const fromDate = rawFrom ? (() => { const d = new Date(rawFrom); return isNaN(d.getTime()) ? null : d; })() : null;
+    const toDate = rawTo ? (() => { const d = new Date(rawTo + "T23:59:59Z"); return isNaN(d.getTime()) ? null : d; })() : null;
+    if (fromDate) conditions.push(gte(threadsTable.createdAt, fromDate));
+    if (toDate) conditions.push(lte(threadsTable.createdAt, toDate));
+
+    const rawSource = req.query.source as string | undefined;
+    const activeSource = rawSource === "mcp" || rawSource === "chat" ? rawSource : null;
+    if (activeSource) conditions.push(eq(threadsTable.source, activeSource));
+
+    // ── Search: hybrid semantic + keyword ────────────────────────────────────
+    // Combines pgvector cosine similarity with keyword title search.
+    //
+    // Ranking:  semantic group first (by score, pin within), then keyword-only
+    //           group (pin within). A pinned keyword-only hit must NOT outrank
+    //           an unpinned semantic hit.
+    //
+    // Profile isolation: the embedding API key and vector candidate set are
+    // both scoped to the requested profile when a profileId filter is active.
+    //
+    // Filters in vector SQL: archived, date-range, and source constraints are
+    // applied inside the vector subquery before LIMIT so that high-scoring
+    // threads excluded by those filters do not consume candidate slots.
+    const SEMANTIC_SEARCH_TIMEOUT_MS = 3_000;
+    let semanticThreadIds: number[] = [];
+
+    if (query.search) {
+      const searchTerm = query.search;
+
+      if (isPgvectorAvailable()) {
+        try {
+          // Load the profile whose API key to use:
+          // - requested profile (ownership-verified) if a profileId filter was supplied
+          // - otherwise the user's default (first) profile
+          const profileRows = !isNaN(requestedProfileId)
+            ? await db
+                .select({
+                  id: profilesTable.id,
+                  apiKey: profilesTable.apiKey,
+                  openAiApiKey: profilesTable.openAiApiKey,
+                  embeddingProvider: profilesTable.embeddingProvider,
+                })
+                .from(profilesTable)
+                .where(and(eq(profilesTable.id, requestedProfileId), eq(profilesTable.userId, userId)))
+                .limit(1)
+            : await db
+                .select({
+                  id: profilesTable.id,
+                  apiKey: profilesTable.apiKey,
+                  openAiApiKey: profilesTable.openAiApiKey,
+                  embeddingProvider: profilesTable.embeddingProvider,
+                })
+                .from(profilesTable)
+                .where(eq(profilesTable.userId, userId))
+                .orderBy(...DEFAULT_PROFILE_ORDER)
+                .limit(1);
+
+          const profile = profileRows[0];
+          const [settingsRow] = await db
+            .select({ apiKey: settingsTable.apiKey })
+            .from(settingsTable)
+            .where(eq(settingsTable.userId, userId))
+            .limit(1);
+          // Provider-aware key resolution shared with retrieval/MCP: profile key →
+          // settings key → server-level key. Works even if the user has no profile.
+          const emb = resolveEmbeddingKey(userId, profile ?? null, {
+            settingsApiKey: settingsRow?.apiKey ?? null,
+          });
+
+          {
+            const apiKey = emb?.apiKey ?? null;
+            const provider = emb?.provider ?? "xai";
+            if (apiKey) {
+              // Time-bound the embedding API call: a slow or rate-limited provider
+              // must not hang the thread-list response. Timeout → keyword-only fallback.
+              const queryVec = await Promise.race([
+                generateEmbedding(searchTerm, apiKey, provider, "query"),
+                new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), SEMANTIC_SEARCH_TIMEOUT_MS),
+                ),
+              ]);
+
+              if (queryVec) {
+                const vecLiteral = `[${queryVec.join(",")}]`;
+                type SemRow = { thread_id: number };
+
+                // Build optional SQL filter fragments that mirror the active
+                // Drizzle conditions so the vector LIMIT is not wasted on threads
+                // that would be excluded by the outer query anyway.
+                const profileIdSql = !isNaN(requestedProfileId)
+                  ? sql`AND e.profile_id = ${requestedProfileId}`
+                  : sql``;
+                const archivedSql = query.archived !== undefined
+                  ? sql`AND t.archived = ${query.archived}`
+                  : sql``;
+                const fromSql = fromDate ? sql`AND t.created_at >= ${fromDate}` : sql``;
+                const toSql = toDate ? sql`AND t.created_at <= ${toDate}` : sql``;
+                const sourceSql = activeSource ? sql`AND t.source = ${activeSource}` : sql``;
+
+                const semResult = await db.execute<SemRow>(sql`
+                  SELECT thread_id
+                  FROM (
+                    SELECT DISTINCT ON (e.thread_id)
+                      e.thread_id,
+                      1 - (e.embedding <=> ${vecLiteral}::vector) AS score
+                    FROM embeddings e
+                    JOIN threads t ON t.id = e.thread_id
+                    WHERE t.user_id = ${userId}
+                      AND t.deleted_at IS NULL
+                      ${profileIdSql}
+                      ${archivedSql}
+                      ${fromSql}
+                      ${toSql}
+                      ${sourceSql}
+                    ORDER BY e.thread_id, e.embedding <=> ${vecLiteral}::vector
+                  ) best_per_thread
+                  WHERE score > 0.3
+                  ORDER BY score DESC
+                  LIMIT 40
+                `);
+                semanticThreadIds = semResult.rows.map((r) => r.thread_id);
+              }
+            }
+          }
+        } catch (err) {
+          req.log.warn({ err }, "Semantic search failed — falling back to keyword only");
+        }
+      }
+
+      // Keyword search on thread title — applies all active conditions (profile,
+      // archived, date-range, source) before scanning so filters do not
+      // silently exclude qualifying matches.  No artificial row cap: the outer
+      // query is the authoritative limit and the inArray condition keeps the
+      // result set well-bounded.
+      const titleRows = await db
+        .select({ id: threadsTable.id })
+        .from(threadsTable)
+        .where(
+          and(
+            ...conditions,
+            ilike(threadsTable.title, `%${searchTerm}%`),
+          ),
+        );
+
+      // Merge: semantic thread IDs first (meaning-aware), then keyword-only hits
+      const keywordOnlyIds = titleRows
+        .map((r) => r.id)
+        .filter((id) => !semanticThreadIds.includes(id));
+      const mergedIds = [...semanticThreadIds, ...keywordOnlyIds];
+
+      if (mergedIds.length === 0) {
+        res.json([]);
+        return;
+      }
+
+      conditions.push(inArray(threadsTable.id, mergedIds));
     }
 
     const rows = await db
@@ -76,7 +224,43 @@ router.get("/threads", requireAuth, async (req: Request, res: Response) => {
       .where(and(...conditions))
       .orderBy(desc(threadsTable.pinned), desc(threadsTable.lastMessageAt), desc(threadsTable.createdAt));
 
-    res.json(rows);
+    // ── Re-sort search results to honour semantic ranking ────────────────────
+    // Final order requirements:
+    //   1. Semantic group before keyword-only group.
+    //   2. Within the semantic group: descending vector score (the order of
+    //      semanticThreadIds from the SQL query), with pin only as a tie-break
+    //      when two results share the same score position.
+    //   3. Within the keyword-only group: pinned first, then recency (the outer
+    //      DB orderBy already satisfies this; stable sort preserves it).
+    //
+    // A pinned keyword-only hit must NOT outrank an unpinned semantic hit.
+    // A lower-similarity pinned semantic hit must NOT outrank a higher-similarity
+    // unpinned semantic hit — score is the primary ordering within the group.
+    let result = rows;
+    if (query.search && semanticThreadIds.length > 0) {
+      const semSet = new Set(semanticThreadIds);
+      // semOrder[id] = position in descending-score array (0 = best match)
+      const semOrder = new Map(semanticThreadIds.map((id, i) => [id, i]));
+      result = rows.slice().sort((a, b) => {
+        // Primary: semantic group before keyword-only group
+        const aSem = semSet.has(a.id) ? 0 : 1;
+        const bSem = semSet.has(b.id) ? 0 : 1;
+        if (aSem !== bSem) return aSem - bSem;
+
+        if (aSem === 0) {
+          // Within semantic group: score is primary (lower position index = higher score)
+          const scoreOrder = (semOrder.get(a.id) ?? 999) - (semOrder.get(b.id) ?? 999);
+          if (scoreOrder !== 0) return scoreOrder;
+          // Tie-break by pin (pinned first) then rely on stable sort for recency
+          return (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1);
+        }
+
+        // Within keyword-only group: pinned first; recency preserved by stable sort
+        return (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1);
+      });
+    }
+
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to list threads");
     res.status(500).json({ error: "Internal server error" });
@@ -134,6 +318,23 @@ router.post("/threads", requireAuth, async (req: Request, res: Response) => {
     res.status(201).json(thread);
   } catch (err) {
     req.log.error({ err }, "Failed to create thread");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Literal collection routes must precede /threads/:threadId.
+router.get("/threads/deleted", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const cutoff = new Date(Date.now() - THIRTY_DAYS_MS);
+    const rows = await db
+      .select()
+      .from(threadsTable)
+      .where(and(eq(threadsTable.userId, userId), gte(threadsTable.deletedAt, cutoff)))
+      .orderBy(desc(threadsTable.deletedAt));
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "Failed to list deleted threads");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -238,30 +439,6 @@ router.patch("/threads/:threadId/restore", requireAuth, async (req: Request, res
   }
 });
 
-// Get recently soft-deleted threads (30-day restore window)
-router.get("/threads/deleted", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = req.userId!;
-    const cutoff = new Date(Date.now() - THIRTY_DAYS_MS);
-
-    const rows = await db
-      .select()
-      .from(threadsTable)
-      .where(
-        and(
-          eq(threadsTable.userId, userId),
-          gte(threadsTable.deletedAt, cutoff),
-        ),
-      )
-      .orderBy(desc(threadsTable.deletedAt));
-
-    res.json(rows);
-  } catch (err) {
-    req.log.error({ err }, "Failed to list deleted threads");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 // Export thread
 router.get("/threads/:threadId/export", requireAuth, async (req: Request, res: Response) => {
   try {
@@ -343,15 +520,15 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       return;
     }
 
-    if (!thread.profileId) {
-      res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });
-      return;
-    }
-
-    const [profile] = await db
-      .select()
-      .from(profilesTable)
-      .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
+    // Threads without a profile (legacy rows) use the user's default profile.
+    const profile = thread.profileId
+      ? (
+          await db
+            .select()
+            .from(profilesTable)
+            .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)))
+        )[0]
+      : await getDefaultProfile(userId);
 
     if (!profile) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: false, pgvectorAvailable: isPgvectorAvailable() });
@@ -364,15 +541,10 @@ router.get("/threads/:threadId/memory-preview", requireAuth, async (req: Request
       .from(settingsTable)
       .where(eq(settingsTable.userId, userId));
 
-    // profile.apiKey / openAiApiKey are encrypted at rest — decrypt before use.
-    const embeddingProvider = profile.embeddingProvider ?? "xai";
-    const xaiApiKey =
-      (profile.apiKey ? decryptField(userId, profile.apiKey) : null) ||
-      (settings?.apiKey ? decryptField(userId, settings.apiKey) : null);
-    const embeddingApiKey =
-      (embeddingProvider === "openai" && profile.openAiApiKey
-        ? decryptField(userId, profile.openAiApiKey)
-        : null) ?? xaiApiKey;
+    // Shared provider-aware resolution (profile → settings → server key).
+    const emb = resolveEmbeddingKey(userId, profile, { settingsApiKey: settings?.apiKey ?? null });
+    const embeddingApiKey = emb?.apiKey ?? null;
+    const embeddingProvider = emb?.provider ?? "xai";
 
     if (!embeddingApiKey) {
       res.json({ sources: [], totalContextMessages: 0, smartRetrievalEnabled: profile.smartRetrieval, pgvectorAvailable: isPgvectorAvailable() });

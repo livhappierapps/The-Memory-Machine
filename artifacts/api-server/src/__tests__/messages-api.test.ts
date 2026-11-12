@@ -26,6 +26,13 @@ vi.mock("../middlewares/auth.js", () => ({
   },
 }));
 
+vi.mock("../middlewares/mcp-auth.js", () => ({
+  requireMcpOrAuth: (req: Request, _res: Response, next: NextFunction) => {
+    (req as any).userId = TEST_USER_ID;
+    next();
+  },
+}));
+
 vi.mock("../lib/ai-provider.js", () => ({
   resolveChatKey: () => "fake-test-api-key",
   streamCompletion: vi.fn(

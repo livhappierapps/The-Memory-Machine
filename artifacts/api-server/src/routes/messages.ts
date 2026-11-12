@@ -13,8 +13,12 @@ import {
   StreamMessageBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { requireMcpOrAuth } from "../middlewares/mcp-auth";
 import { streamCompletion, resolveChatKey, type ChatProvider } from "../lib/ai-provider";
 import { embedMessageAsync } from "../lib/embeddings";
+import { resolveEmbeddingKey } from "../lib/embedding-config";
+import { loadEmbeddingKeyForThread } from "../lib/embedding-keys";
+import { getDefaultProfile } from "../lib/default-profile";
 import { retrieveMemories } from "../lib/memory";
 import { maybeSummarizeAsync } from "../lib/summarizer";
 import { encryptField, decryptField } from "../lib/field-crypto";
@@ -25,8 +29,9 @@ const RecentMessagesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(40),
 });
 
-// GET /messages/recent — flat cross-thread history for 2WAI session-start context
-router.get("/messages/recent", requireAuth, async (req: Request, res: Response) => {
+// GET /messages/recent — flat cross-thread history for session-start context.
+// Accepts both Clerk sessions (web dashboard) and MCP bearer tokens (Leo mobile app).
+router.get("/messages/recent", requireMcpOrAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!;
     const parsed = RecentMessagesQuery.safeParse(req.query);
@@ -142,19 +147,11 @@ router.post("/threads/:threadId/messages", requireAuth, async (req: Request, res
     res.json({ ...message!, content: plainContent });
 
     // ── Async: embed the saved message (best-effort) ───────────────────────
-    if (thread.profileId) {
-      const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
-        .from(profilesTable)
-        .where(eq(profilesTable.id, thread.profileId));
-      // Resolve the effective embedding key: prefer openAiApiKey for openai provider,
-      // fall back to profile.apiKey. Keys are encrypted at rest — decrypt before use.
-      const provider = profile?.embeddingProvider ?? "xai";
-      const rawEmbKey = (provider === "openai" ? profile?.openAiApiKey : null) ?? profile?.apiKey ?? null;
-      const embKey = rawEmbKey ? decryptField(userId, rawEmbKey) : null;
-      if (embKey) {
+    {
+      const emb = await loadEmbeddingKeyForThread(userId, thread.profileId);
+      if (emb) {
         // Embedding uses plaintext content
-        embedMessageAsync(message!.id, params.data.threadId, thread.profileId, plainContent, embKey, provider);
+        embedMessageAsync(message!.id, params.data.threadId, thread.profileId ?? null, plainContent, emb.apiKey, emb.provider);
       }
     }
   } catch (err) {
@@ -196,6 +193,10 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
         .from(profilesTable)
         .where(and(eq(profilesTable.id, thread.profileId), eq(profilesTable.userId, userId)));
       if (p) profile = p;
+    } else {
+      // Legacy threads without a profile use the user's default profile for
+      // chat settings and memory retrieval (shared helper).
+      profile = await getDefaultProfile(userId);
     }
 
     const [settings] = await db
@@ -232,6 +233,9 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     const rawAnthropicKey = profile?.anthropicApiKey ? decryptField(userId, profile.anthropicApiKey) : null;
     const rawGoogleKey = profile?.googleApiKey ? decryptField(userId, profile.googleApiKey) : null;
     const rawSettingsApiKey = settings?.apiKey ? decryptField(userId, settings.apiKey) : null;
+    const embeddingKeyFor = resolveEmbeddingKey(userId, profile ?? null, {
+      settingsApiKey: settings?.apiKey ?? null,
+    });
 
     const apiKey = resolveChatKey(
       chatProvider,
@@ -293,23 +297,15 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
 
     if (profile && (smartRetrieval || alwaysIncludeLastN > 0)) {
       try {
-        // Resolve the key to use for embedding the query (may differ from chat key)
-        const embeddingProvider = profile.embeddingProvider ?? "xai";
-        const resolvedOpenAiKey = embeddingProvider === "openai" ? rawOpenAiKey : null;
-        if (embeddingProvider === "openai" && !resolvedOpenAiKey) {
-          req.log.warn(
-            { profileId: profile.id },
-            "embeddingProvider=openai but no openAiApiKey configured — semantic retrieval will fall back to Grok key against OpenAI endpoint and likely fail; auto-falling back to xAI provider for this request",
-          );
-        }
-        // For xAI embeddings, use profile.apiKey (the dedicated xAI key),
-        // not the chat key (which may be Anthropic/Google for this profile).
-        const embeddingApiKey = resolvedOpenAiKey ?? rawProfileApiKey ?? rawSettingsApiKey ?? "";
-        const effectiveProvider = embeddingProvider === "openai" && !resolvedOpenAiKey ? "xai" : embeddingProvider;
-        if (!embeddingApiKey) {
-          req.log.warn({ profileId: profile.id, embeddingProvider }, "No embedding API key — skipping smart retrieval");
+        // Resolve the key to use for embedding the query (independent of the
+        // chat key, which may be Anthropic/Google). Falls back to the server key.
+        const emb = embeddingKeyFor;
+        if (!emb) {
+          req.log.warn({ profileId: profile.id }, "No embedding API key — skipping smart retrieval");
           throw new Error("no-embedding-key");
         }
+        const embeddingApiKey = emb.apiKey;
+        const effectiveProvider = emb.provider;
 
         const memoryResult = await retrieveMemories({
           profileId: profile.id,
@@ -452,15 +448,14 @@ router.post("/threads/:threadId/stream", requireAuth, async (req: Request, res: 
     res.end();
 
     // ── Async: generate embeddings for user + assistant messages ──────────
-    const embeddingProvider = profile?.embeddingProvider ?? "xai";
-    // Embedding key is independent of chat provider:
-    // openai embeddings → openAiApiKey; xai embeddings → profile.apiKey (xAI key), not the chat key.
-    const embeddingKey =
-      (embeddingProvider === "openai" ? rawOpenAiKey : null) ?? rawProfileApiKey ?? rawSettingsApiKey ?? "";
+    // Embedding key is independent of chat provider (see resolveEmbeddingKey).
     // Embeddings always use plaintext content
-    embedMessageAsync(userMsg!.id, params.data.threadId, thread.profileId ?? null, plainUserContent, embeddingKey, embeddingProvider);
-    if (fullContent) {
-      embedMessageAsync(assistantMsg!.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);
+    if (embeddingKeyFor) {
+      const { apiKey: embeddingKey, provider: embeddingProvider } = embeddingKeyFor;
+      embedMessageAsync(userMsg!.id, params.data.threadId, thread.profileId ?? null, plainUserContent, embeddingKey, embeddingProvider);
+      if (fullContent) {
+        embedMessageAsync(assistantMsg!.id, params.data.threadId, thread.profileId ?? null, fullContent, embeddingKey, embeddingProvider);
+      }
     }
 
     // ── Async: summarize thread if it has grown long enough ───────────────
@@ -599,23 +594,16 @@ router.post("/threads/:threadId/import", requireAuth, async (req: Request, res: 
     });
 
     // ── Async: embed imported messages (best-effort) ───────────────────────
-    if (thread.profileId) {
-      const [profile] = await db
-        .select({ apiKey: profilesTable.apiKey, embeddingProvider: profilesTable.embeddingProvider, openAiApiKey: profilesTable.openAiApiKey })
-        .from(profilesTable)
-        .where(eq(profilesTable.id, thread.profileId));
-      // Resolve effective embedding key (openAiApiKey for openai provider, else profile.apiKey)
-      const provider = profile?.embeddingProvider ?? "xai";
-      const rawProfileKey = profile?.apiKey ? decryptField(userId, profile.apiKey) : null;
-      const rawOpenAiKey = profile?.openAiApiKey ? decryptField(userId, profile.openAiApiKey) : null;
-      const embKey = (provider === "openai" ? rawOpenAiKey : null) ?? rawProfileKey;
-      if (embKey) {
+    {
+      const emb = await loadEmbeddingKeyForThread(userId, thread.profileId);
+      if (emb) {
+        const { apiKey: embKey, provider } = emb;
         // Embed using plaintext content (parsedMessages[i].content, not the encrypted DB form)
         for (let i = 0; i < inserted.length; i++) {
           const msg = inserted[i]!;
           const plain = parsedMessages[i]!.content;
           if (msg.role === "user" || msg.role === "assistant") {
-            embedMessageAsync(msg.id, params.data.threadId, thread.profileId, plain, embKey, provider);
+            embedMessageAsync(msg.id, params.data.threadId, thread.profileId ?? null, plain, embKey, provider);
           }
         }
       }

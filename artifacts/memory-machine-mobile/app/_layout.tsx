@@ -7,6 +7,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ShareIntentProvider } from "expo-share-intent";
 import { Stack } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
@@ -19,10 +20,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { IncomingShareProvider } from "@/contexts/IncomingShareContext";
+import { ImportProvider } from "@/contexts/ImportContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { Sentry } from "../sentry";
+import { resolveApiOrigin } from "@/utils/api-origin";
 
+// Persist Clerk sessions to secure storage so users stay logged in across
+// app restarts and cold launches on real devices.
 const tokenCache = {
   async getToken(key: string) {
     try {
@@ -35,7 +40,7 @@ const tokenCache = {
     try {
       await SecureStore.setItemAsync(key, value);
     } catch {
-      // ignore
+      // ignore — don't crash if secure store is unavailable
     }
   },
   async clearToken(key: string) {
@@ -47,13 +52,8 @@ const tokenCache = {
   },
 };
 
-function resolveApiBase(): string {
-  const raw = (process.env["EXPO_PUBLIC_DOMAIN"] ?? "the-memory-machine.replit.app").trim();
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw.replace(/\/$/, "");
-  return `https://${raw}`;
-}
-
-setBaseUrl(resolveApiBase());
+// Point all generated hooks at the remote API server.
+setBaseUrl(resolveApiOrigin(process.env["EXPO_PUBLIC_DOMAIN"]));
 
 SplashScreen.preventAutoHideAsync();
 
@@ -93,7 +93,7 @@ function RootLayoutNav() {
   );
 }
 
-function RootLayout() {
+export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -115,24 +115,42 @@ function RootLayout() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#2f2f37" }}>
-      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-        <AuthSetup />
-        <SafeAreaProvider>
-          <ErrorBoundary>
-            <QueryClientProvider client={queryClient}>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <KeyboardProvider>
-                  <ProfileProvider>
-                    <RootLayoutNav />
-                  </ProfileProvider>
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </QueryClientProvider>
-          </ErrorBoundary>
-        </SafeAreaProvider>
-      </ClerkProvider>
+      {/* ShareIntentProvider must wrap everything so useShareIntentContext
+          is available in any screen (required for Expo Router apps). */}
+      <ShareIntentProvider
+        options={{
+          scheme: "thememorymachinemobile",
+          // Keep the intent alive when the user briefly backgrounds the app
+          // so it isn't lost before the import sheet opens.
+          resetOnBackground: false,
+        }}
+      >
+        {/* IncomingShareProvider must sit inside ShareIntentProvider but
+            outside the auth guard so a ZIP shared while logged out is
+            captured before the app redirects to sign-in.  After sign-in
+            the tab layout reads the pending file from context and opens
+            the ImportSheet automatically. */}
+        <IncomingShareProvider>
+          <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+            <AuthSetup />
+            <SafeAreaProvider>
+              <ErrorBoundary>
+                <QueryClientProvider client={queryClient}>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <KeyboardProvider>
+                      <ProfileProvider>
+                        <ImportProvider>
+                          <RootLayoutNav />
+                        </ImportProvider>
+                      </ProfileProvider>
+                    </KeyboardProvider>
+                  </GestureHandlerRootView>
+                </QueryClientProvider>
+              </ErrorBoundary>
+            </SafeAreaProvider>
+          </ClerkProvider>
+        </IncomingShareProvider>
+      </ShareIntentProvider>
     </View>
   );
 }
-
-export default Sentry.wrap(RootLayout);

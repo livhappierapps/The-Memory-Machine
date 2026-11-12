@@ -5,6 +5,7 @@ import { threadsTable, messagesTable } from "@workspace/db";
 import { encryptField, decryptField } from "./field-crypto";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { logger } from "./logger";
+import { embedThreadAsync } from "./thread-embeddings";
 
 /** Minimum number of messages in a thread before we attempt summarization. */
 const SUMMARIZE_THRESHOLD = 20;
@@ -107,6 +108,8 @@ export async function maybeSummarizeThread(
     });
 
     logger.info({ threadId }, "Thread summary generated and stored");
+    // Refresh the thread-level (title + summary) embedding; best-effort.
+    embedThreadAsync(userId, threadId);
   } catch (err) {
     logger.warn({ err, threadId }, "maybeSummarizeThread failed");
   }

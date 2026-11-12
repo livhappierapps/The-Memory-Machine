@@ -13,8 +13,8 @@ catalog:
   '@tailwindcss/vite': ^4.1.14
   '@tanstack/react-query': ^5.90.21
   '@types/node': ^25.3.3
-  '@types/react': ^19.2.0
-  '@types/react-dom': ^19.2.0
+  '@types/react': ~19.1.10
+  '@types/react-dom': ~19.1.7
   '@vitejs/plugin-react': ^5.0.4
   class-variance-authority: ^0.7.1
   clsx: ^2.1.1
@@ -26,9 +26,15 @@ catalog:
   tailwind-merge: ^3.3.1
   tailwindcss: ^4.1.14
   tsx: ^4.21.0
-  vite: ^7.3.5
+  vite: ^7.3.7
   wouter: ^3.3.5
-  zod: 3.25.76
+  zod: ^4.6.7
+
+minimumReleaseAge: 1440
+
+minimumReleaseAgeExclude:
+  - '@replit/*'
+  - stripe-replit-sync
 
 onlyBuiltDependencies:
   - '@swc/core'
@@ -58,8 +64,20 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  brace-expansion: '>=5.0.6'
-  esbuild: 0.27.3
+  '@babel/core': ^7.29.6
+  '@hono/node-server': ^1.19.18
+  '@modelcontextprotocol/sdk': ^1.32.1
+  '@vitest/mocker': ^4.1.12
+  '@xmldom/xmldom@^0.8': ^0.8.15
+  '@xmldom/xmldom@^0.9': ^0.9.12
+  body-parser: ^2.4.0
+  brace-expansion: ^5.0.12
+  'minimatch@<4>brace-expansion': ^1.1.21
+  'minimatch@>=4 <10>brace-expansion': ^2.1.7
+  browserslist: ^4.28.7
+  compression: ^1.8.2
+  decode-uri-component: ^0.5.1
+  esbuild: ^0.28.2
   esbuild>@esbuild/aix-ppc64: '-'
   esbuild>@esbuild/android-arm: '-'
   esbuild>@esbuild/android-arm64: '-'
@@ -95,11 +113,33 @@ overrides:
   lightningcss>lightningcss-linux-x64-musl: '-'
   lightningcss>lightningcss-win32-arm64-msvc: '-'
   lightningcss>lightningcss-win32-x64-msvc: '-'
-  fast-uri: '>=3.1.2'
+  fast-copy: ^4.1.0
+  fast-uri: ^3.1.9
+  follow-redirects: ^1.16.2
+  form-data: ^4.0.6
+  hono: '>=4.13.7'
+  http-cache-semantics: ^4.3.0
+  image-size: ^2.0.4
+  metro>image-size: 1.2.1
+  ip-address: ^10.7.1
+  js-cookie: ^3.0.7
+  js-yaml@^3: ^3.15.2
+  js-yaml@^4: ^4.3.2
+  # This consumer uses load(), which is compatible with v4. Avoid its legacy
+  # argparse -> sprintf-js chain (GHSA-hp3w-g68c-fv3c has no patched release).
+  '@istanbuljs/load-nyc-config>js-yaml': ^4.3.2
+  linkify-it: ^5.0.2
   lodash: ^4.18.1
+  markdown-it: ^14.3.1
+  multer: ^2.5.0
+  node-forge: ^1.4.3
+  nanoid@^3: ^3.3.18
   path-to-regexp: ^8.4.2
   picomatch: '>=4.0.4'
-  postcss: '>=8.5.10'
+  postcss: ^8.5.23
+  postcss-selector-parser@^6: ^7.1.6
+  proxy-addr: ^2.0.8
+  qs: ^6.16.1
   rollup>@rollup/rollup-android-arm-eabi: '-'
   rollup>@rollup/rollup-android-arm64: '-'
   rollup>@rollup/rollup-darwin-arm64: '-'
@@ -124,11 +164,12 @@ overrides:
   rollup>@rollup/rollup-win32-ia32-msvc: '-'
   rollup>@rollup/rollup-win32-x64-gnu: '-'
   rollup>@rollup/rollup-win32-x64-msvc: '-'
+  shell-quote: ^1.9.0
+  source-map-js: ^1.2.2
+  tar: ^7.5.21
+  undici: ^6.29.1
+  vite: ^7.3.7
   yaml: '>=2.8.3'
   uuid: '>=11.1.1'
   ws: '>=8.21.0'
-  hono: '>=4.12.25'
-  js-cookie: '>=3.0.7'
-  qs: '>=6.15.2'
   http-proxy-middleware: '>=3.0.7'
-  undici: '^6.27.0'

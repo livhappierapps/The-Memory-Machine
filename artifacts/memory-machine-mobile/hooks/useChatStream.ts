@@ -3,6 +3,7 @@ import { fetch as expoFetch } from "expo/fetch";
 import { useCallback, useRef, useState } from "react";
 
 import type { Message } from "@workspace/api-client-react";
+import { resolveApiOrigin } from "@/utils/api-origin";
 
 interface UseChatStreamOptions {
   threadId: number;
@@ -43,7 +44,7 @@ export function useChatStream({ threadId, onMessageSaved }: UseChatStreamOptions
 
       try {
         const token = await getToken();
-        const baseUrl = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}`;
+        const baseUrl = resolveApiOrigin(process.env["EXPO_PUBLIC_DOMAIN"]);
 
         const response = await expoFetch(`${baseUrl}/api/threads/${threadId}/stream`, {
           method: "POST",

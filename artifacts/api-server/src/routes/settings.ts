@@ -7,6 +7,8 @@ import { requireAuth } from "../middlewares/auth";
 import { randomUUID } from "crypto";
 import { encryptField, decryptField, sha256Hex } from "../lib/field-crypto";
 
+import { getDefaultProfile } from "../lib/default-profile";
+
 const router: IRouter = Router();
 
 /**
@@ -19,7 +21,7 @@ function getDisplayToken(userId: string, encrypted: string | null): string | nul
   return decryptField(userId, encrypted);
 }
 
-async function getOrCreateSettings(userId: string) {
+export async function getOrCreateSettings(userId: string) {
   let [settings] = await db
     .select()
     .from(settingsTable)
@@ -61,17 +63,6 @@ async function getOrCreateSettings(userId: string) {
   }
 
   return settings;
-}
-
-// Return the user's first (default) profile, if any
-async function getDefaultProfile(userId: string) {
-  const [profile] = await db
-    .select()
-    .from(profilesTable)
-    .where(eq(profilesTable.userId, userId))
-    .orderBy(asc(profilesTable.createdAt))
-    .limit(1);
-  return profile ?? null;
 }
 
 function formatSettings(

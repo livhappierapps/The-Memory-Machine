@@ -14,7 +14,6 @@ on:
         type: choice
         options:
           - memory-machine-mobile
-          - leo-app
       profile:
         description: EAS build profile
         required: true

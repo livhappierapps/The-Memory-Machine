@@ -13,12 +13,27 @@
  *     message_id  integer NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
  *     thread_id   integer NOT NULL REFERENCES threads(id)  ON DELETE CASCADE,
  *     profile_id  integer REFERENCES profiles(id) ON DELETE SET NULL,
- *     embedding   vector(1536) NOT NULL,
+ *     embedding   vector(EMBEDDING_DIM) NOT NULL,   -- default 1536; see api-server lib/embedding-config.ts
  *     created_at  timestamptz  NOT NULL DEFAULT now()
  *   );
  *   CREATE INDEX ON embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
  *   CREATE INDEX ON embeddings (thread_id);
  *   CREATE INDEX ON embeddings (profile_id);
+ *
+ * Startup sweep failure markers (also provisioned by db-bootstrap.ts):
+ *   CREATE TABLE embed_attempts (
+ *     message_id integer NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ *     model_key  text    NOT NULL DEFAULT 'legacy',   -- provider:model:dim
+ *     embed_failed_at timestamptz NOT NULL DEFAULT now(),
+ *     http_status integer NOT NULL CHECK (
+ *       http_status >= 400 AND http_status < 500 AND http_status <> 429
+ *     ),
+ *     PRIMARY KEY (message_id, model_key)
+ *   );
+ * Markers only exclude a message for the model_key they were recorded under,
+ * and auth/wrong-model errors (401/402/403/404, dimension mismatch) are never
+ * recorded per message.
+ * No dummy vectors are stored for permanent failures.
  */
 
 // Re-exported so the schema index stays consistent; no Drizzle table object

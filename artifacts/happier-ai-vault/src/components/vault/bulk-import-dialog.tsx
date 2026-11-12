@@ -13,7 +13,7 @@
  *   done      → success summary
  *   error     → error message with retry
  */
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/react";
 import { getListThreadsQueryKey, getGetStatsQueryKey } from "@workspace/api-client-react";
 import { FileArchive, CheckCircle2, AlertCircle, Loader2, Info, WifiOff } from "lucide-react";
+import { useProfile } from "@/contexts/profile-context";
+import {
+  getImportRequestError,
+  makeImportRequestInit,
+  requireImportAuthToken,
+} from "@/lib/import-request";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -90,6 +96,11 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
   }, []);
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
+  const { activeProfileId } = useProfile();
+  // Keep a ref so processFile always reads the *current* activeProfileId even
+  // though the callback is memoized and was created before profiles loaded.
+  const activeProfileIdRef = useRef(activeProfileId);
+  useEffect(() => { activeProfileIdRef.current = activeProfileId; }, [activeProfileId]);
 
   const resetState = () => {
     abortRef.current = null;
@@ -144,12 +155,8 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
       const uploadId = crypto.randomUUID();
       const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-      // Helper: get a fresh Clerk JWT right before each request so a long
-      // upload on a slow connection never hits a 401 from an expired token.
-      const authHeader = async (): Promise<Record<string, string>> => {
-        const token = await getToken();
-        return token ? { Authorization: `Bearer ${token}` } : {};
-      };
+      // Check the session before starting a potentially long upload.
+      const initialToken = requireImportAuthToken(await getToken());
 
       setPhaseSync("uploading");
       setUploadProgress({ chunk: 0, total: totalChunks });
@@ -169,18 +176,21 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
           fd.append("chunkIndex", String(i));
           fd.append("totalChunks", String(totalChunks));
 
-          // Fetch a fresh token every chunk — slow connections outlast cookie TTL
+          // Fetch a fresh token every chunk — slow uploads can outlast cookie TTL.
+          const token = requireImportAuthToken(i === 0 ? initialToken : await getToken());
           const resp = await fetch(`${basePath}/api/import/chunk`, {
-            method: "POST",
-            body: fd,
-            credentials: "include",
-            headers: await authHeader(),
-            signal: controller.signal,
+            ...makeImportRequestInit(fd, controller.signal, undefined, token),
           });
 
           if (!resp.ok) {
             const body = await resp.json().catch(() => ({ error: "Chunk upload failed" }));
-            throw new Error((body as { error?: string }).error ?? `Upload error ${resp.status}`);
+            throw new Error(
+              getImportRequestError(
+                resp.status,
+                (body as { error?: string }).error,
+                `Upload error ${resp.status}`,
+              ),
+            );
           }
 
           setUploadProgress({ chunk: i + 1, total: totalChunks });
@@ -190,17 +200,25 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         setPhaseSync("processing");
         setSavedCount(0);
 
+        const finalizeToken = requireImportAuthToken(await getToken());
         const processResp = await fetch(`${basePath}/api/import/finalize`, {
-          method: "POST",
-          body: JSON.stringify({ uploadId, totalChunks, isZip }),
-          headers: { "Content-Type": "application/json", ...(await authHeader()) },
-          credentials: "include",
-          signal: controller.signal,
+          ...makeImportRequestInit(
+            JSON.stringify({ uploadId, totalChunks, isZip, profileId: activeProfileIdRef.current }),
+            controller.signal,
+            "application/json",
+            finalizeToken,
+          ),
         });
 
         if (!processResp.ok) {
           const body = await processResp.json().catch(() => ({ error: "Processing failed" }));
-          throw new Error((body as { error?: string }).error ?? `Server error ${processResp.status}`);
+          throw new Error(
+            getImportRequestError(
+              processResp.status,
+              (body as { error?: string }).error,
+              `Server error ${processResp.status}`,
+            ),
+          );
         }
 
         if (!processResp.body) throw new Error("No response stream from server");
@@ -289,7 +307,7 @@ export function BulkImportDialog({ open, onOpenChange }: BulkImportDialogProps) 
         setPhaseSync("error");
       }
     },
-    [queryClient, getToken],
+    [getToken, queryClient],
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

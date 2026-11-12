@@ -32,6 +32,10 @@ export const ListThreadsQueryParams = zod.object({
     .number()
     .optional()
     .describe("Filter threads by profile ID"),
+  source: zod
+    .enum(["chat", "mcp"])
+    .optional()
+    .describe("Filter threads by source ('chat' or 'mcp')"),
 });
 
 export const ListThreadsResponseItem = zod.object({
@@ -44,6 +48,11 @@ export const ListThreadsResponseItem = zod.object({
   model: zod.string(),
   messageCount: zod.number(),
   memoryWeight: zod.number(),
+  source: zod
+    .enum(["chat", "mcp"])
+    .describe(
+      "Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes",
+    ),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -76,6 +85,11 @@ export const GetThreadResponse = zod.object({
   model: zod.string(),
   messageCount: zod.number(),
   memoryWeight: zod.number(),
+  source: zod
+    .enum(["chat", "mcp"])
+    .describe(
+      "Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes",
+    ),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -105,6 +119,11 @@ export const UpdateThreadResponse = zod.object({
   model: zod.string(),
   messageCount: zod.number(),
   memoryWeight: zod.number(),
+  source: zod
+    .enum(["chat", "mcp"])
+    .describe(
+      "Origin of the thread: 'chat' for normal conversations, 'mcp' for Leo-saved notes",
+    ),
   lastMessageAt: zod.string().nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
@@ -291,6 +310,11 @@ export const GetSettingsResponse = zod.object({
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
   mcpToken: zod.string().nullable(),
+  paymentStatus: zod
+    .string()
+    .describe(
+      "Account payment status. Any value other than active displays a payment warning.",
+    ),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -310,6 +334,11 @@ export const UpdateSettingsResponse = zod.object({
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
   mcpToken: zod.string().nullable(),
+  paymentStatus: zod
+    .string()
+    .describe(
+      "Account payment status. Any value other than active displays a payment warning.",
+    ),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -323,6 +352,11 @@ export const GenerateMcpTokenResponse = zod.object({
   defaultModel: zod.string(),
   maxContextMessages: zod.number(),
   mcpToken: zod.string().nullable(),
+  paymentStatus: zod
+    .string()
+    .describe(
+      "Account payment status. Any value other than active displays a payment warning.",
+    ),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -330,6 +364,13 @@ export const GenerateMcpTokenResponse = zod.object({
 /**
  * @summary Get overall vault stats
  */
+export const GetStatsQueryParams = zod.object({
+  profileId: zod.coerce
+    .number()
+    .optional()
+    .describe("Scope stats to a single profile ID"),
+});
+
 export const GetStatsResponse = zod.object({
   totalThreads: zod.number(),
   activeThreads: zod.number(),
@@ -339,6 +380,18 @@ export const GetStatsResponse = zod.object({
   assistantMessages: zod.number(),
   oldestThreadAt: zod.string().nullish(),
   newestThreadAt: zod.string().nullish(),
+  profiles: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        name: zod.string(),
+        emoji: zod.string(),
+        color: zod.string(),
+        threadCount: zod.number(),
+        messageCount: zod.number(),
+      }),
+    )
+    .optional(),
 });
 
 /**

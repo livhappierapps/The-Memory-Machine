@@ -1,108 +1,33 @@
+# Optional external CI. Nothing here has been triggered by source preparation.
+# Running hosted CI may consume the account's build allowance.
 workflows:
-  leo-android-apk:
-    name: Leo App — Android APK
+  memory-machine-android-test-apk:
+    name: Memory Machine — standalone Android test APK
     max_build_duration: 60
     environment:
       node: 20.19.0
       java: 17
-      vars:
-        CI: "1"
-        EXPO_NO_TELEMETRY: "1"
-    cache:
-      cache_paths:
-        - $HOME/.pnpm-store
-        - $CM_BUILD_DIR/artifacts/leo-app/node_modules
-    scripts:
-      - name: Enable Corepack (use repo pnpm, do not npm -g)
-        script: |
-          corepack enable
-          corepack prepare pnpm@9.15.9 --activate
-          pnpm --version
-
-      - name: Install workspace dependencies
-        script: |
-          pnpm install --no-frozen-lockfile
-
-      - name: Expo prebuild
-        script: |
-          cd artifacts/leo-app
-          # --no-install: do not prompt "Install the updated dependencies?"
-          npx expo prebuild --platform android --clean --no-install
-          cd ../..
-          pnpm install --no-frozen-lockfile
-
-      - name: Patch packaging and sign release with debug keystore
-        script: |
-          cd artifacts/leo-app
-          python3 ../../scripts/patch-android-packaging.py
-
-      - name: Build release APK (embeds JS bundle)
-        script: |
-          cd artifacts/leo-app/android
-          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
-
-    artifacts:
-      - artifacts/leo-app/android/app/build/outputs/apk/release/app-release.apk
-
-    publishing:
-      email:
-        recipients:
-          - livhappierapps@gmail.com
-        notify:
-          success: true
-          failure: true
-
-  android-apk:
-    name: Memory Machine — Android APK
-    max_build_duration: 60
-    environment:
-      node: 20.19.0
-      java: 17
-      vars:
-        CI: "1"
-        EXPO_NO_TELEMETRY: "1"
-        EXPO_PUBLIC_DOMAIN: the-memory-machine.replit.app
-        EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_dGVuZGVyLWZhd24tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA
       groups:
         - memory_machine
-    cache:
-      cache_paths:
-        - $HOME/.pnpm-store
-        - $CM_BUILD_DIR/node_modules/.cache
+      vars:
+        EXPO_PUBLIC_DOMAIN: the-memory-machine.replit.app
     scripts:
-      - name: Enable Corepack (use repo pnpm, do not npm -g)
+      - name: Install dependencies
         script: |
           corepack enable
-          corepack prepare pnpm@9.15.9 --activate
-          pnpm --version
-
-      - name: Install workspace dependencies
-        script: pnpm install --no-frozen-lockfile
-
-      - name: Expo prebuild (generate android/ folder)
+          corepack prepare pnpm@10.26.1 --activate
+          pnpm install --frozen-lockfile
+      - name: Check source
+        script: pnpm run typecheck
+      - name: Generate native Android project
         script: |
           cd artifacts/memory-machine-mobile
-          npx expo prebuild --platform android --clean --no-install
-          cd ../..
-          pnpm install --no-frozen-lockfile
-
-      - name: Patch packaging and sign release with debug keystore
-        script: |
-          cd artifacts/memory-machine-mobile
-          python3 ../../scripts/patch-android-packaging.py
-
-      - name: Build release APK (embeds JS bundle)
+          npx expo prebuild --platform android --clean
+      - name: Build bundled test APK
         script: |
           cd artifacts/memory-machine-mobile/android
-          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
-
+          # A debug APK normally needs Metro; release embeds its JavaScript.
+          # Expo's generated debug signing is for testing, NOT a store release.
+          ./gradlew assembleRelease --no-daemon
     artifacts:
-      - artifacts/memory-machine-mobile/android/app/build/outputs/apk/release/app-release.apk
-
-    publishing:
-      email:
-        recipients:
-          - livhappierapps@gmail.com
-        notify:
-          success: true
-          failure: true
+      - artifacts/memory-machine-mobile/android/app/build/outputs/apk/release/*.apk

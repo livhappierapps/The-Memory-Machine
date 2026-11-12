@@ -6,6 +6,7 @@ import settingsRouter from "./settings";
 import statsRouter from "./stats";
 import importRouter from "./import";
 import mcpRouter from "./mcp";
+import oauthRouter from "./oauth";
 import profilesRouter from "./profiles";
 import deletionRequestsRouter from "./deletion-requests";
 import securityRouter from "./security";
@@ -22,6 +23,7 @@ router.use(settingsRouter);
 router.use(statsRouter);
 router.use(importRouter);
 router.use(mcpRouter);
+router.use(oauthRouter);
 router.use(deletionRequestsRouter);
 router.use(securityRouter);
 

@@ -13,8 +13,13 @@
  *  6. Frontend → 302 to redirect_uri?code=CODE&state=STATE
  *  7. Grok → POST /api/oauth/token  { grant_type=authorization_code, code, code_verifier,
  *                                     client_id, redirect_uri }
- *  8. Server verifies PKCE, returns { access_token: mcpToken, token_type: "Bearer" }
+ *  8. Server verifies PKCE, returns { access_token: mcpToken, token_type: "Bearer",
+ *                                     expires_in, refresh_token, scope }
  *  9. Grok uses Bearer <mcpToken> for all MCP calls → works with existing auth ✓
+ * 10. When the access token is due, Grok → POST /api/oauth/token
+ *        { grant_type=refresh_token, refresh_token, client_id[, scope] }
+ *     and gets a fresh access token plus a NEW (rotated) refresh token.
+ *     See lib/oauth-refresh-store.ts for rotation and reuse detection.
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -28,6 +33,13 @@ import { logger } from "../lib/logger";
 import { isAllowedOAuthClient, isAllowedOAuthRedirectUri, isValidPkceChallenge } from "../lib/oauth-validation";
 import { consumeAuthorizationCode, storeAuthorizationCode } from "../lib/oauth-code-store";
 import { MCP_RESOURCE } from "../lib/mcp-oauth-config";
+import {
+  ACCESS_TOKEN_EXPIRES_IN,
+  OAUTH_SCOPES,
+  issueRefreshToken,
+  rotateRefreshToken,
+  sqlRefreshTokenRepository,
+} from "../lib/oauth-refresh-store";
 import { getOrCreateSettings } from "./settings";
 
 const router: IRouter = Router();
@@ -150,9 +162,31 @@ router.post("/oauth/code", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// The access_token handed to OAuth clients IS the user's mcpToken, so the
+// existing MCP bearer auth keeps working unchanged.
+async function loadAccessToken(userId: string): Promise<string | null> {
+  const [settings] = await db
+    .select({ mcpToken: settingsTable.mcpToken, userId: settingsTable.userId })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  if (!settings?.mcpToken) return null;
+  return decryptField(userId, settings.mcpToken);
+}
+
+function tokenResponse(accessToken: string, refreshToken: string, scope: readonly string[]) {
+  return {
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: ACCESS_TOKEN_EXPIRES_IN,
+    refresh_token: refreshToken,
+    scope: scope.join(" "),
+  };
+}
+
 // ── POST /api/oauth/token ─────────────────────────────────────────────────────
-// Grok exchanges the auth code + code_verifier for an access token.
-// The returned access_token is the user's mcpToken — works with existing MCP auth.
+// grant_type=authorization_code: exchange the auth code + code_verifier.
+// grant_type=refresh_token: rotate a refresh token (public clients, OAuth 2.1).
 router.post("/oauth/token", async (req: Request, res: Response) => {
   setCorsHeaders(res);
 
@@ -168,6 +202,28 @@ router.post("/oauth/token", async (req: Request, res: Response) => {
     res.setHeader("Pragma", "no-cache");
     if (body.resource && body.resource !== MCP_RESOURCE) {
       res.status(400).json({ error: "invalid_target" });
+      return;
+    }
+
+    if (grant_type === "refresh_token") {
+      const refresh_token = typeof body.refresh_token === "string" ? body.refresh_token : "";
+      if (!refresh_token || !client_id) {
+        res.status(400).json({ error: "invalid_request", error_description: "refresh_token and client_id are required" });
+        return;
+      }
+      const outcome = await rotateRefreshToken(sqlRefreshTokenRepository, {
+        refreshToken: refresh_token,
+        clientId: client_id,
+        requestedScope: body.scope,
+        loadAccessToken,
+      });
+      if (!outcome.ok) {
+        logger.warn({ clientId: client_id, reason: outcome.description }, "OAuth refresh rejected");
+        res.status(400).json({ error: outcome.error, error_description: outcome.description });
+        return;
+      }
+      logger.info({ userId: outcome.userId, clientId: outcome.clientId }, "OAuth token refreshed");
+      res.json(tokenResponse(outcome.accessToken, outcome.refreshToken, outcome.scope));
       return;
     }
 
@@ -215,27 +271,23 @@ router.post("/oauth/token", async (req: Request, res: Response) => {
       }
     }
 
-    // Fetch the user's MCP token (the access_token we return IS the mcpToken)
-    const [settings] = await db
-      .select({ mcpToken: settingsTable.mcpToken, userId: settingsTable.userId })
-      .from(settingsTable)
-      .where(eq(settingsTable.userId, entry.userId))
-      .limit(1);
-
-    if (!settings?.mcpToken) {
+    const accessToken = await loadAccessToken(entry.userId);
+    if (!accessToken) {
       res.status(500).json({ error: "server_error", error_description: "No MCP token found for user" });
       return;
     }
 
-    const accessToken = decryptField(entry.userId, settings.mcpToken);
+    const scope = [...OAUTH_SCOPES];
+    const refreshToken = await issueRefreshToken(sqlRefreshTokenRepository, {
+      userId: entry.userId,
+      clientId: entry.clientId,
+      scope,
+      accessToken,
+    });
 
     logger.info({ userId: entry.userId, clientId: entry.clientId }, "OAuth token issued");
 
-    res.json({
-      access_token: accessToken,
-      token_type: "Bearer",
-      scope: "memories:read memories:write",
-    });
+    res.json(tokenResponse(accessToken, refreshToken, scope));
   } catch (err) {
     logger.error({ err }, "oauth /token error");
     res.status(500).json({ error: "server_error" });

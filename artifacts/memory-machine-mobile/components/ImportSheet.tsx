@@ -54,9 +54,12 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
     statusMsg,
     result,
     errorMsg,
+    pendingSession,
     isUploadPaused,
     uploadResumed,
     startImportFromPicker,
+    resumePendingImportFromPicker,
+    discardPendingImport,
     startImportFromFile,
     cancelImport,
     resetImport,
@@ -92,8 +95,9 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
 
   const handleCancel = useCallback(() => {
     cancelImport();
+    void discardPendingImport();
     onClose();
-  }, [cancelImport, onClose]);
+  }, [cancelImport, discardPendingImport, onClose]);
 
   const uploadPct = totalChunks > 0 ? Math.round((chunksDone / totalChunks) * 100) : 0;
   const processingLabel = statusMsg
@@ -136,26 +140,62 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
               {phase === "idle" && (
                 <>
                   <Text style={[styles.desc, { color: colors.mutedForeground }]}>
-                    Select a Grok conversation export (.zip or .json) to import into your vault.
-                    Any size works — the file is sent in small chunks.
+                    {pendingSession
+                      ? "An upload was interrupted. Choose the same original file to continue; the app checks which parts the server already has."
+                      : "Select a Grok conversation export (.zip or .json) to import into your vault. The file is sent in small chunks."}
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.dropZone, { borderColor: colors.border }]}
-                    onPress={() => void startImportFromPicker()}
-                    activeOpacity={0.75}
-                  >
-                    <View
-                      style={[styles.dropZoneIcon, { backgroundColor: `${colors.primary}22` }]}
-                    >
-                      <Feather name="archive" size={28} color={colors.primary} />
+                  {pendingSession ? (
+                    <View style={styles.resumeBlock}>
+                      <Text style={[styles.resumeFileName, { color: colors.foreground }]}>
+                        {pendingSession.fileName}
+                      </Text>
+                      <Text style={[styles.dropZoneSub, { color: colors.mutedForeground }]}>
+                        {(pendingSession.fileSize / (1024 * 1024)).toFixed(1)} MB ·{" "}
+                        {pendingSession.totalChunks} parts
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.btn, { backgroundColor: colors.primary }]}
+                        onPress={() => void resumePendingImportFromPicker()}
+                        accessibilityRole="button"
+                        testID="resume-pending-import"
+                        activeOpacity={0.8}
+                      >
+                        <Feather name="rotate-cw" size={16} color={colors.primaryForeground} />
+                        <Text style={[styles.btnText, { color: colors.primaryForeground }]}>
+                          Resume upload
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.btn, styles.btnOutline, { borderColor: colors.border }]}
+                        onPress={() => void discardPendingImport()}
+                        accessibilityRole="button"
+                        testID="discard-pending-import"
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.btnText, { color: colors.foreground }]}>
+                          Discard saved upload
+                        </Text>
+                      </TouchableOpacity>
                     </View>
-                    <Text style={[styles.dropZoneTitle, { color: colors.foreground }]}>
-                      Tap to choose file
-                    </Text>
-                    <Text style={[styles.dropZoneSub, { color: colors.mutedForeground }]}>
-                      .zip or .json — any size
-                    </Text>
-                  </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.dropZone, { borderColor: colors.border }]}
+                      onPress={() => void startImportFromPicker()}
+                      activeOpacity={0.75}
+                    >
+                      <View
+                        style={[styles.dropZoneIcon, { backgroundColor: `${colors.primary}22` }]}
+                      >
+                        <Feather name="archive" size={28} color={colors.primary} />
+                      </View>
+                      <Text style={[styles.dropZoneTitle, { color: colors.foreground }]}>
+                        Tap to choose file
+                      </Text>
+                      <Text style={[styles.dropZoneSub, { color: colors.mutedForeground }]}>
+                        .zip or .json
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={styles.exportHelpToggle}
                     onPress={() => setExportHelpExpanded((expanded) => !expanded)}
@@ -558,6 +598,8 @@ const styles = StyleSheet.create({
   },
   dropZoneTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   dropZoneSub: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  resumeBlock: { gap: 12 },
+  resumeFileName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   statusBlock: { alignItems: "center", gap: 14, paddingVertical: 16 },
   statusText: { fontSize: 15, fontFamily: "Inter_400Regular", textAlign: "center" },
   dismissHint: {

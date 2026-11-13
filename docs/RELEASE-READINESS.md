@@ -72,14 +72,18 @@ This is not an OS background service. iOS/Android may suspend JavaScript; faster
 completion still requires keeping the app open. Final-result recovery after an SSE
 disconnect is implemented through an owner-scoped status record; the mobile app
 reconciles that status and refreshes the vault without resubmitting finalization.
-Recovery does not yet survive a force-quit, OS process eviction, device reboot or
-backend temporary-file loss. That restart-recovery work remains pending. Physical
+The mobile app now saves only per-account upload metadata locally. After a force-quit,
+process eviction or device reboot, the user reselects the same original file; the app
+asks the authenticated server which chunks remain in its temporary staging area and
+checks the file name, size and a lightweight content signature before resuming. It
+sends only missing chunks. If that temporary staging data has been lost, the file
+must be uploaded again. This does not make the archive or unfinished upload durable
+across backend storage loss, and it does not provide background uploads. Physical
 iPhone/Android checks remain required before release.
 
-Verification: mobile typecheck and 22 mobile tests passed, including upload
-lifecycle tests. Expo SDK 54 iOS and Android JavaScript/Hermes exports both passed.
-The restarted Expo preview rendered its signed-out landing screen without a
-runtime exception. The authenticated import UI and native app suspension were
+Verification: project typecheck, 252 API unit tests, 4 API integration tests, and
+25 mobile tests passed. Expo SDK 54 iOS and Android JavaScript/Hermes exports were
+previously verified. The authenticated import UI and native app suspension were
 not verified on physical devices. No IPA/APK cloud build or publication was started.
 
 Verify independent backend/storage/authentication first. Then reuse signing and existing builds where possible, obtain approval before any potentially billable build, test actual signed binaries on both devices, and only then proceed to TestFlight/store submission.

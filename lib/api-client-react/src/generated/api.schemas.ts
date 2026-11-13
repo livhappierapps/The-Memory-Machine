@@ -151,6 +151,12 @@ export interface ImportStatus {
   completedAt: string | null;
 }
 
+export interface ImportChunkInventory {
+  uploadId: string;
+  /** @items.minimum 0 */
+  receivedChunks: number[];
+}
+
 export interface ExportResult {
   threadId: number;
   title: string;

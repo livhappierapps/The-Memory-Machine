@@ -248,6 +248,34 @@ export const GetImportStatusResponse = zod.object({
 
 
 /**
+ * Returns chunk indexes found in the caller's private staging directory. The client can resend missing indexes after an app restart.
+ * @summary List chunks received for the authenticated user's unfinished import
+ */
+export const GetImportChunksParams = zod.object({
+  "uploadId": zod.uuid()
+})
+
+export const getImportChunksResponseReceivedChunksItemMin = 0;
+
+
+
+export const GetImportChunksResponse = zod.object({
+  "uploadId": zod.uuid(),
+  "receivedChunks": zod.array(zod.int().min(getImportChunksResponseReceivedChunksItemMin))
+})
+
+
+/**
+ * @summary Discard an unfinished import upload
+ */
+export const DeleteImportChunksParams = zod.object({
+  "uploadId": zod.uuid()
+})
+
+export const DeleteImportChunksResponse = zod.void()
+
+
+/**
  * @summary Export thread as JSON or Markdown
  */
 export const ExportThreadParams = zod.object({

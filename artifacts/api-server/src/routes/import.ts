@@ -150,6 +150,83 @@ router.get("/import/:uploadId/status", requireAuth, async (req: Request, res: Re
   });
 });
 
+router.get("/import/:uploadId/chunks", requireAuth, async (req: Request, res: Response) => {
+  const rawUploadId = req.params.uploadId;
+  const uploadId = (Array.isArray(rawUploadId) ? rawUploadId[0] : rawUploadId)?.toLowerCase();
+  res.setHeader("Cache-Control", "no-store");
+  if (!uploadId || !UUID_RE.test(uploadId)) {
+    res.status(400).json({ error: "Invalid uploadId" });
+    return;
+  }
+  if (!req.userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { chunkDir } = getImportPaths(req.userId, uploadId);
+  let names: string[];
+  try {
+    names = await fs.promises.readdir(chunkDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      res.json({ uploadId, receivedChunks: [] });
+      return;
+    }
+    req.log.error({ err, uploadId }, "Failed to inspect staged import chunks");
+    res.status(500).json({ error: "Could not inspect uploaded chunks" });
+    return;
+  }
+
+  const receivedChunks: number[] = [];
+  for (const name of names) {
+    const match = /^chunk-(\d{8})$/.exec(name);
+    if (!match) continue;
+    const index = Number(match[1]);
+    if (!Number.isSafeInteger(index) || index >= 10_000) continue;
+    try {
+      const entry = await fs.promises.lstat(path.join(chunkDir, name));
+      if (entry.isFile()) receivedChunks.push(index);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        req.log.warn({ err, uploadId, index }, "Could not inspect staged chunk");
+      }
+    }
+  }
+  receivedChunks.sort((a, b) => a - b);
+  res.json({ uploadId, receivedChunks });
+});
+
+router.delete("/import/:uploadId/chunks", requireAuth, async (req: Request, res: Response) => {
+  const rawUploadId = req.params.uploadId;
+  const uploadId = (Array.isArray(rawUploadId) ? rawUploadId[0] : rawUploadId)?.toLowerCase();
+  if (!uploadId || !UUID_RE.test(uploadId)) {
+    res.status(400).json({ error: "Invalid uploadId" });
+    return;
+  }
+  if (!req.userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const status = await getImportStatusForOwner(req.userId, uploadId);
+  if (status?.status === "processing") {
+    res.status(409).json({ error: "Import processing has already started" });
+    return;
+  }
+
+  const { chunkDir, assembledPath } = getImportPaths(req.userId, uploadId);
+  try {
+    await Promise.all([
+      fs.promises.rm(chunkDir, { recursive: true, force: true }),
+      fs.promises.rm(assembledPath, { force: true }),
+    ]);
+    res.status(204).end();
+  } catch (err) {
+    req.log.error({ err, uploadId }, "Failed to discard staged import");
+    res.status(500).json({ error: "Could not discard the uploaded file" });
+  }
+});
+
 router.post("/import/finalize", requireAuth, async (req: Request, res: Response) => {
   const { uploadId, totalChunks, isZip, profileId: clientProfileId } = req.body as {
     uploadId?: string;

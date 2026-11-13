@@ -3,6 +3,7 @@ import * as Crypto from "expo-crypto";
 import * as DocumentPicker from "expo-document-picker";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { fetch as expoFetch } from "expo/fetch";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   useCallback,
@@ -14,7 +15,17 @@ import React, {
 import { resolveApiOrigin } from "@/utils/api-origin";
 import { AppState } from "react-native";
 import { ForegroundUpload, UploadHttpError } from "@/utils/foreground-upload";
-import { getImportStatus } from "@workspace/api-client-react";
+import {
+  deleteImportChunks,
+  getImportChunks,
+  getImportStatus,
+} from "@workspace/api-client-react";
+import {
+  getMissingChunkIndexes,
+  parsePendingImportSession,
+  pendingImportStorageKey,
+  type PendingImportSession,
+} from "@/utils/import-resume";
 
 const CHUNK_SIZE = 10 * 1024 * 1024;
 
@@ -67,8 +78,13 @@ interface ImportContextValue {
   errorMsg: string | null;
   isUploadPaused: boolean;
   uploadResumed: boolean;
+  pendingSession: PendingImportSession | null;
   /** Open the native document picker and start importing. */
   startImportFromPicker: () => Promise<void>;
+  /** Re-select the same original file and resume its unfinished upload. */
+  resumePendingImportFromPicker: () => Promise<void>;
+  /** Remove staged server chunks and local resume metadata. */
+  discardPendingImport: () => Promise<void>;
   /** Start importing a file that was already resolved (e.g. from a share intent). */
   startImportFromFile: (file: PreloadedFile) => void;
   /** Abort an in-flight import. */
@@ -110,14 +126,53 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
   const [statusMsg, setStatusMsg] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pendingSession, setPendingSession] =
+    useState<PendingImportSession | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const startedForFileRef = useRef<string | null>(null);
   const processingUploadIdRef = useRef<string | null>(null);
+  const pendingSessionRef = useRef<PendingImportSession | null>(null);
+  const pendingSessionOwnerRef = useRef<string | null>(null);
   const statusReconciliationRef = useRef<{
     uploadId: string;
     controller: AbortController;
   } | null>(null);
+
+  const savePendingSession = useCallback(
+    async (session: PendingImportSession) => {
+      if (!userId) throw new Error("Please sign in again to import.");
+      await AsyncStorage.setItem(
+        pendingImportStorageKey(userId),
+        JSON.stringify(session),
+      );
+      pendingSessionRef.current = session;
+      pendingSessionOwnerRef.current = userId;
+      setPendingSession(session);
+    },
+    [userId],
+  );
+
+  const clearPendingSession = useCallback(
+    async (uploadId?: string) => {
+      const current = pendingSessionRef.current;
+      if (!userId || pendingSessionOwnerRef.current !== userId) return;
+      if (uploadId && current?.uploadId !== uploadId) return;
+      await AsyncStorage.removeItem(pendingImportStorageKey(userId));
+      pendingSessionRef.current = null;
+      pendingSessionOwnerRef.current = null;
+      setPendingSession(null);
+      if (processingUploadIdRef.current === uploadId) {
+        processingUploadIdRef.current = null;
+      }
+    },
+    [userId],
+  );
+
+  const getCurrentPendingSession = useCallback(() => {
+    if (!userId || pendingSessionOwnerRef.current !== userId) return null;
+    return pendingSessionRef.current;
+  }, [userId]);
 
   const resetImport = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -162,7 +217,6 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         try {
           const status = await getImportStatus(uploadId, { signal: run.controller.signal });
           if (status.status === "done") {
-            processingUploadIdRef.current = null;
             setSavedCount(status.imported);
             setResult({
               imported: status.imported,
@@ -171,13 +225,14 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
             });
             setStatusMsg("");
             setErrorMsg(null);
+            await clearPendingSession(uploadId);
             setPhase("done");
             return;
           }
           if (status.status === "error") {
-            processingUploadIdRef.current = null;
             setStatusMsg("");
             setErrorMsg(status.message ?? "The import could not be completed.");
+            await clearPendingSession(uploadId);
             setPhase("error");
             return;
           }
@@ -206,7 +261,71 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         statusReconciliationRef.current = null;
       }
     }
-  }, [foreground, setPhase]);
+  }, [clearPendingSession, foreground, setPhase]);
+
+  useEffect(() => {
+    let active = true;
+    pendingSessionRef.current = null;
+    pendingSessionOwnerRef.current = userId ?? null;
+    setPendingSession(null);
+    if (!userId) return;
+
+    const loadSession = async () => {
+      const key = pendingImportStorageKey(userId);
+      const serialized = await AsyncStorage.getItem(key);
+      const session = parsePendingImportSession(serialized);
+      if (!active) return;
+      if (!session) {
+        if (serialized) await AsyncStorage.removeItem(key);
+        return;
+      }
+
+      pendingSessionRef.current = session;
+      setPendingSession(session);
+      try {
+        const status = await getImportStatus(session.uploadId);
+        if (!active) return;
+        if (status.status === "processing") {
+          processingUploadIdRef.current = session.uploadId;
+          setPhase("processing");
+          void reconcileImportStatus(session.uploadId);
+        } else if (status.status === "done") {
+          setSavedCount(status.imported);
+          setResult({
+            imported: status.imported,
+            skipped: status.skipped,
+            errors: status.errors,
+          });
+          await clearPendingSession(session.uploadId);
+          setPhase("done");
+        } else {
+          setErrorMsg(status.message ?? "The import could not be completed.");
+          await clearPendingSession(session.uploadId);
+          setPhase("error");
+        }
+      } catch (err) {
+        const httpStatus =
+          err && typeof err === "object" && "status" in err
+            ? (err as { status?: unknown }).status
+            : undefined;
+        // A missing status means finalization never began; keep the session
+        // available so the user can reselect the file and resume its chunks.
+        if (httpStatus !== 404 && active) {
+          setStatusMsg("Reconnect to check or resume your previous upload.");
+        }
+      }
+    };
+
+    void loadSession().catch(() => {
+      if (active) {
+        setErrorMsg("Could not load the saved upload. You can start a new import.");
+        setPhase("error");
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [clearPendingSession, reconcileImportStatus, setPhase, userId]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -287,7 +406,13 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
    * and the share-intent (preloaded file) path.
    */
   const runImport = useCallback(
-    async (fileUri: string, fileName: string, mimeType: string, controller: AbortController) => {
+    async (
+      fileUri: string,
+      fileName: string,
+      mimeType: string,
+      controller: AbortController,
+      resumeSession?: PendingImportSession,
+    ) => {
       if (controller.signal.aborted) return;
       const lowerName = fileName.toLowerCase();
       const isZip =
@@ -295,7 +420,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         mimeType === "application/zip" ||
         mimeType === "application/x-zip-compressed";
 
-      const uploadId = Crypto.randomUUID();
+      const uploadId = resumeSession?.uploadId ?? Crypto.randomUUID();
 
       // Materialise content:// URIs (Android share intents) into a file:// path.
       let resolvedUri = fileUri;
@@ -325,14 +450,99 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
 
         const fileSize = (info as { exists: true; size?: number }).size ?? 0;
         const chunks = Math.max(1, Math.ceil(fileSize / CHUNK_SIZE));
+        const sampleLength = Math.min(64 * 1024, fileSize);
+        const firstSample = await LegacyFileSystem.readAsStringAsync(resolvedUri, {
+          encoding: "base64",
+          position: 0,
+          length: sampleLength,
+        });
+        const lastSample =
+          fileSize > sampleLength
+            ? await LegacyFileSystem.readAsStringAsync(resolvedUri, {
+                encoding: "base64",
+                position: fileSize - sampleLength,
+                length: sampleLength,
+              })
+            : firstSample;
+        const fileSignature = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          `${fileSize}:${firstSample}:${lastSample}`,
+        );
+
+        if (
+          resumeSession &&
+          (resumeSession.fileName !== fileName ||
+            resumeSession.fileSize !== fileSize ||
+            resumeSession.totalChunks !== chunks ||
+            resumeSession.fileSignature !== fileSignature)
+        ) {
+          throw new Error(
+            "Choose the same original file to resume this upload, or discard the saved upload.",
+          );
+        }
 
         if (controller.signal.aborted) return;
+        const session: PendingImportSession = {
+          uploadId,
+          fileName,
+          mimeType,
+          fileSize,
+          totalChunks: chunks,
+          fileSignature,
+          updatedAt: new Date().toISOString(),
+        };
+        await savePendingSession(session);
+
+        let receivedChunks: number[] = [];
+        if (resumeSession) {
+          let existingStatus: Awaited<ReturnType<typeof getImportStatus>> | null = null;
+          try {
+            existingStatus = await getImportStatus(uploadId);
+          } catch (err) {
+            const httpStatus =
+              err && typeof err === "object" && "status" in err
+                ? (err as { status?: unknown }).status
+                : undefined;
+            if (httpStatus !== 404) throw err;
+          }
+
+          if (existingStatus?.status === "processing") {
+            processingUploadIdRef.current = uploadId;
+            setStatusMsg("Your conversations are already processing on the server…");
+            setPhase("processing");
+            void reconcileImportStatus(uploadId);
+            return;
+          }
+          if (existingStatus?.status === "done") {
+            setSavedCount(existingStatus.imported);
+            setResult({
+              imported: existingStatus.imported,
+              skipped: existingStatus.skipped,
+              errors: existingStatus.errors,
+            });
+            await clearPendingSession(uploadId);
+            setPhase("done");
+            return;
+          }
+          if (existingStatus?.status === "error") {
+            setErrorMsg(existingStatus.message ?? "The import could not be completed.");
+            await clearPendingSession(uploadId);
+            setPhase("error");
+            return;
+          }
+
+          const inventory = await getImportChunks(uploadId);
+          receivedChunks = inventory.receivedChunks;
+        }
+
+        const missingChunks = getMissingChunkIndexes(chunks, receivedChunks);
+        let completedChunks = chunks - missingChunks.length;
 
         setPhase("uploading");
         setTotalChunks(chunks);
-        setChunksDone(0);
+        setChunksDone(completedChunks);
 
-        for (let i = 0; i < chunks; i++) {
+        for (const i of missingChunks) {
           if (controller.signal.aborted) return;
           const position = i * CHUNK_SIZE;
           const length = Math.min(CHUNK_SIZE, fileSize - position);
@@ -347,7 +557,8 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
             signal,
           ), controller.signal);
           if (controller.signal.aborted) return;
-          setChunksDone(i + 1);
+          completedChunks += 1;
+          setChunksDone(completedChunks);
         }
 
         await foreground.wait(controller.signal);
@@ -418,18 +629,18 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
                 setSavedCount(event.imported ?? 0);
               } else if (event.type === "done") {
                 receivedDone = true;
-                processingUploadIdRef.current = null;
                 setResult({
                   imported: event.imported ?? 0,
                   skipped: event.skipped ?? 0,
                   errors: event.errors ?? 0,
                 });
+                await clearPendingSession(uploadId);
                 setPhase("done");
                 return;
               } else if (event.type === "error") {
-                processingUploadIdRef.current = null;
                 setStatusMsg("");
                 setErrorMsg(event.message ?? "Import failed on server");
+                await clearPendingSession(uploadId);
                 setPhase("error");
                 return;
               }
@@ -450,11 +661,20 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         await cleanupTemp?.();
       }
     },
-    [baseUrl, getToken, uploadChunk, foreground, reconcileImportStatus, setPhase],
+    [
+      baseUrl,
+      clearPendingSession,
+      foreground,
+      getToken,
+      reconcileImportStatus,
+      savePendingSession,
+      setPhase,
+      uploadChunk,
+    ],
   );
 
   /** Internal: open the picker and run the import. Does NOT check phase. */
-  const _openPickerAndImport = useCallback(async () => {
+  const _openPickerAndImport = useCallback(async (resumeSession?: PendingImportSession) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setPhase("picking");
@@ -477,6 +697,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         asset.name ?? "import",
         asset.mimeType ?? "application/octet-stream",
         controller,
+        resumeSession,
       );
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -496,9 +717,46 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
 
   const startImportFromPicker = useCallback(async () => {
     // Use phaseRef (not the stale closure) so this guard is always accurate.
-    if (phaseRef.current !== "idle") return;
+    if (phaseRef.current !== "idle" || getCurrentPendingSession()) return;
     await _openPickerAndImport();
-  }, [_openPickerAndImport]);
+  }, [_openPickerAndImport, getCurrentPendingSession]);
+
+  const resumePendingImportFromPicker = useCallback(async () => {
+    if (phaseRef.current !== "idle") return;
+    const session = getCurrentPendingSession();
+    if (!session) return;
+    await _openPickerAndImport(session);
+  }, [_openPickerAndImport, getCurrentPendingSession]);
+
+  const discardPendingImport = useCallback(async () => {
+    const session = getCurrentPendingSession();
+    if (!session) return;
+    try {
+      await deleteImportChunks(session.uploadId);
+      await clearPendingSession(session.uploadId);
+      setErrorMsg(null);
+      setStatusMsg("");
+      setPhase("idle");
+    } catch (err) {
+      const httpStatus =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status?: unknown }).status
+          : undefined;
+      if (httpStatus === 409) {
+        processingUploadIdRef.current = session.uploadId;
+        setStatusMsg("Your conversations are already processing on the server…");
+        setPhase("processing");
+        void reconcileImportStatus(session.uploadId);
+        return;
+      }
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not discard the saved upload. Try again when you are online.",
+      );
+      setPhase("error");
+    }
+  }, [clearPendingSession, getCurrentPendingSession, reconcileImportStatus, setPhase]);
 
   /**
    * Reset state and immediately open the picker. Unlike calling resetImport()
@@ -508,9 +766,10 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
    */
   const retryImport = useCallback(async () => {
     if (phaseRef.current === "uploading" || phaseRef.current === "processing" || phaseRef.current === "picking") return;
+    const session = getCurrentPendingSession() ?? undefined;
     resetImport();
-    await _openPickerAndImport();
-  }, [_openPickerAndImport, resetImport]);
+    await _openPickerAndImport(session);
+  }, [_openPickerAndImport, getCurrentPendingSession, resetImport]);
 
   // Guard to avoid running twice for the same file URI (StrictMode / fast-refresh).
   const startImportFromFile = useCallback(
@@ -523,7 +782,8 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       abortControllerRef.current = controller;
       setPhase("picking");
 
-      void runImport(file.uri, file.fileName, file.mimeType, controller).catch((err) => {
+      const session = getCurrentPendingSession() ?? undefined;
+      void runImport(file.uri, file.fileName, file.mimeType, controller, session).catch((err) => {
         if (controller.signal.aborted) return;
         const msg = err instanceof Error ? err.message : "Import failed. Please try again.";
         const uploadId = processingUploadIdRef.current;
@@ -538,7 +798,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         }
       });
     },
-    [runImport, foreground, reconcileImportStatus, setPhase],
+    [getCurrentPendingSession, runImport, foreground, reconcileImportStatus, setPhase],
   );
 
   return (
@@ -551,9 +811,12 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         statusMsg,
         result,
         errorMsg,
+         pendingSession,
         isUploadPaused,
         uploadResumed,
         startImportFromPicker,
+         resumePendingImportFromPicker,
+         discardPendingImport,
         startImportFromFile,
         cancelImport,
         resetImport,

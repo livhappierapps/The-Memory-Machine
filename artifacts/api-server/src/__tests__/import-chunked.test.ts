@@ -401,6 +401,52 @@ describe("Chunked ZIP import — end-to-end API", () => {
       .expect(404);
   });
 
+  it("lists only the owner's staged chunks and safely discards an unfinished upload", async () => {
+    const zip = await makeGrokZip(1);
+    const uploadId = crypto.randomUUID();
+    const half = Math.floor(zip.length / 2);
+
+    await request(app)
+      .post("/import/chunk")
+      .field("uploadId", uploadId)
+      .field("chunkIndex", "0")
+      .field("totalChunks", "2")
+      .attach("chunk", zip.subarray(0, half), {
+        filename: "chunk.bin",
+        contentType: "application/octet-stream",
+      })
+      .expect(200);
+
+    const ownerInventory = await request(app)
+      .get(`/import/${uploadId}/chunks`)
+      .expect(200);
+    expect(ownerInventory.body).toEqual({
+      uploadId,
+      receivedChunks: [0],
+    });
+
+    const otherOwnerInventory = await request(app)
+      .get(`/import/${uploadId}/chunks`)
+      .set("x-test-user-id", "different-import-owner")
+      .expect(200);
+    expect(otherOwnerInventory.body.receivedChunks).toEqual([]);
+
+    await request(app)
+      .delete(`/import/${uploadId}/chunks`)
+      .set("x-test-user-id", "different-import-owner")
+      .expect(204);
+    const stillOwned = await request(app)
+      .get(`/import/${uploadId}/chunks`)
+      .expect(200);
+    expect(stillOwned.body.receivedChunks).toEqual([0]);
+
+    await request(app).delete(`/import/${uploadId}/chunks`).expect(204);
+    const afterDiscard = await request(app)
+      .get(`/import/${uploadId}/chunks`)
+      .expect(200);
+    expect(afterDiscard.body.receivedChunks).toEqual([]);
+  });
+
   it("persists the final result when the SSE client disconnects", async () => {
     const zip = await makeGrokZip(1);
     const uploadId = crypto.randomUUID();

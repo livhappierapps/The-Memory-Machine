@@ -277,6 +277,49 @@ paths:
         "404":
           description: Import not found for the authenticated user
 
+  /import/{uploadId}/chunks:
+    get:
+      operationId: getImportChunks
+      tags: [imports]
+      summary: List chunks received for the authenticated user's unfinished import
+      description: >
+        Returns chunk indexes found in the caller's private staging directory.
+        The client can resend missing indexes after an app restart.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Chunk indexes already stored by the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportChunkInventory"
+        "401":
+          description: Authentication required
+    delete:
+      operationId: deleteImportChunks
+      tags: [imports]
+      summary: Discard an unfinished import upload
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Staged chunks were removed
+        "401":
+          description: Authentication required
+        "409":
+          description: Import processing has already started
+
   /threads/{threadId}/export:
     get:
       operationId: exportThread
@@ -723,6 +766,21 @@ components:
         - message
         - updatedAt
         - completedAt
+
+    ImportChunkInventory:
+      type: object
+      properties:
+        uploadId:
+          type: string
+          format: uuid
+        receivedChunks:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+      required:
+        - uploadId
+        - receivedChunks
 
     ExportResult:
       type: object

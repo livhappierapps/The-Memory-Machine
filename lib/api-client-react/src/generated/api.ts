@@ -29,6 +29,7 @@ import type {
   GetRecentMessagesParams,
   GetStatsParams,
   HealthStatus,
+  ImportChunkInventory,
   ImportMessagesBody,
   ImportResult,
   ImportStatus,
@@ -139,7 +140,6 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
 export const getListThreadsUrl = (params?: ListThreadsParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -214,7 +214,6 @@ export function useListThreads<TData = Awaited<ReturnType<typeof listThreads>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
 
 
 
@@ -952,6 +951,156 @@ export function useGetImportStatus<TData = Awaited<ReturnType<typeof getImportSt
 
 
 
+
+export const getGetImportChunksUrl = (uploadId: string,) => {
+
+
+
+
+  return `/api/import/${uploadId}/chunks`
+}
+
+/**
+ * Returns chunk indexes found in the caller's private staging directory. The client can resend missing indexes after an app restart.
+ * @summary List chunks received for the authenticated user's unfinished import
+ */
+export const getImportChunks = async (uploadId: string, options?: Parameters<typeof customFetch>[1]): Promise<ImportChunkInventory> => {
+
+  return customFetch<ImportChunkInventory>(getGetImportChunksUrl(uploadId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImportChunksQueryKey = (uploadId: string,) => {
+    return [
+    `/api/import/${uploadId}/chunks`
+    ] as const;
+    }
+
+
+export const getGetImportChunksQueryOptions = <TData = Awaited<ReturnType<typeof getImportChunks>>, TError = ErrorType<void>>(uploadId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportChunks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImportChunksQueryKey(uploadId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImportChunks>>> = ({ signal }) => getImportChunks(uploadId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: uploadId !== null && uploadId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImportChunks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetImportChunksQueryResult = NonNullable<Awaited<ReturnType<typeof getImportChunks>>>
+export type GetImportChunksQueryError = ErrorType<void>
+
+
+/**
+ * Returns chunk indexes found in the caller's private staging directory. The client can resend missing indexes after an app restart.
+ * @summary List chunks received for the authenticated user's unfinished import
+ */
+export function useGetImportChunks<TData = Awaited<ReturnType<typeof getImportChunks>>, TError = ErrorType<void>>(
+ uploadId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportChunks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetImportChunksQueryOptions(uploadId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDeleteImportChunksUrl = (uploadId: string,) => {
+
+
+
+
+  return `/api/import/${uploadId}/chunks`
+}
+
+/**
+ * @summary Discard an unfinished import upload
+ */
+export const deleteImportChunks = async (uploadId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteImportChunksUrl(uploadId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteImportChunksMutationKey = () => ['deleteImportChunks'] as const;
+
+export const getDeleteImportChunksMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteImportChunks>>, TError,DeleteImportChunksMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteImportChunks>>, TError,DeleteImportChunksMutationVariables, TContext> => {
+
+const mutationKey = getDeleteImportChunksMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteImportChunks>>, DeleteImportChunksMutationVariables> = (props) => {
+          const {uploadId} = props ?? {};
+
+          return  deleteImportChunks(uploadId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteImportChunksMutationResult = NonNullable<Awaited<ReturnType<typeof deleteImportChunks>>>
+
+    export type DeleteImportChunksMutationError = ErrorType<void>
+    export type DeleteImportChunksMutationVariables = {uploadId: string}
+
+    /** @summary Discard an unfinished import upload */
+export const useDeleteImportChunks = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteImportChunks>>, TError,DeleteImportChunksMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteImportChunks>>,
+        TError,
+        DeleteImportChunksMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteImportChunksMutationOptions(options));
+    }
 
 export const getExportThreadUrl = (threadId: number,
     params?: ExportThreadParams,) => {
@@ -1983,3 +2132,10 @@ export function useGetAuditLog<TData = Awaited<ReturnType<typeof getAuditLog>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+

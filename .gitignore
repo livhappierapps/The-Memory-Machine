@@ -49,4 +49,13 @@ Thumbs.db
 .cache/
 /generated-artifacts/
 /handoffs/
+
+# User uploads and private handoff materials are not source code
+attached_assets/
+HARVEST-memory-machine-*.zip
+memory-machine-source.zip
+tools/archive-upload/
+.agents/
+skills-lock.json
+.claude/handoffs/
 .local/

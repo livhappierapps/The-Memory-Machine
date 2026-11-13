@@ -12,8 +12,29 @@ import React, {
   useState,
 } from "react";
 import { resolveApiOrigin } from "@/utils/api-origin";
+import { AppState } from "react-native";
+import { ForegroundUpload, UploadHttpError } from "@/utils/foreground-upload";
+import { getImportStatus } from "@workspace/api-client-react";
 
 const CHUNK_SIZE = 10 * 1024 * 1024;
+
+function waitForStatusPoll(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    timer = setTimeout(finish, delayMs);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
 
 export interface PreloadedFile {
   uri: string;
@@ -44,6 +65,8 @@ interface ImportContextValue {
   statusMsg: string;
   result: ImportResult | null;
   errorMsg: string | null;
+  isUploadPaused: boolean;
+  uploadResumed: boolean;
   /** Open the native document picker and start importing. */
   startImportFromPicker: () => Promise<void>;
   /** Start importing a file that was already resolved (e.g. from a share intent). */
@@ -64,7 +87,8 @@ interface ImportContextValue {
 const ImportContext = createContext<ImportContextValue | null>(null);
 
 export function ImportProvider({ children }: { children: React.ReactNode }) {
-  const { getToken } = useAuth();
+  const { getToken, userId } = useAuth();
+  const [foreground] = useState(() => new ForegroundUpload(AppState.currentState !== "background" && AppState.currentState !== "inactive"));
 
   const baseUrl = resolveApiOrigin(process.env["EXPO_PUBLIC_DOMAIN"]);
 
@@ -72,10 +96,13 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
   // phaseRef mirrors state so async callbacks (and retry logic) always see the
   // committed phase without relying on a stale closure.
   const phaseRef = useRef<ImportPhase>("idle");
+  const [isUploadPaused, setUploadPaused] = useState(false);
+  const [uploadResumed, setUploadResumed] = useState(false);
   const setPhase = useCallback((p: ImportPhase) => {
     phaseRef.current = p;
     setPhaseState(p);
-  }, []);
+    setUploadPaused(p === "uploading" && !foreground.active);
+  }, [foreground]);
 
   const [chunksDone, setChunksDone] = useState(0);
   const [totalChunks, setTotalChunks] = useState(1);
@@ -84,10 +111,20 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const abortedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const startedForFileRef = useRef<string | null>(null);
+  const processingUploadIdRef = useRef<string | null>(null);
+  const statusReconciliationRef = useRef<{
+    uploadId: string;
+    controller: AbortController;
+  } | null>(null);
 
   const resetImport = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    statusReconciliationRef.current?.controller.abort();
+    statusReconciliationRef.current = null;
+    processingUploadIdRef.current = null;
     setPhase("idle");
     setChunksDone(0);
     setTotalChunks(1);
@@ -95,14 +132,103 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
     setStatusMsg("");
     setResult(null);
     setErrorMsg(null);
+    setUploadResumed(false);
+    startedForFileRef.current = null;
   }, [setPhase]);
 
   const cancelImport = useCallback(() => {
-    abortedRef.current = true;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     resetImport();
   }, [resetImport]);
+
+  const reconcileImportStatus = useCallback(async (uploadId: string) => {
+    const current = statusReconciliationRef.current;
+    if (current?.uploadId === uploadId && !current.controller.signal.aborted) return;
+    current?.controller.abort();
+
+    const run = { uploadId, controller: new AbortController() };
+    statusReconciliationRef.current = run;
+    setErrorMsg(null);
+    setStatusMsg("Connection lost. Checking the import result…");
+    let delayMs = 1_000;
+
+    try {
+      while (
+        !run.controller.signal.aborted &&
+        foreground.active &&
+        processingUploadIdRef.current === uploadId
+      ) {
+        try {
+          const status = await getImportStatus(uploadId, { signal: run.controller.signal });
+          if (status.status === "done") {
+            processingUploadIdRef.current = null;
+            setSavedCount(status.imported);
+            setResult({
+              imported: status.imported,
+              skipped: status.skipped,
+              errors: status.errors,
+            });
+            setStatusMsg("");
+            setErrorMsg(null);
+            setPhase("done");
+            return;
+          }
+          if (status.status === "error") {
+            processingUploadIdRef.current = null;
+            setStatusMsg("");
+            setErrorMsg(status.message ?? "The import could not be completed.");
+            setPhase("error");
+            return;
+          }
+          setStatusMsg("Your conversations are still processing on the server…");
+        } catch (err) {
+          if (run.controller.signal.aborted) return;
+          const httpStatus =
+            err && typeof err === "object" && "status" in err
+              ? (err as { status?: unknown }).status
+              : undefined;
+          if (httpStatus === 404) {
+            processingUploadIdRef.current = null;
+            setStatusMsg("");
+            setErrorMsg("No final import result was found. The import may not have started; please try again.");
+            setPhase("error");
+            return;
+          }
+          setStatusMsg("Reconnecting to retrieve the import result…");
+        }
+
+        await waitForStatusPoll(delayMs, run.controller.signal);
+        delayMs = Math.min(delayMs * 2, 8_000);
+      }
+    } finally {
+      if (statusReconciliationRef.current === run) {
+        statusReconciliationRef.current = null;
+      }
+    }
+  }, [foreground, setPhase]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      const active = state === "active";
+      const returning = !foreground.active && active;
+      foreground.setActive(active);
+      setUploadPaused(phaseRef.current === "uploading" && !active);
+      if (returning && phaseRef.current === "uploading") setUploadResumed(true);
+      if (!active) {
+        statusReconciliationRef.current?.controller.abort();
+        statusReconciliationRef.current = null;
+      } else if (returning && processingUploadIdRef.current) {
+        const uploadId = processingUploadIdRef.current;
+        setPhase("processing");
+        void reconcileImportStatus(uploadId);
+      }
+    });
+    return () => subscription.remove();
+  }, [foreground, reconcileImportStatus, setPhase]);
+
+  // Never resume an old account's upload using the next account's credentials.
+  useEffect(() => () => cancelImport(), [userId, cancelImport]);
 
   const uploadChunk = useCallback(
     async (
@@ -120,6 +246,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         position,
         length,
       });
+      if (signal.aborted) throw new Error("Upload cancelled");
 
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);
@@ -129,6 +256,8 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       const blob = new Blob([bytes], { type: mimeType });
 
       const token = await getToken();
+      if (signal.aborted) throw new Error("Upload cancelled");
+      if (!token) throw new UploadHttpError("Please sign in again to import.", 401);
       const form = new FormData();
       form.append("uploadId", uploadId);
       form.append("chunkIndex", String(chunkIndex));
@@ -144,8 +273,9 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(
+        throw new UploadHttpError(
           `Chunk ${chunkIndex + 1}/${chunks} failed (${res.status}): ${text.slice(0, 120)}`,
+          res.status,
         );
       }
     },
@@ -158,6 +288,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
    */
   const runImport = useCallback(
     async (fileUri: string, fileName: string, mimeType: string, controller: AbortController) => {
+      if (controller.signal.aborted) return;
       const lowerName = fileName.toLowerCase();
       const isZip =
         lowerName.endsWith(".zip") ||
@@ -175,7 +306,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         setStatusMsg("Preparing file…");
         await LegacyFileSystem.copyAsync({ from: fileUri, to: tempUri });
         resolvedUri = tempUri;
-        setStatusMsg("");
+        if (!controller.signal.aborted) setStatusMsg("");
       }
 
       const cleanupTemp = tempUri
@@ -195,17 +326,17 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         const fileSize = (info as { exists: true; size?: number }).size ?? 0;
         const chunks = Math.max(1, Math.ceil(fileSize / CHUNK_SIZE));
 
-        if (abortedRef.current) return;
+        if (controller.signal.aborted) return;
 
         setPhase("uploading");
         setTotalChunks(chunks);
         setChunksDone(0);
 
         for (let i = 0; i < chunks; i++) {
-          if (abortedRef.current) return;
+          if (controller.signal.aborted) return;
           const position = i * CHUNK_SIZE;
           const length = Math.min(CHUNK_SIZE, fileSize - position);
-          await uploadChunk(
+          await foreground.run((signal) => uploadChunk(
             resolvedUri,
             uploadId,
             i,
@@ -213,18 +344,23 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
             position,
             length,
             mimeType,
-            controller.signal,
-          );
+            signal,
+          ), controller.signal);
+          if (controller.signal.aborted) return;
           setChunksDone(i + 1);
         }
 
-        if (abortedRef.current) return;
+        await foreground.wait(controller.signal);
+        if (controller.signal.aborted) return;
 
         setPhase("processing");
         setSavedCount(0);
         setStatusMsg("Assembling your file…");
 
         const freshToken = await getToken();
+        if (controller.signal.aborted) return;
+        if (!freshToken) throw new Error("Please sign in again to import.");
+        processingUploadIdRef.current = uploadId;
         const finalizeRes = await expoFetch(`${baseUrl}/api/import/finalize`, {
           method: "POST",
           headers: {
@@ -232,10 +368,16 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
             Authorization: `Bearer ${freshToken ?? ""}`,
           },
           body: JSON.stringify({ uploadId, totalChunks: chunks, isZip }),
+          signal: controller.signal,
         });
 
         if (!finalizeRes.ok) {
           const text = await finalizeRes.text().catch(() => "");
+          if (finalizeRes.status === 409) {
+            void reconcileImportStatus(uploadId);
+            return;
+          }
+          processingUploadIdRef.current = null;
           throw new Error(`Finalize failed (${finalizeRes.status}): ${text.slice(0, 120)}`);
         }
 
@@ -246,8 +388,9 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         let buffer = "";
         let receivedDone = false;
 
-        while (!abortedRef.current) {
+        while (!controller.signal.aborted) {
           const { done, value } = await reader.read();
+          if (controller.signal.aborted) return;
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -275,6 +418,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
                 setSavedCount(event.imported ?? 0);
               } else if (event.type === "done") {
                 receivedDone = true;
+                processingUploadIdRef.current = null;
                 setResult({
                   imported: event.imported ?? 0,
                   skipped: event.skipped ?? 0,
@@ -283,7 +427,11 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
                 setPhase("done");
                 return;
               } else if (event.type === "error") {
-                throw new Error(event.message ?? "Import failed on server");
+                processingUploadIdRef.current = null;
+                setStatusMsg("");
+                setErrorMsg(event.message ?? "Import failed on server");
+                setPhase("error");
+                return;
               }
             } catch (parseErr) {
               if (parseErr instanceof SyntaxError) continue;
@@ -292,21 +440,21 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        if (abortedRef.current) return;
+        if (controller.signal.aborted) return;
 
         if (!receivedDone) {
-          setPhase("interrupted");
+          setStatusMsg("Connection lost. Checking the import result…");
+          if (foreground.active) void reconcileImportStatus(uploadId);
         }
       } finally {
         await cleanupTemp?.();
       }
     },
-    [baseUrl, getToken, uploadChunk],
+    [baseUrl, getToken, uploadChunk, foreground, reconcileImportStatus, setPhase],
   );
 
   /** Internal: open the picker and run the import. Does NOT check phase. */
   const _openPickerAndImport = useCallback(async () => {
-    abortedRef.current = false;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setPhase("picking");
@@ -317,8 +465,9 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         copyToCacheDirectory: true,
       });
 
+      if (controller.signal.aborted) return;
       if (picked.canceled || !picked.assets || picked.assets.length === 0) {
-        if (!abortedRef.current) setPhase("idle");
+        setPhase("idle");
         return;
       }
 
@@ -330,12 +479,20 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         controller,
       );
     } catch (err) {
-      if (abortedRef.current) return;
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Import failed. Please try again.";
-      setErrorMsg(msg);
-      setPhase("error");
+      const uploadId = processingUploadIdRef.current;
+      if (uploadId) {
+        setStatusMsg("Connection lost. Checking the import result…");
+        setErrorMsg(null);
+        setPhase("processing");
+        if (foreground.active) void reconcileImportStatus(uploadId);
+      } else {
+        setErrorMsg(msg);
+        setPhase("error");
+      }
     }
-  }, [runImport, setPhase]);
+  }, [runImport, foreground, reconcileImportStatus, setPhase]);
 
   const startImportFromPicker = useCallback(async () => {
     // Use phaseRef (not the stale closure) so this guard is always accurate.
@@ -350,39 +507,38 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
    * (not the stale React state) to know the phase is being reset right now.
    */
   const retryImport = useCallback(async () => {
-    // Reset synchronously via the ref so _openPickerAndImport sees idle.
-    phaseRef.current = "idle";
-    setPhaseState("idle");
-    setChunksDone(0);
-    setTotalChunks(1);
-    setSavedCount(0);
-    setStatusMsg("");
-    setResult(null);
-    setErrorMsg(null);
+    if (phaseRef.current === "uploading" || phaseRef.current === "processing" || phaseRef.current === "picking") return;
+    resetImport();
     await _openPickerAndImport();
-  }, [_openPickerAndImport]);
+  }, [_openPickerAndImport, resetImport]);
 
   // Guard to avoid running twice for the same file URI (StrictMode / fast-refresh).
-  const startedForFileRef = useRef<string | null>(null);
-
   const startImportFromFile = useCallback(
     (file: PreloadedFile) => {
       if (phaseRef.current !== "idle") return;
       if (startedForFileRef.current === file.uri) return;
       startedForFileRef.current = file.uri;
 
-      abortedRef.current = false;
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      setPhase("picking");
 
       void runImport(file.uri, file.fileName, file.mimeType, controller).catch((err) => {
-        if (abortedRef.current) return;
+        if (controller.signal.aborted) return;
         const msg = err instanceof Error ? err.message : "Import failed. Please try again.";
-        setErrorMsg(msg);
-        setPhase("error");
+        const uploadId = processingUploadIdRef.current;
+        if (uploadId) {
+          setStatusMsg("Connection lost. Checking the import result…");
+          setErrorMsg(null);
+          setPhase("processing");
+          if (foreground.active) void reconcileImportStatus(uploadId);
+        } else {
+          setErrorMsg(msg);
+          setPhase("error");
+        }
       });
     },
-    [phase, runImport],
+    [runImport, foreground, reconcileImportStatus, setPhase],
   );
 
   return (
@@ -395,6 +551,8 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
         statusMsg,
         result,
         errorMsg,
+        isUploadPaused,
+        uploadResumed,
         startImportFromPicker,
         startImportFromFile,
         cancelImport,

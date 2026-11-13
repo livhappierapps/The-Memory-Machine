@@ -43,6 +43,7 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  '@babel/core': ^7.29.6
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64': '-'
@@ -54,6 +55,9 @@ overrides:
   '@expo/ngrok-bin>@expo/ngrok-bin-sunos-x64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-win32-ia32': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-win32-x64': '-'
+  '@hono/node-server': ^2.1.3
+  '@istanbuljs/load-nyc-config>js-yaml': ^4.3.2
+  '@modelcontextprotocol/sdk': ^1.32.1
   '@tailwindcss/oxide>@tailwindcss/oxide-android-arm64': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-darwin-arm64': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-darwin-x64': '-'
@@ -64,16 +68,11 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  '@babel/core': ^7.29.6
-  '@hono/node-server': ^1.19.18
-  '@modelcontextprotocol/sdk': ^1.32.1
   '@vitest/mocker': ^4.1.12
   '@xmldom/xmldom@^0.8': ^0.8.15
   '@xmldom/xmldom@^0.9': ^0.9.12
   body-parser: ^2.4.0
   brace-expansion: ^5.0.12
-  'minimatch@<4>brace-expansion': ^1.1.21
-  'minimatch@>=4 <10>brace-expansion': ^2.1.7
   browserslist: ^4.28.7
   compression: ^1.8.2
   decode-uri-component: ^0.5.1
@@ -103,6 +102,19 @@ overrides:
   esbuild>@esbuild/win32-arm64: '-'
   esbuild>@esbuild/win32-ia32: '-'
   esbuild>@esbuild/win32-x64: '-'
+  fast-copy: ^4.1.0
+  fast-uri: ^3.1.9
+  follow-redirects: ^1.16.2
+  form-data: ^4.0.6
+  'glob@>=10 <14': ^14.0.2
+  hono: '>=4.13.7'
+  http-cache-semantics: ^4.3.0
+  http-proxy-middleware: '>=3.0.7'
+  image-size: ^2.0.4
+  ip-address: ^10.7.1
+  js-cookie: ^3.0.7
+  js-yaml@^3: ^3.15.2
+  js-yaml@^4: ^4.3.2
   lightningcss>lightningcss-android-arm64: '-'
   lightningcss>lightningcss-darwin-arm64: '-'
   lightningcss>lightningcss-darwin-x64: '-'
@@ -113,27 +125,16 @@ overrides:
   lightningcss>lightningcss-linux-x64-musl: '-'
   lightningcss>lightningcss-win32-arm64-msvc: '-'
   lightningcss>lightningcss-win32-x64-msvc: '-'
-  fast-copy: ^4.1.0
-  fast-uri: ^3.1.9
-  follow-redirects: ^1.16.2
-  form-data: ^4.0.6
-  hono: '>=4.13.7'
-  http-cache-semantics: ^4.3.0
-  image-size: ^2.0.4
-  metro>image-size: 1.2.1
-  ip-address: ^10.7.1
-  js-cookie: ^3.0.7
-  js-yaml@^3: ^3.15.2
-  js-yaml@^4: ^4.3.2
-  # This consumer uses load(), which is compatible with v4. Avoid its legacy
-  # argparse -> sprintf-js chain (GHSA-hp3w-g68c-fv3c has no patched release).
-  '@istanbuljs/load-nyc-config>js-yaml': ^4.3.2
   linkify-it: ^5.0.2
   lodash: ^4.18.1
   markdown-it: ^14.3.1
+  metro>image-size: ^2.0.4
+  minimatch@<4>brace-expansion: ^1.1.21
+  minimatch@>=4 <10>brace-expansion: ^2.1.7
+  minimatch@>=9: ^11.0.1
   multer: ^2.5.0
-  node-forge: ^1.4.3
   nanoid@^3: ^3.3.18
+  node-forge: ^1.4.3
   path-to-regexp: ^8.4.2
   picomatch: '>=4.0.4'
   postcss: ^8.5.23
@@ -168,8 +169,11 @@ overrides:
   source-map-js: ^1.2.2
   tar: ^7.5.21
   undici: ^6.29.1
-  vite: ^7.3.7
-  yaml: '>=2.8.3'
   uuid: '>=11.1.1'
+  vite: ^7.3.7
   ws: '>=8.21.0'
-  http-proxy-middleware: '>=3.0.7'
+  yaml: '>=2.8.3'
+
+patchedDependencies:
+  metro@0.83.3: patches/metro@0.83.3.patch
+  metro@0.83.7: patches/metro@0.83.7.patch

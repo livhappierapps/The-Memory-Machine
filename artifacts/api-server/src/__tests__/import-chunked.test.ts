@@ -24,8 +24,12 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import express, { type Request, type Response, type NextFunction } from "express";
 import request from "supertest";
 import JSZip from "jszip";
-import { db, threadsTable, messagesTable } from "@workspace/db";
+import { createServer, request as httpRequest } from "node:http";
+import type { AddressInfo } from "node:net";
+import { db, threadsTable, messagesTable, importStatusesTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
+import * as importStream from "../lib/import-stream.js";
+import { ensureImportStatusSchema, getImportStatusForOwner } from "../lib/import-status-store.js";
 
 // ── Mocks (must be declared before module imports) ─────────────────────────────
 
@@ -33,7 +37,8 @@ const TEST_USER_ID = "test-user-import-chunked-integration";
 
 vi.mock("../middlewares/auth.js", () => ({
   requireAuth: (req: Request, _res: Response, next: NextFunction) => {
-    (req as any).userId = TEST_USER_ID;
+    const testUserId = req.headers["x-test-user-id"];
+    (req as any).userId = typeof testUserId === "string" ? testUserId : TEST_USER_ID;
     next();
   },
 }));
@@ -149,7 +154,8 @@ const insertedThreadIds: number[] = [];
 describe("Chunked ZIP import — end-to-end API", () => {
   let app: ReturnType<typeof buildTestApp>;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    await ensureImportStatusSchema();
     app = buildTestApp();
   });
 
@@ -160,6 +166,7 @@ describe("Chunked ZIP import — end-to-end API", () => {
     }
     // Clean up any remaining test threads by userId in case something slipped through
     await db.delete(threadsTable).where(eq(threadsTable.userId, TEST_USER_ID));
+    await db.delete(importStatusesTable).where(eq(importStatusesTable.userId, TEST_USER_ID));
   });
 
   // ── A. Single-chunk import ─────────────────────────────────────────────────
@@ -349,5 +356,112 @@ describe("Chunked ZIP import — end-to-end API", () => {
     const statusEvents = events.filter((e) => e.type === "status");
     expect(statusEvents.length, "at least one status event").toBeGreaterThanOrEqual(1);
     expect(typeof statusEvents[0]!.message).toBe("string");
+  });
+
+  it("stores the final result and refuses to finalize the same upload twice", async () => {
+    const zip = await makeGrokZip(2);
+    const uploadId = crypto.randomUUID();
+    const { events } = await runChunkedImport(app, zip, true, uploadId, 1);
+    expect(events.some((event) => event.type === "done")).toBe(true);
+
+    const status = await request(app).get(`/import/${uploadId}/status`).expect(200);
+    expect(status.body).toMatchObject({
+      uploadId,
+      status: "done",
+      imported: 2,
+      skipped: 0,
+      errors: 0,
+      message: null,
+    });
+    expect(status.body.completedAt).toEqual(expect.any(String));
+
+    const beforeDuplicate = await db
+      .select({ id: threadsTable.id })
+      .from(threadsTable)
+      .where(eq(threadsTable.userId, TEST_USER_ID));
+    await request(app)
+      .post("/import/finalize")
+      .send({ uploadId: uploadId.toUpperCase(), totalChunks: 1, isZip: true })
+      .expect(409);
+    const afterDuplicate = await db
+      .select({ id: threadsTable.id })
+      .from(threadsTable)
+      .where(eq(threadsTable.userId, TEST_USER_ID));
+    expect(afterDuplicate).toHaveLength(beforeDuplicate.length);
+  });
+
+  it("does not expose an import status to a different authenticated owner", async () => {
+    const zip = await makeGrokZip(1);
+    const uploadId = crypto.randomUUID();
+    await runChunkedImport(app, zip, true, uploadId, 1);
+
+    await request(app)
+      .get(`/import/${uploadId}/status`)
+      .set("x-test-user-id", "different-import-owner")
+      .expect(404);
+  });
+
+  it("persists the final result when the SSE client disconnects", async () => {
+    const zip = await makeGrokZip(1);
+    const uploadId = crypto.randomUUID();
+    await request(app)
+      .post("/import/chunk")
+      .field("uploadId", uploadId)
+      .field("chunkIndex", "0")
+      .field("totalChunks", "1")
+      .attach("chunk", zip, { filename: "chunk.bin", contentType: "application/octet-stream" })
+      .expect(200);
+
+    const streamSpy = vi.spyOn(importStream, "streamImportFile").mockImplementation(
+      async (_filePath, _isZip, _userId, onEvent) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        onEvent({ type: "done", imported: 4, skipped: 1, errors: 0 });
+      },
+    );
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = httpRequest(
+          {
+            hostname: "127.0.0.1",
+            port: address.port,
+            path: "/import/finalize",
+            method: "POST",
+            headers: { "content-type": "application/json" },
+          },
+          (res) => {
+            res.once("data", () => {
+              res.destroy();
+              resolve();
+            });
+            res.once("error", () => resolve());
+          },
+        );
+        req.once("error", (err) => {
+          if ((err as NodeJS.ErrnoException).code === "ECONNRESET") resolve();
+          else reject(err);
+        });
+        req.end(JSON.stringify({ uploadId, totalChunks: 1, isZip: true }));
+      });
+
+      let status = await getImportStatusForOwner(TEST_USER_ID, uploadId);
+      for (let attempt = 0; attempt < 40 && status?.status === "processing"; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        status = await getImportStatusForOwner(TEST_USER_ID, uploadId);
+      }
+      expect(streamSpy).toHaveBeenCalledOnce();
+      expect(status).toMatchObject({
+        status: "done",
+        imported: 4,
+        skipped: 1,
+        errors: 0,
+      });
+    } finally {
+      streamSpy.mockRestore();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

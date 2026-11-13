@@ -14,10 +14,12 @@ import {
 import { decryptField } from "./field-crypto";
 import { ensureOAuthCodeSchema } from "./oauth-code-store";
 import { ensureThreadEmbeddingSchema } from "./thread-embeddings";
+import { ensureImportStatusSchema } from "./import-status-store";
 
 async function applyRequiredSchema(): Promise<void> {
   // Shared, single-use OAuth codes must survive autoscaling and restarts.
   await ensureOAuthCodeSchema();
+  await ensureImportStatusSchema();
   // Ensure audit_events table exists with a DB-level check constraint on action
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS audit_events (

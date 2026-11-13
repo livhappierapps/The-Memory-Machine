@@ -20,7 +20,7 @@ const excludedTrees = [
   ".git", ".local", ".cache", ".agents", "handoffs", "exports",
   "generated-artifacts", "research", "docs/harvest",
   "artifacts/api-server/dist",
-  "artifacts/happier-ai-vault/dist",
+  "artifacts/memory-machine/dist",
   "artifacts/memory-machine-mobile/static-build",
 ];
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

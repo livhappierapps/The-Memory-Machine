@@ -14,15 +14,12 @@
 | Directory | Purpose |
 | --- | --- |
 | `artifacts/api-server` | Express API, Clerk authentication, memory import/retrieval, MCP and OAuth |
-| `artifacts/happier-ai-vault` | Public React/Vite web app; keep this folder name until a deliberate coordinated rename |
+| `artifacts/memory-machine` | Public React/Vite web app (`@workspace/memory-machine`) |
 | `artifacts/memory-machine-mobile` | Public Expo iOS/Android app |
 | `artifacts/mockup-sandbox` | Development-only component previews |
 | `lib/db` | PostgreSQL/Drizzle schema and database client |
 | `lib/api-spec` | OpenAPI contract and Orval code generation |
 | `lib/api-zod`, `lib/api-client-react` | Generated validation/client packages |
-| `tools/archive-upload` | Private archive transfer utility; not evidence of completed memory import |
-
-The private companion app has been archived outside active source. Do not rebuild it here.
 
 ## Commands
 
@@ -32,7 +29,7 @@ pnpm run typecheck
 pnpm --filter @workspace/api-server test
 pnpm --filter @workspace/api-server test:unit
 pnpm --filter @workspace/api-spec codegen
-node --test tools/archive-upload/*.test.mjs scripts/tests/*.test.cjs
+node --test scripts/tests/*.test.cjs
 pnpm --filter @workspace/memory-machine-mobile exec tsx --test utils/api-origin.test.ts
 ```
 

@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-import { ImportPhase, ImportResult, useImport } from "@/contexts/ImportContext";
+import { useImport } from "@/contexts/ImportContext";
 import { useColors } from "@/hooks/useColors";
 
 interface Props {
@@ -12,20 +12,20 @@ interface Props {
 
 /**
  * Thin persistent banner shown in the vault header while an import is running
- * in the background.  Disappears automatically once the import is idle/done/error
- * (the vault screen owns the toast that fires on completion).
+ * with the sheet closed. Keep terminal results visible until acknowledged,
+ * including when the result arrived while the app was backgrounded.
  */
 export function ImportProgressBanner({ onPress }: Props) {
   const colors = useColors();
-  const { phase, chunksDone, totalChunks, savedCount } = useImport();
+  const { phase, chunksDone, totalChunks, savedCount, result, isUploadPaused, uploadResumed } = useImport();
 
-  const isActive = phase === "uploading" || phase === "processing";
+  const isVisible = phase !== "idle" && phase !== "picking";
 
   const heightAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (isActive) {
+    if (isVisible) {
       Animated.parallel([
         Animated.spring(heightAnim, { toValue: 36, useNativeDriver: false, damping: 20, stiffness: 200 }),
         Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
@@ -36,15 +36,21 @@ export function ImportProgressBanner({ onPress }: Props) {
         Animated.timing(opacityAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
       ]).start();
     }
-  }, [isActive, heightAnim, opacityAnim]);
+  }, [isVisible, heightAnim, opacityAnim]);
 
   const uploadPct = totalChunks > 0 ? Math.round((chunksDone / totalChunks) * 100) : 0;
 
   const label =
-    phase === "uploading"
-      ? totalChunks > 1
-        ? `Uploading… ${uploadPct}%`
-        : "Uploading…"
+    phase === "done"
+      ? `Imported ${result?.imported ?? 0} — tap for results`
+      : phase === "error"
+        ? "Upload stopped — tap for details"
+        : phase === "interrupted"
+          ? "Check import status — tap for details"
+          : phase === "uploading"
+      ? isUploadPaused
+        ? `Upload paused… ${uploadPct}%`
+        : `${uploadResumed ? "Upload resumed" : "Uploading"}… ${uploadPct}%`
       : savedCount > 0
         ? `Importing… ${savedCount} saved`
         : "Importing conversations…";
@@ -59,9 +65,10 @@ export function ImportProgressBanner({ onPress }: Props) {
           backgroundColor: colors.primary,
         },
       ]}
-      pointerEvents={isActive ? "auto" : "none"}
+      pointerEvents={isVisible ? "auto" : "none"}
     >
-      <TouchableOpacity style={styles.inner} onPress={onPress} activeOpacity={0.85}>
+      <TouchableOpacity style={styles.inner} onPress={onPress} activeOpacity={0.85}
+        accessibilityRole="button" accessibilityLabel={label}>
         {/* Progress fill behind the content */}
         {phase === "uploading" && (
           <View

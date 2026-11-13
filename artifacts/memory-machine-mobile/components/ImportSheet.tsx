@@ -54,6 +54,8 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
     statusMsg,
     result,
     errorMsg,
+    isUploadPaused,
+    uploadResumed,
     startImportFromPicker,
     startImportFromFile,
     cancelImport,
@@ -188,7 +190,7 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
                 <View style={styles.statusBlock}>
                   <ActivityIndicator color={colors.primary} />
                   <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-                    Uploading…{" "}
+                    {isUploadPaused ? "Upload paused" : uploadResumed ? "Upload resumed" : "Uploading"}…{" "}
                     {totalChunks > 1
                       ? `part ${chunksDone} of ${totalChunks}`
                       : "almost there"}
@@ -221,7 +223,8 @@ export function ImportSheet({ visible, onClose, preloadedFile }: Props) {
                   <View style={[styles.dismissHint, { backgroundColor: `${colors.primary}14`, borderColor: `${colors.primary}30` }]}>
                     <Feather name="info" size={13} color={colors.primary} />
                     <Text style={[styles.dismissHintText, { color: colors.foreground }]}>
-                      You can close this sheet — the import keeps running in the background.
+                      You can close this sheet. If you switch apps, the upload resumes when
+                      you return. Keep Memory Machine open for the fastest upload.
                     </Text>
                   </View>
 

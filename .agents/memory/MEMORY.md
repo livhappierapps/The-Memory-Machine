@@ -1,9 +1,0 @@
-- [AI Master Degree Skill](ai-master-degree-skill.md) — PhD AI knowledge skill at .agents/skills/ai-master-degree/; 6 reference files covering Grok API, dev patterns, psychology, security, AGI, cost, multimodal.
-- [Soft delete pattern](soft-delete.md) — threads use deletedAt (nullable timestamp); all list/get queries filter with isNull(threadsTable.deletedAt); purge cron runs every 6h
-- [Deletion flow architecture](deletion-flow.md) — 5-step protected deletion: create → OTP (15min) → 24h/2wk wait → signed email link → final OTP; cancel token is a UUID stored in DB
-- [DB push interactive prompts](db-push-interactive.md) — drizzle-kit push asks interactive questions that can't be bypassed with flags; use psql directly for new tables in CI/automation
-- [Encryption root secret](encryption-root-secret.md) — ENCRYPTION_ROOT_SECRET must be in Replit Secrets vault (not Env tab); changing it breaks all existing encrypted data; server throws at startup if missing/short
-- [Playwright on Replit NixOS](playwright-nixos.md) — Chromium needs LD_LIBRARY_PATH set to nix store paths; bake into playwright.config.ts top-level before defineConfig()
-- [Mobile tsconfig quirks](mobile-tsconfig-quirks.md) — expo/tsconfig.base can't be resolved by tsc in this pnpm monorepo; inline all options + add ambient shims for expo/expo/fetch modules; crypt@0.0.2 store fix included
-- [EAS Android build on Replit](eas-build-replit.md) — two required env flags + npx invocation pattern; free plan quota quirks; Expo slug must match registered project name
-- [EAS Node version vs undici](eas-node-undici.md) — EAS SDK 54 workers run Node 20; undici@8.x needs Node 21+; always use ^major.minor.patch overrides, never >=

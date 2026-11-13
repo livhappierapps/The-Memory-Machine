@@ -20,6 +20,8 @@ tags:
     description: Stats and analytics
   - name: profiles
     description: Persona profile operations
+  - name: imports
+    description: Conversation archive import operations
   - name: memory
     description: Smart memory retrieval
   - name: security
@@ -247,6 +249,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportResult"
+
+  /import/{uploadId}/status:
+    get:
+      operationId: getImportStatus
+      tags: [imports]
+      summary: Get the authenticated user's import processing result
+      description: >
+        Returns only the import status owned by the authenticated caller. A 404
+        means no import record exists for this upload ID.
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Import processing status and final counts when available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportStatus"
+        "401":
+          description: Authentication required
+        "404":
+          description: Import not found for the authenticated user
 
   /threads/{threadId}/export:
     get:
@@ -658,6 +687,42 @@ components:
       required:
         - importedCount
         - messages
+
+    ImportStatus:
+      type: object
+      properties:
+        uploadId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [processing, done, error]
+        imported:
+          type: integer
+          minimum: 0
+        skipped:
+          type: integer
+          minimum: 0
+        errors:
+          type: integer
+          minimum: 0
+        message:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+      required:
+        - uploadId
+        - status
+        - imported
+        - skipped
+        - errors
+        - message
+        - updatedAt
+        - completedAt
 
     ExportResult:
       type: object

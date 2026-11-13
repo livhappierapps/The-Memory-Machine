@@ -1,4 +1,4 @@
-# Release readiness — 2026-11-09
+# Release readiness — 2026-11-13
 
 ## Current stage: PREPARING
 
@@ -6,10 +6,6 @@ This work has **not** produced a signed IPA/APK, uploaded a new TestFlight build
 
 ## Completed in this pass
 
-- Private companion source, artwork, tests, old build configuration and private notes packaged into a verified standalone ZIP, outside deployments and future checkpoints.
-- Private mobile artifact removed from active source; its workflow was removed automatically.
-- Private companion download section removed from public settings.
-- Historical harvest/debug documents moved into the handoff ZIP, including a 24 MB generated file-tree dump.
 - Public project instructions replaced with concise current scope, commands and safety constraints.
 - Compatible dependency security updates and Zod/form-validation migration.
 - Mobile HTTPS origin normalization fixed across generated API calls, chat streaming and imports.
@@ -20,10 +16,11 @@ This work has **not** produced a signed IPA/APK, uploaded a new TestFlight build
 ## Evidence
 
 - Full workspace type check: passed.
-- API tests: **198 passed** after dependency/validation updates.
+- API tests: **251 passed**; integration tests: **4 passed**.
 - Storage-transfer and security regression scripts: **21 passed**.
-- Mobile origin tests: **2 passed**.
+- Mobile tests: **22 passed**, including API-origin and upload lifecycle tests.
 - Mobile build-helper and watcher tests: **5 passed**.
+- Memory Machine web production build: passed; Rollup reports a large JavaScript chunk warning.
 - Expo dependency compatibility check: passed.
 - Expo Doctor: **18/18 passed** before the Zod-only dependency change; native packages were not changed by that migration.
 - Local iOS, Android and web JavaScript/Hermes exports: passed. These are **not native binaries** and do not prove device sign-in or launch.
@@ -54,17 +51,35 @@ The release needs a verified external API, durable database/storage and encrypti
 - Current OAuth is Grok-specific. MiddleMain's real end-to-end connection is not certified by generic unit tests.
 - Large ZIP import still assembles uploads on temporary server disk and reads ZIP bytes into process memory. This is not a verified large-archive, background-safe ingestion system across autoscaling restarts.
 
-## Cleanup measurements
-
-| Item | Before | After |
-| --- | --- | --- |
-| Active private mobile artifact | Present | Removed |
-| Private mobile workflow | Running | Removed |
-| Documentation directory | About 24 MB | Small current documents |
-| Saved history | About 128 MB | Not rewritten or erased |
-
-Original user attachments and prior export ZIPs were preserved and excluded from deployment. Historical versions can still contain removed source. Do not publish this entire repository history as “sanitized” without a separate review.
+The current source tree excludes user attachments, transfer utilities, and standalone
+archive copies. Earlier Git commits may still contain those files; this cleanup did
+not rewrite repository history. Do not describe the historical repository as
+sanitized without a separate history review.
 
 ## Next release gate
+
+### Mobile upload foreground recovery
+
+The mobile import now retains its upload ID and acknowledged chunk cursor while
+switching apps. It pauses new sends when inactive, cancels a suspended in-flight
+request, and resends only that chunk when active again. Chunk replacement uses the
+existing authenticated upload route; finalization is deliberately not retried.
+Transient upload failures have bounded retries and a request timeout; auth and
+validation failures stop immediately. The import banner remains visible for
+completion, errors and interrupted processing until acknowledged.
+
+This is not an OS background service. iOS/Android may suspend JavaScript; faster
+completion still requires keeping the app open. Final-result recovery after an SSE
+disconnect is implemented through an owner-scoped status record; the mobile app
+reconciles that status and refreshes the vault without resubmitting finalization.
+Recovery does not yet survive a force-quit, OS process eviction, device reboot or
+backend temporary-file loss. That restart-recovery work remains pending. Physical
+iPhone/Android checks remain required before release.
+
+Verification: mobile typecheck and 22 mobile tests passed, including upload
+lifecycle tests. Expo SDK 54 iOS and Android JavaScript/Hermes exports both passed.
+The restarted Expo preview rendered its signed-out landing screen without a
+runtime exception. The authenticated import UI and native app suspension were
+not verified on physical devices. No IPA/APK cloud build or publication was started.
 
 Verify independent backend/storage/authentication first. Then reuse signing and existing builds where possible, obtain approval before any potentially billable build, test actual signed binaries on both devices, and only then proceed to TestFlight/store submission.

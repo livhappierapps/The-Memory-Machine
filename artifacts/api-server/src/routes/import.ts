@@ -14,8 +14,16 @@ import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { settingsTable, profilesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import {
+  beginImportStatus,
+  finishImportStatus,
+  getImportStatusForOwner,
+} from "../lib/import-status-store";
 
 const router = Router();
+type ImportTerminalEvent =
+  | { type: "done"; imported: number; skipped: number; errors: number }
+  | { type: "error"; message: string };
 
 // Validate uploadId is a proper UUID (prevents path traversal)
 const UUID_RE =
@@ -110,6 +118,38 @@ router.post(
 // and streams SSE progress events back to the client.
 // Body (JSON): { uploadId: string, totalChunks: number, isZip: boolean }
 
+// ── GET /api/import/:uploadId/status ─────────────────────────────────────────
+router.get("/import/:uploadId/status", requireAuth, async (req: Request, res: Response) => {
+  const rawUploadId = req.params.uploadId;
+  const uploadId = (Array.isArray(rawUploadId) ? rawUploadId[0] : rawUploadId)?.toLowerCase();
+  res.setHeader("Cache-Control", "no-store");
+  if (!uploadId || !UUID_RE.test(uploadId)) {
+    res.status(400).json({ error: "Invalid uploadId" });
+    return;
+  }
+  if (!req.userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const record = await getImportStatusForOwner(req.userId, uploadId);
+  if (!record) {
+    res.status(404).json({ error: "Import not found" });
+    return;
+  }
+
+  res.json({
+    uploadId: record.uploadId,
+    status: record.status,
+    imported: record.imported,
+    skipped: record.skipped,
+    errors: record.errors,
+    message: record.message,
+    updatedAt: record.updatedAt.toISOString(),
+    completedAt: record.completedAt?.toISOString() ?? null,
+  });
+});
+
 router.post("/import/finalize", requireAuth, async (req: Request, res: Response) => {
   const { uploadId, totalChunks, isZip, profileId: clientProfileId } = req.body as {
     uploadId?: string;
@@ -132,6 +172,19 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const normalizedUploadId = uploadId.toLowerCase();
+
+  try {
+    const started = await beginImportStatus(req.userId, normalizedUploadId);
+    if (!started) {
+      res.status(409).json({ error: "Finalization already started for this upload" });
+      return;
+    }
+  } catch (err) {
+    req.log.error({ err, uploadId: normalizedUploadId }, "Failed to create import status");
+    res.status(500).json({ error: "Could not start import finalization" });
+    return;
+  }
 
   // ── SSE response ─────────────────────────────────────────────────────────
   res.setHeader("Content-Type", "text/event-stream");
@@ -140,19 +193,35 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
+  const writeEvent = (data: unknown) => {
+    if (!res.destroyed && !res.writableEnded) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+  const terminalEventRef: { current: ImportTerminalEvent | null } = { current: null };
   const sendEvent = (data: unknown) => {
-    if (!res.writableEnded) res.write(`data: ${JSON.stringify(data)}\n\n`);
+    const event = data as { type?: unknown };
+    if (event.type === "done" || event.type === "error") {
+      terminalEventRef.current = data as ImportTerminalEvent;
+      return;
+    }
+    writeEvent(data);
   };
 
   // Heartbeat every 8 s — keeps the iOS connection alive through proxies
   const heartbeat = setInterval(() => {
-    if (!res.writableEnded) res.write(": heartbeat\n\n");
+    if (!res.destroyed && !res.writableEnded) res.write(": heartbeat\n\n");
   }, 8_000);
+  res.on("close", () => {
+    if (!res.writableFinished) {
+      req.log.info({ uploadId: normalizedUploadId }, "Import client disconnected; server processing continues");
+    }
+  });
 
   // Tell the client immediately so it knows things are happening
   sendEvent({ type: "status", message: "Assembling your file…" });
 
-  const { chunkDir, assembledPath } = getImportPaths(req.userId, uploadId);
+  const { chunkDir, assembledPath } = getImportPaths(req.userId, normalizedUploadId);
 
   try {
     await fs.promises.mkdir(path.dirname(assembledPath), { recursive: true, mode: 0o700 });
@@ -172,7 +241,7 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     sendEvent({ type: "status", message: "Opening archive…" });
 
     req.log.info(
-      { userId: req.userId, uploadId, total, isZip },
+      { userId: req.userId, uploadId: normalizedUploadId, total, isZip },
       "Chunks assembled, starting import",
     );
 
@@ -195,9 +264,51 @@ router.post("/import/finalize", requireAuth, async (req: Request, res: Response)
     const embeddingProvider = emb?.provider ?? "xai";
 
     await streamImportFile(assembledPath, !!isZip, userId, sendEvent, { profileId, apiKey, embeddingProvider });
+
+    const terminalEvent = terminalEventRef.current;
+    if (terminalEvent?.type === "done") {
+      await finishImportStatus(userId, normalizedUploadId, {
+        status: "done",
+        imported: terminalEvent.imported,
+        skipped: terminalEvent.skipped,
+        errors: terminalEvent.errors,
+      });
+      writeEvent(terminalEvent);
+    } else if (terminalEvent?.type === "error") {
+      await finishImportStatus(userId, normalizedUploadId, {
+        status: "error",
+        imported: 0,
+        skipped: 0,
+        errors: 0,
+        message: terminalEvent.message,
+      });
+      writeEvent(terminalEvent);
+    } else {
+      const message = "Import ended without a final result.";
+      await finishImportStatus(userId, normalizedUploadId, {
+        status: "error",
+        imported: 0,
+        skipped: 0,
+        errors: 0,
+        message,
+      });
+      writeEvent({ type: "error", message });
+    }
   } catch (err) {
     req.log.error({ err }, "Import finalize failed");
-    sendEvent({ type: "error", message: "An unexpected error occurred. Please try again." });
+    const message = "An unexpected error occurred. Please try again.";
+    try {
+      await finishImportStatus(req.userId, normalizedUploadId, {
+        status: "error",
+        imported: 0,
+        skipped: 0,
+        errors: 0,
+        message,
+      });
+    } catch (statusErr) {
+      req.log.error({ err: statusErr, uploadId: normalizedUploadId }, "Failed to persist import failure status");
+    }
+    writeEvent({ type: "error", message });
   } finally {
     clearInterval(heartbeat);
     fs.rm(chunkDir, { recursive: true, force: true }, (err) => {

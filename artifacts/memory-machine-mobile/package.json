@@ -8,7 +8,7 @@
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test utils/api-origin.test.ts && node --test scripts/build-metro.test.cjs scripts/metro-watch.test.cjs"
+    "test": "tsx --test utils/api-origin.test.ts utils/foreground-upload.test.ts && node --test scripts/build-metro.test.cjs scripts/metro-watch.test.cjs"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

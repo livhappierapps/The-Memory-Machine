@@ -20,10 +20,15 @@ import Terms from "@/pages/terms";
 import NotFound from "@/pages/not-found";
 import { ProfileProvider } from "@/contexts/profile-context";
 
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
+// VITE_CLERK_KEY_FROM_HOST=false uses VITE_CLERK_PUBLISHABLE_KEY as-is (own
+// Clerk instance). Default derives the key from the page host.
+const clerkPubKey =
+  import.meta.env.VITE_CLERK_KEY_FROM_HOST === "false"
+    ? import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+    : publishableKeyFromHost(
+        window.location.hostname,
+        import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+      );
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 
 if (!clerkPubKey) {

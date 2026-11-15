@@ -1,9 +1,10 @@
 import { Resend } from "resend";
 import { logger } from "./logger";
+import { PUBLIC_ORIGIN } from "./mcp-oauth-config";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "Memory Machine <noreply@memorymachine.app>";
-const APP_URL = process.env.APP_URL ?? "https://memorymachine.replit.app";
+const APP_URL = (process.env.APP_URL?.trim() || PUBLIC_ORIGIN).replace(/\/+$/, "");
 
 export async function sendEmail({
   to,

@@ -1,4 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -17,6 +19,14 @@ import { cleanupRateLimiter } from "./lib/rate-limiter";
 import { purgeExpiredSnapshots, runWeeklySnapshots } from "./lib/snapshot";
 import { deviceTrustMiddleware } from "./middlewares/device-trust";
 import oauthDiscoveryRouter from "./routes/oauth-discovery";
+import { PUBLIC_ORIGIN } from "./lib/mcp-oauth-config";
+
+// Extra origins (comma-separated) for CSP script/connect, e.g. your own Clerk
+// Frontend API domain: CLERK_FRONTEND_API_ORIGIN=https://clerk.example.com
+const clerkExtraOrigins: string[] = (process.env.CLERK_FRONTEND_API_ORIGIN ?? "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 const app: Express = express();
 
@@ -26,8 +36,8 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev"],
-        connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev", ...clerkExtraOrigins],
+        connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev", "https://*.clerk.dev", ...clerkExtraOrigins],
         imgSrc: ["'self'", "data:", "https:"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         fontSrc: ["'self'", "data:", "https:"],
@@ -56,7 +66,12 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 app.use(oauthDiscoveryRouter);
 
-// CORS — explicit allowlist of Replit-hosted origins only
+// CORS — explicit allowlist: this deployment's public origin, ALLOWED_ORIGINS
+// (comma-separated), legacy Replit domains if present, localhost, and Grok.
+const extraOrigins: string[] = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 const replitDomains: string[] = (process.env.REPLIT_DOMAINS ?? "")
   .split(",")
   .map((d) => d.trim())
@@ -64,6 +79,8 @@ const replitDomains: string[] = (process.env.REPLIT_DOMAINS ?? "")
   .map((d) => `https://${d}`);
 const devDomain = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null;
 const allowedOrigins = new Set<string>([
+  PUBLIC_ORIGIN,
+  ...extraOrigins,
   ...replitDomains,
   ...(devDomain ? [devDomain] : []),
   "http://localhost",
@@ -94,10 +111,16 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
+    // CLERK_KEY_FROM_HOST=false uses CLERK_PUBLISHABLE_KEY as-is (own Clerk
+    // instance). Default derives the key from the request host (Replit-managed
+    // Clerk / Clerk proxy setups).
+    publishableKey:
+      process.env.CLERK_KEY_FROM_HOST === "false"
+        ? process.env.CLERK_PUBLISHABLE_KEY
+        : publishableKeyFromHost(
+            getClerkProxyHost(req) ?? "",
+            process.env.CLERK_PUBLISHABLE_KEY,
+          ),
   })),
 );
 
@@ -112,6 +135,32 @@ app.use("/api", (req, res, next) => {
 });
 
 app.use("/api", router);
+
+// ── Web app (single-service hosting) ──────────────────────────────────────────
+// Serve the built web dashboard from the same service so /, /api and
+// /.well-known share one origin (as on Replit). WEB_DIST_DIR overrides the
+// default build output path; SERVE_WEB=false disables this.
+const webDistDir = process.env.WEB_DIST_DIR
+  ? path.resolve(process.env.WEB_DIST_DIR)
+  : [
+      path.resolve(process.cwd(), "artifacts/memory-machine/dist/public"), // repo root
+      path.resolve(process.cwd(), "../memory-machine/dist/public"), // artifacts/api-server
+    ].find((dir) => fs.existsSync(path.join(dir, "index.html"))) ??
+    path.resolve(process.cwd(), "artifacts/memory-machine/dist/public");
+const webIndex = path.join(webDistDir, "index.html");
+if (process.env.SERVE_WEB !== "false" && fs.existsSync(webIndex)) {
+  app.use(
+    "/assets",
+    express.static(path.join(webDistDir, "assets"), { immutable: true, maxAge: "365d", fallthrough: true }),
+  );
+  app.use(express.static(webDistDir, { index: false, maxAge: "1h" }));
+  // SPA fallback: any other GET that is not an API or discovery path.
+  app.get(/^\/(?!api(?:\/|$)|\.well-known(?:\/|$)).*/, (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(webIndex);
+  });
+  logger.info({ webDistDir }, "Serving web app");
+}
 
 // Global error handler — catches anything that escapes a route's try/catch,
 // e.g. errors thrown in middleware or body-parser failures.

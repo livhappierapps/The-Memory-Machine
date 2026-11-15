@@ -136,7 +136,7 @@ function McpSection({ mcpToken, onGenerate, isGenerating }: {
   isGenerating: boolean;
 }) {
   // External connectors need the public deployment, not a private preview URL.
-  const mcpUrl = "https://the-memory-machine.replit.app/api/mcp";
+  const mcpUrl = `${window.location.origin}/api/mcp`;
   const bearerValue = mcpToken ? `Bearer ${mcpToken}` : null;
 
   return (

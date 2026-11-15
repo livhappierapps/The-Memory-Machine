@@ -17,6 +17,7 @@ import {
 import bcrypt from "bcryptjs";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import { clerkClient } from "@clerk/express";
+import { resolveClerkUserId } from "../lib/legacy-user-map";
 import { randomUUID } from "crypto";
 import { recordAuditEvent } from "../lib/audit";
 
@@ -36,7 +37,7 @@ function getWaitMs(targetType: TargetType): number {
 
 async function getUserEmail(userId: string): Promise<string | null> {
   try {
-    const user = await clerkClient.users.getUser(userId);
+    const user = await clerkClient.users.getUser(await resolveClerkUserId(userId));
     const primary = user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId);
     return primary?.emailAddress ?? null;
   } catch {
@@ -46,7 +47,7 @@ async function getUserEmail(userId: string): Promise<string | null> {
 
 async function hasMfaEnabled(userId: string): Promise<boolean> {
   try {
-    const user = await clerkClient.users.getUser(userId);
+    const user = await clerkClient.users.getUser(await resolveClerkUserId(userId));
     return user.totpEnabled || user.backupCodeEnabled || (user.phoneNumbers?.some((p) => p.reservedForSecondFactor) ?? false);
   } catch {
     return false;
@@ -524,7 +525,7 @@ router.post("/deletion-requests/:id/execute-final", requireAuth, async (req: Req
       // Delete settings for this user (wipes MCP token, model prefs, etc.)
       await db.delete(settingsTable).where(eq(settingsTable.userId, userId));
       // Delete the Clerk account — user can no longer authenticate after this point
-      await clerkClient.users.deleteUser(userId);
+      await clerkClient.users.deleteUser(await resolveClerkUserId(userId));
     }
 
     const userEmail = await getUserEmail(userId);

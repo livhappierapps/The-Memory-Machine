@@ -18,6 +18,7 @@ import { trustedDevicesTable } from "@workspace/db";
 import { eq, and, gt } from "drizzle-orm";
 import { sha256Hex } from "../lib/field-crypto";
 import { getAuth } from "@clerk/express";
+import { resolveDataUserId } from "../lib/legacy-user-map";
 
 declare global {
   namespace Express {
@@ -45,7 +46,13 @@ export async function deviceTrustMiddleware(
   // routes still pass through requireAuth, which returns 401 for that request.
   let userId: string | null = req.userId ?? null;
   try {
-    userId = getAuth(req).userId ?? userId;
+    const auth = getAuth(req);
+    const claimUserId = auth?.sessionClaims?.userId;
+    if (typeof claimUserId === "string" && claimUserId) {
+      userId = claimUserId;
+    } else if (auth.userId) {
+      userId = await resolveDataUserId(auth.userId);
+    }
   } catch {
     userId = null;
   }

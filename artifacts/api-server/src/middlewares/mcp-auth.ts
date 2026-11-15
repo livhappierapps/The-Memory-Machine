@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { getAuth } from "@clerk/express";
+import { resolveDataUserId } from "../lib/legacy-user-map";
 import { db } from "@workspace/db";
 import { settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -67,9 +68,11 @@ export async function requireMcpOrAuth(
   // 2. Fall back to Clerk session auth
   try {
     const auth = getAuth(req);
-    const userId = (auth?.sessionClaims?.userId as string | undefined) || auth?.userId;
-    if (userId) {
-      req.userId = userId;
+    const claimUserId = auth?.sessionClaims?.userId as string | undefined;
+    const clerkUserId = auth?.userId ?? undefined;
+    if (claimUserId || clerkUserId) {
+      req.clerkUserId = clerkUserId ?? claimUserId;
+      req.userId = claimUserId || (await resolveDataUserId(clerkUserId!));
       next();
       return;
     }

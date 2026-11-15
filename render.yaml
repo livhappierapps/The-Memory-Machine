@@ -1,0 +1,70 @@
+# The Memory Machine on Render — one web service serves the web app (/),
+# the API (/api) and OAuth/MCP discovery (/.well-known).
+# NOT YET APPLIED. Create the service only after the production database has
+# been exported and Liv has her own Clerk instance (see PR description).
+services:
+  - type: web
+    name: memory-machine
+    runtime: node
+    plan: free
+    region: virginia   # close to the Neon database (us-east-1)
+    # The api-server "build" script runs the test suite, whose global setup
+    # writes schema to DATABASE_URL. Never run it against production: call
+    # build.mjs directly instead.
+    buildCommand: >-
+      corepack enable &&
+      pnpm install --frozen-lockfile &&
+      PORT=5173 BASE_PATH=/ pnpm --filter @workspace/memory-machine run build &&
+      cd artifacts/api-server && NODE_ENV=production node ./build.mjs
+    startCommand: node --enable-source-maps artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      # Public origin (OAuth issuer, MCP resource, email links). Defaults to
+      # RENDER_EXTERNAL_URL; set it when using a custom domain.
+      - key: PUBLIC_ORIGIN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # ── Secrets: set in the Render dashboard, never commit values ──
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      # MUST be the exact value from Replit. Never rotate: it derives the
+      # field-encryption keys for existing data.
+      - key: ENCRYPTION_ROOT_SECRET
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        sync: false
+      - key: EMBEDDING_API_KEY
+        sync: false
+      # ── Clerk (Liv's own instance) ──
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_CLERK_PUBLISHABLE_KEY   # build-time, same value as above
+        sync: false
+      - key: CLERK_WEBHOOK_SECRET
+        sync: false
+      - key: CLERK_KEY_FROM_HOST          # "false" with your own Clerk instance
+        value: "false"
+      - key: VITE_CLERK_KEY_FROM_HOST     # build-time, same as above
+        value: "false"
+      - key: CLERK_FRONTEND_API_ORIGIN    # e.g. https://clerk.livhappierapps.com
+        sync: false
+      # ── Legacy user mapping (keeps old data + encryption working) ──
+      - key: LEGACY_USER_MAPPING          # "email" to enable, "off" otherwise
+        value: "off"
+      - key: LEGACY_USER_SEED             # JSON: [{"email":"…","legacyUserId":"user_…"}]
+        sync: false

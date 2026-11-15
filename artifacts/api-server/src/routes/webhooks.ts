@@ -13,7 +13,6 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { resolveDataUserId } from "../lib/legacy-user-map";
 import { Webhook } from "svix";
 import { db } from "@workspace/db";
 import { auditEventsTable } from "@workspace/db";
@@ -78,8 +77,7 @@ router.post(
 
     if (event.type === "session.created") {
       try {
-        const clerkUserId = event.data.user_id as string | undefined;
-        const userId = clerkUserId ? await resolveDataUserId(clerkUserId) : undefined;
+        const userId = event.data.user_id as string | undefined;
         if (userId) {
           const ip =
             (req.headers["x-forwarded-for"] as string | undefined)

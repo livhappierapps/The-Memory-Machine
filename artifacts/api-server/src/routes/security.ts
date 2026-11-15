@@ -10,7 +10,6 @@ import { eq, and, gt, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { encryptText, decryptText } from "../lib/crypto-utils";
 import { clerkClient } from "@clerk/express";
-import { resolveClerkUserId } from "../lib/legacy-user-map";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import bcrypt from "bcryptjs";
 import { sha256Hex } from "../lib/field-crypto";
@@ -37,7 +36,7 @@ function generateOtp(): string {
 
 async function hasMfaEnabled(userId: string): Promise<boolean> {
   try {
-    const user = await clerkClient.users.getUser(await resolveClerkUserId(userId));
+    const user = await clerkClient.users.getUser(userId);
     return user.totpEnabled || user.backupCodeEnabled || (user.phoneNumbers?.some((p) => p.reservedForSecondFactor) ?? false);
   } catch {
     return false;
@@ -46,7 +45,7 @@ async function hasMfaEnabled(userId: string): Promise<boolean> {
 
 async function getUserEmail(userId: string): Promise<string | null> {
   try {
-    const user = await clerkClient.users.getUser(await resolveClerkUserId(userId));
+    const user = await clerkClient.users.getUser(userId);
     return user.primaryEmailAddress?.emailAddress ?? null;
   } catch {
     return null;
